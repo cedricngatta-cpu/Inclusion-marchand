@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(node:*)",
+      "Bash(npx expo:*)",
+      "Bash(netstat:*)",
+      "Bash(find C:\\\\Users\\\\Cerco\\\\Music\\\\inclusion-marchand-mobile\\\\app\\\\\\(tabs\\):*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cat:*)",
+      "mcp__claude_ai_Supabase__execute_sql"
+    ]
+  }
+}
