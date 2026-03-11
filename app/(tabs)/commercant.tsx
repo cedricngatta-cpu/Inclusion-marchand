@@ -1,6 +1,6 @@
 // Dashboard Marchand — header collapsible, UI thread only, zéro conflit de gestes
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Dimensions, BackHandler } from 'react-native';
 import {
     TouchableOpacity,
     GestureHandlerRootView,
@@ -17,7 +17,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import {
     ShoppingBag, Package, User, Bell, PieChart, BookOpen,
     Store, Eye, EyeOff, MoreHorizontal, QrCode,
-    TrendingUp, Landmark, Wallet, GraduationCap, Lightbulb,
+    TrendingUp, Landmark, Wallet, GraduationCap, Lightbulb, Users,
 } from 'lucide-react-native';
 import { useAuth } from '@/src/context/AuthContext';
 import { useNotifications } from '@/src/context/NotificationContext';
@@ -30,12 +30,13 @@ const quickActions = [
     { id: 'bilan',   name: 'Bilan',      icon: PieChart,    bg: '#eff6ff', color: '#2563eb', path: '/(tabs)/bilan' },
     { id: 'carnet',  name: 'Carnet',     icon: BookOpen,    bg: '#fff1f2', color: '#e11d48', path: '/(tabs)/carnet' },
     { id: 'wallet',  name: 'Wallet',     icon: Wallet,      bg: '#fefce8', color: '#ca8a04', path: '/(tabs)/wallet' },
-    { id: 'finance', name: 'Crédit',     icon: Landmark,    bg: '#faf5ff', color: '#7c3aed', path: '/(tabs)/credit' },
+    { id: 'finance', name: 'Finance',    icon: Landmark,    bg: '#faf5ff', color: '#7c3aed', path: '/(tabs)/finance' },
     { id: 'marche',  name: 'Marché',     icon: Store,       bg: '#eef2ff', color: '#4338ca', path: '/(tabs)/marche' },
     { id: 'revenus', name: 'Revenus',    icon: TrendingUp,  bg: '#f0fdf4', color: '#16a34a', path: '/(tabs)/revenus' },
     { id: 'scanner',   name: 'Scanner',    icon: QrCode,         bg: '#f8fafc', color: '#475569', path: '/(tabs)/scanner' },
     { id: 'formation', name: 'Formation',  icon: GraduationCap,  bg: '#fdf4ff', color: '#a21caf', path: '/(tabs)/formation' },
-    { id: 'conseils',  name: 'Conseils',   icon: Lightbulb,      bg: '#fffbeb', color: '#b45309', path: '/(tabs)/conseils' },
+    { id: 'conseils',       name: 'Conseils',   icon: Lightbulb,  bg: '#fffbeb', color: '#b45309', path: '/(tabs)/conseils' },
+    { id: 'achats-groupes', name: 'Groupé',     icon: Users,       bg: '#fdf4ff', color: '#7c3aed', path: '/(tabs)/achats-groupes' },
 ];
 
 const NAV_H     = 56;
@@ -55,6 +56,17 @@ export default function CommercantScreen() {
         refreshHistory();
         refreshNotifications();
     }, [refreshHistory, refreshNotifications]));
+
+    // Bouton retour Android sur le dashboard → quitter l'app
+    // Empêche de revenir à la session précédente (ex: admin → marchand)
+    useFocusEffect(useCallback(() => {
+        const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+            BackHandler.exitApp();
+            return true;
+        });
+        return () => backHandler.remove();
+    }, []));
+
     const [showBalance, setShowBalance] = useState(true);
     const insets = useSafeAreaInsets();
 
@@ -243,7 +255,7 @@ const styles = StyleSheet.create({
         borderWidth: 2, borderColor: colors.white,
         alignItems: 'center', justifyContent: 'center',
     },
-    notifBadgeText: { fontSize: 8, fontWeight: '900', color: colors.white },
+    notifBadgeText: { fontSize: 11, fontWeight: '900', color: colors.white },
     compactBalance: {
         flex: 1, textAlign: 'center',
         fontSize: 17, fontWeight: '900',
@@ -251,7 +263,7 @@ const styles = StyleSheet.create({
     },
     expandedSection: { alignItems: 'center', paddingBottom: 12 },
     balanceLabel: {
-        fontSize: 10, fontWeight: '700',
+        fontSize: 11, fontWeight: '700',
         color: 'rgba(255,255,255,0.8)',
         letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6,
     },
@@ -274,7 +286,7 @@ const styles = StyleSheet.create({
     actionsGrid: { flexDirection: 'row', flexWrap: 'wrap' },
     actionItem: { width: ITEM_W, alignItems: 'center', paddingVertical: 12, gap: 6 },
     actionIconBox: { width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    actionLabel: { fontSize: 10, fontWeight: '700', color: colors.slate700, textAlign: 'center', width: ITEM_W - 8, flexShrink: 0 },
+    actionLabel: { fontSize: 11, fontWeight: '700', color: colors.slate700, textAlign: 'center', width: ITEM_W - 8, flexShrink: 0 },
 
     historyCard: {
         backgroundColor: colors.white,
@@ -284,7 +296,7 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.05, shadowRadius: 4,
     },
     historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-    historyTitle: { fontSize: 10, fontWeight: '900', color: colors.slate900, letterSpacing: 2, textTransform: 'uppercase' },
+    historyTitle: { fontSize: 11, fontWeight: '900', color: colors.slate900, letterSpacing: 2, textTransform: 'uppercase' },
     txItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 12 },
     txItemBorder: { borderTopWidth: 1, borderTopColor: colors.slate100 },
     txIconBox: {
@@ -294,9 +306,9 @@ const styles = StyleSheet.create({
     },
     txInfo: { flex: 1 },
     txName: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
-    txDate: { fontSize: 10, color: colors.slate400, marginTop: 1 },
+    txDate: { fontSize: 11, color: colors.slate400, marginTop: 1 },
     txAmount: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
     txDebt: { color: '#f97316' },
     emptyHistory: { alignItems: 'center', paddingVertical: 24, gap: 8 },
-    emptyText: { fontSize: 10, fontWeight: '700', color: colors.slate400, letterSpacing: 2, textTransform: 'uppercase' },
+    emptyText: { fontSize: 11, fontWeight: '700', color: colors.slate400, letterSpacing: 2, textTransform: 'uppercase' },
 });

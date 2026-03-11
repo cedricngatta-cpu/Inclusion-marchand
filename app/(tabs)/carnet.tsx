@@ -2,21 +2,18 @@
 import React, { useState, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    TextInput, Alert, ActivityIndicator,
+    TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, User, DollarSign, Search, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
+import { User, DollarSign, Search, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react-native';
 import { useHistoryContext } from '@/src/context/HistoryContext';
+import { ScreenHeader } from '@/src/components/ui';
 import { Transaction } from '@/src/context/HistoryContext';
-import { useNotifications } from '@/src/context/NotificationContext';
 import { emitEvent } from '@/src/lib/socket';
 import { colors } from '@/src/lib/colors';
 
 export default function CarnetScreen() {
-    const router = useRouter();
     const { history, markAsPaid, refreshHistory } = useHistoryContext();
-    const { sendNotification } = useNotifications();
 
     useFocusEffect(useCallback(() => { refreshHistory(); }, [refreshHistory]));
     const [search, setSearch]               = useState('');
@@ -49,15 +46,8 @@ export default function CarnetScreen() {
         try {
             await markAsPaid(transactionId);
 
-            // Notification locale + événement socket
             const label = tx ? `${tx.productName} — ${tx.price.toLocaleString('fr-FR')} F` : 'Vente';
             const client = tx?.clientName && tx.clientName !== 'Client standard' ? tx.clientName : 'Client';
-            await sendNotification({
-                target_id: 'ALL',
-                title: 'Dette encaissée ✓',
-                message: `${client} a réglé : ${label}`,
-                type: 'INFO',
-            });
             emitEvent('dette-encaissee', {
                 transactionId,
                 clientName: client,
@@ -80,15 +70,6 @@ export default function CarnetScreen() {
             for (const t of client.transactions) {
                 await markAsPaid(t.id);
             }
-
-            // Notification unique résumant le tout
-            const total = client.total.toLocaleString('fr-FR');
-            await sendNotification({
-                target_id: 'ALL',
-                title: 'Toutes les dettes réglées ✓',
-                message: `${client.name} a tout remboursé — ${total} F encaissés`,
-                type: 'INFO',
-            });
             emitEvent('dette-encaissee', {
                 clientName: client.name,
                 amount:     client.total,
@@ -102,20 +83,16 @@ export default function CarnetScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>MON CARNET</Text>
-                        <Text style={styles.headerSub}>CRÉDITS & DETTES</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
+        <KeyboardAvoidingView
+            style={styles.safe}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+            <ScreenHeader
+                title="Mon Carnet"
+                subtitle="Crédits & dettes"
+                showBack={true}
+                paddingBottom={24}
+            >
                 {/* KPI total */}
                 <View style={styles.kpiBlock}>
                     <View style={styles.kpiLabelRow}>
@@ -127,7 +104,7 @@ export default function CarnetScreen() {
                         <Text style={styles.kpiCurrency}>F</Text>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ── CONTENU ── */}
             <ScrollView
@@ -235,35 +212,16 @@ export default function CarnetScreen() {
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </KeyboardAvoidingView>
     );
 }
 
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
 
-    // ── Header ──
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-    },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, marginTop: 2 },
-
     kpiBlock:      { alignItems: 'center', paddingBottom: 4 },
     kpiLabelRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-    kpiLabel:      { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3 },
+    kpiLabel:      { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3 },
     kpiAmountRow:  { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
     kpiAmount:     { fontSize: 48, fontWeight: '900', color: colors.white, letterSpacing: -2, lineHeight: 56 },
     kpiCurrency:   { fontSize: 22, fontWeight: '700', color: 'rgba(255,255,255,0.7)' },
@@ -286,7 +244,7 @@ const styles = StyleSheet.create({
         fontSize: 14, fontWeight: '600', color: colors.slate800,
     },
 
-    countLabel: { fontSize: 10, fontWeight: '700', color: colors.slate400, letterSpacing: 2, marginBottom: 4, paddingHorizontal: 2 },
+    countLabel: { fontSize: 11, fontWeight: '700', color: colors.slate400, letterSpacing: 2, marginBottom: 4, paddingHorizontal: 2 },
 
     // ── Empty ──
     emptyCard: {
@@ -325,7 +283,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.slate50, paddingHorizontal: 16, paddingVertical: 12,
         borderRadius: 10, borderWidth: 1, borderColor: colors.slate100,
     },
-    detailsBtnText: { fontSize: 10, fontWeight: '700', color: colors.slate600, letterSpacing: 1 },
+    detailsBtnText: { fontSize: 11, fontWeight: '700', color: colors.slate600, letterSpacing: 1 },
 
     // ── Transaction list (expanded) ──
     txList: { marginTop: 14, borderTopWidth: 1, borderTopColor: colors.slate100, paddingTop: 14, gap: 10 },
@@ -336,7 +294,7 @@ const styles = StyleSheet.create({
     },
     txInfo:   { flex: 1 },
     txName:   { fontSize: 12, fontWeight: '700', color: colors.slate800 },
-    txMeta:   { fontSize: 10, color: colors.slate400, marginTop: 2 },
+    txMeta:   { fontSize: 11, color: colors.slate400, marginTop: 2 },
     txRight:  { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 },
     txAmount: { fontSize: 13, fontWeight: '900', color: '#e11d48' },
     checkBtn: {

@@ -4,9 +4,9 @@ import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { ChevronLeft, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 
@@ -31,8 +31,6 @@ type SortKey = 'revenue' | 'txCount';
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function PerformancesScreen() {
-    const router = useRouter();
-
     const now = new Date();
     const [year, setYear]     = useState(now.getFullYear());
     const [month, setMonth]   = useState(now.getMonth()); // 0-indexed
@@ -114,22 +112,13 @@ export default function PerformancesScreen() {
     const rest   = sorted.slice(3);
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={styles.headerTitle}>PERFORMANCES</Text>
-                        <Text style={styles.headerSub}>
-                            {MONTH_NAMES[month].toUpperCase()} {year}
-                        </Text>
-                    </View>
-                </View>
-
-                {/* Sélecteur de mois */}
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Performances"
+                subtitle={`${MONTH_NAMES[month]} ${year}`}
+                showBack={true}
+                paddingBottom={16}
+            >
                 <View style={styles.monthSelector}>
                     <TouchableOpacity style={styles.monthBtn} onPress={prevMonth}>
                         <ChevronLeft color={colors.white} size={18} />
@@ -139,7 +128,7 @@ export default function PerformancesScreen() {
                         <ChevronRight color={colors.white} size={18} />
                     </TouchableOpacity>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ── CONTENU ── */}
             <ScrollView
@@ -229,7 +218,7 @@ export default function PerformancesScreen() {
                     </>
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -237,36 +226,18 @@ export default function PerformancesScreen() {
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
 
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop:   { flexDirection: 'row', alignItems: 'center' },
-    headerTitle: { fontSize: 18, fontWeight: '900', color: colors.white },
-    headerSub:   { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.6)', marginTop: 2, letterSpacing: 1 },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-
     monthSelector: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         backgroundColor: 'rgba(255,255,255,0.15)',
         borderRadius: 10, paddingHorizontal: 8, paddingVertical: 6,
     },
-    monthBtn:   { padding: 6 },
+    monthBtn:   { padding: 8 },
     monthLabel: { fontSize: 14, fontWeight: '800', color: colors.white },
 
     scroll:        { flex: 1 },
     scrollContent: { paddingTop: 20, paddingHorizontal: 16, paddingBottom: 40, gap: 12 },
 
-    sectionTitle: { fontSize: 10, fontWeight: '900', color: colors.slate400, letterSpacing: 2 },
+    sectionTitle: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 2 },
 
     sortRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     sortBtns: { flexDirection: 'row', gap: 6 },
@@ -299,10 +270,10 @@ const styles = StyleSheet.create({
     medalBadge: {
         borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
     },
-    medalText:     { fontSize: 9, fontWeight: '900', color: colors.white },
+    medalText:     { fontSize: 11, fontWeight: '900', color: colors.white },
     podiumName:    { fontSize: 11, fontWeight: '800', color: colors.slate800, textAlign: 'center' },
     podiumRevenue: { fontSize: 12, fontWeight: '900', color: colors.primary, textAlign: 'center' },
-    podiumTx:      { fontSize: 9, color: colors.slate400 },
+    podiumTx:      { fontSize: 11, color: colors.slate400 },
 
     rankCard: {
         flexDirection: 'row', alignItems: 'center',
@@ -322,7 +293,7 @@ const styles = StyleSheet.create({
     },
     rankNumText:  { fontSize: 13, fontWeight: '900', color: colors.slate600 },
     rankName:     { fontSize: 13, fontWeight: '700', color: colors.slate800 },
-    rankTx:       { fontSize: 10, color: colors.slate400, marginTop: 2 },
+    rankTx:       { fontSize: 11, color: colors.slate400, marginTop: 2 },
     rankRight:    { alignItems: 'flex-end', gap: 2 },
     rankRevenue:  { fontSize: 13, fontWeight: '900', color: colors.slate800 },
 
@@ -331,5 +302,5 @@ const styles = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: colors.slate100,
         borderStyle: 'dashed', gap: 12,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
 });

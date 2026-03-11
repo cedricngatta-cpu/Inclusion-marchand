@@ -1,12 +1,12 @@
 // Transactions — Admin : liste globale de toutes les ventes
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl,
+    View, Text, ScrollView, FlatList, StyleSheet, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, ShoppingBag, TrendingUp } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
+import { ShoppingBag, TrendingUp } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useAuth } from '@/src/context/AuthContext';
@@ -28,6 +28,8 @@ interface Transaction {
 
 type TxFilter = 'toutes' | 'ventes' | 'dettes';
 
+const PAGE_SIZE = 20;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
     PAYÉ:  { bg: '#d1fae5', text: '#065f46' },
@@ -48,27 +50,66 @@ const TX_FILTERS: { key: TxFilter; label: string }[] = [
     { key: 'dettes', label: 'Dettes' },
 ];
 
+// ── Carte transaction (mémoïsée) ──────────────────────────────────────────────
+const TxCard = React.memo(({ tx }: { tx: Transaction }) => {
+    const tc = getTxColor(tx);
+    const sc = STATUS_COLORS[tx.status] ?? STATUS_COLORS[tx.type] ?? { bg: '#f1f5f9', text: '#475569' };
+    return (
+        <View style={s.txCard}>
+            <View style={[s.txIcon, { backgroundColor: tc.bg }]}>
+                <ShoppingBag color={tc.icon} size={18} />
+            </View>
+            <View style={s.txInfo}>
+                <Text style={s.txProduct} numberOfLines={1}>{tx.productName}</Text>
+                <Text style={s.txClient} numberOfLines={1}>
+                    {tx.client_name ?? 'Client inconnu'} · {tx.storeName}
+                </Text>
+                <Text style={s.txDate}>
+                    {new Date(tx.created_at).toLocaleDateString('fr-FR', {
+                        day: '2-digit', month: 'short', year: 'numeric',
+                    })}
+                </Text>
+            </View>
+            <View style={s.txRight}>
+                <Text style={s.txAmount}>{(tx.price ?? 0).toLocaleString('fr-FR')} F</Text>
+                <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
+                    <Text style={[s.statusText, { color: sc.text }]}>
+                        {tx.status ?? tx.type ?? '–'}
+                    </Text>
+                </View>
+            </View>
+        </View>
+    );
+});
+
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function Transactions() {
-    const router = useRouter();
-
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading]           = useState(true);
     const [refreshing, setRefreshing]     = useState(false);
+    const [loadingMore, setLoadingMore]   = useState(false);
+    const [hasMore, setHasMore]           = useState(true);
+    const [page, setPage]                 = useState(0);
     const [txFilter, setTxFilter]         = useState<TxFilter>('toutes');
 
-    const fetchTransactions = useCallback(async () => {
+    const fetchTransactions = useCallback(async (pageNum = 0, append = false) => {
+        if (pageNum === 0 && !append) setLoading(true);
+        else setLoadingMore(true);
         try {
+            const from = pageNum * PAGE_SIZE;
+            const to   = from + PAGE_SIZE - 1;
+
             const { data, error } = await supabase
                 .from('transactions')
                 .select('id, price, quantity, client_name, type, status, created_at, product_id, store_id')
                 .order('created_at', { ascending: false })
-                .limit(100);
+                .range(from, to);
             if (error) throw error;
 
             const rows = (data as Transaction[]) ?? [];
+            setHasMore(rows.length === PAGE_SIZE);
 
-            // Noms de produits
+            // Noms de produits/boutiques
             const productIds = [...new Set(rows.map(t => t.product_id).filter(Boolean))] as string[];
             const storeIds   = [...new Set(rows.map(t => t.store_id).filter(Boolean))] as string[];
 
@@ -86,24 +127,41 @@ export default function Transactions() {
             for (const p of (prodsRes.data ?? []) as { id: string; name: string }[]) prodMap[p.id] = p.name;
             for (const s of (storesRes.data ?? []) as { id: string; name: string }[]) storeMap[s.id] = s.name;
 
-            setTransactions(rows.map(t => ({
+            const mapped = rows.map(t => ({
                 ...t,
                 productName: t.product_id ? (prodMap[t.product_id] ?? 'Produit') : 'Produit',
                 storeName:   t.store_id   ? (storeMap[t.store_id]  ?? 'Boutique') : 'Boutique',
-            })));
+            }));
+
+            if (append) setTransactions(prev => [...prev, ...mapped]);
+            else setTransactions(mapped);
         } catch (err) {
             console.error('[Transactions Admin] fetch error:', err);
         } finally {
             setLoading(false);
             setRefreshing(false);
+            setLoadingMore(false);
         }
     }, []);
 
-    useEffect(() => { setLoading(true); fetchTransactions(); }, [fetchTransactions]);
+    const fetchMore = useCallback(() => {
+        if (loadingMore || !hasMore) return;
+        const nextPage = page + 1;
+        setPage(nextPage);
+        fetchTransactions(nextPage, true);
+    }, [page, loadingMore, hasMore, fetchTransactions]);
 
-    const onRefresh = useCallback(() => { setRefreshing(true); fetchTransactions(); }, [fetchTransactions]);
+    const resetAndFetch = useCallback(() => {
+        setPage(0);
+        setHasMore(true);
+        fetchTransactions(0, false);
+    }, [fetchTransactions]);
 
-    useFocusEffect(useCallback(() => { fetchTransactions(); }, [fetchTransactions]));
+    useEffect(() => { setLoading(true); resetAndFetch(); }, [resetAndFetch]);
+
+    const onRefresh = useCallback(() => { setRefreshing(true); resetAndFetch(); }, [resetAndFetch]);
+
+    useFocusEffect(useCallback(() => { resetAndFetch(); }, [resetAndFetch]));
 
     // ── Filtrage ───────────────────────────────────────────────────────────────
     const filtered = useMemo(() => {
@@ -116,22 +174,12 @@ export default function Transactions() {
     const totalCount   = filtered.length;
 
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={s.header}>
-                <View style={s.headerTop}>
-                    <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={s.headerTitleBlock}>
-                        <Text style={s.headerTitle}>TRANSACTIONS</Text>
-                        <Text style={s.headerSubtitle}>GLOBAL RÉSEAU</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-            </View>
+        <View style={s.safe}>
+            <ScreenHeader title="Transactions" subtitle="Global réseau" showBack={true} />
 
-            <ScrollView
+            <FlatList
+                data={loading ? [] : filtered}
+                keyExtractor={(item) => item.id}
                 style={s.scroll}
                 contentContainerStyle={s.scrollContent}
                 showsVerticalScrollIndicator={false}
@@ -140,109 +188,61 @@ export default function Transactions() {
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
                 }
-            >
-                {/* ── KPI Volume total ── */}
-                <View style={s.kpiCard}>
-                    <View style={s.kpiIconWrap}>
-                        <TrendingUp color={colors.white} size={24} />
-                    </View>
-                    <View style={s.kpiTextBlock}>
-                        <Text style={s.kpiLabel}>VOLUME TOTAL</Text>
-                        <Text style={s.kpiValue}>
-                            {loading ? '–' : totalVolume.toLocaleString('fr-FR')} F
-                        </Text>
-                        <Text style={s.kpiSub}>{totalCount} transaction{totalCount > 1 ? 's' : ''}</Text>
-                    </View>
-                </View>
+                ListHeaderComponent={
+                    <>
+                        {/* ── KPI Volume total ── */}
+                        <View style={s.kpiCard}>
+                            <View style={s.kpiIconWrap}>
+                                <TrendingUp color="#059669" size={24} />
+                            </View>
+                            <View style={s.kpiTextBlock}>
+                                <Text style={s.kpiLabel}>VOLUME TOTAL</Text>
+                                <Text style={s.kpiValue}>
+                                    {loading ? '–' : totalVolume.toLocaleString('fr-FR')} F
+                                </Text>
+                                <Text style={s.kpiSub}>{totalCount} transaction{totalCount > 1 ? 's' : ''}</Text>
+                            </View>
+                        </View>
 
-                {/* ── Filtres ── */}
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={s.filterRow}
-                >
-                    {TX_FILTERS.map(f => (
-                        <TouchableOpacity
-                            key={f.key}
-                            style={[s.filterBtn, txFilter === f.key && s.filterBtnActive]}
-                            activeOpacity={0.82}
-                            onPress={() => setTxFilter(f.key)}
-                        >
-                            <Text style={[s.filterLabel, txFilter === f.key && s.filterLabelActive]}>
-                                {f.label}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
+                        {/* ── Filtres ── */}
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+                            {TX_FILTERS.map(f => (
+                                <TouchableOpacity
+                                    key={f.key}
+                                    style={[s.filterBtn, txFilter === f.key && s.filterBtnActive]}
+                                    activeOpacity={0.82}
+                                    onPress={() => setTxFilter(f.key)}
+                                >
+                                    <Text style={[s.filterLabel, txFilter === f.key && s.filterLabelActive]}>
+                                        {f.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
 
-                {/* ── Liste transactions ── */}
-                {loading ? (
-                    <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />
-                ) : filtered.length === 0 ? (
+                        {loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />}
+                    </>
+                }
+                onEndReached={fetchMore}
+                onEndReachedThreshold={0.3}
+                ListEmptyComponent={!loading ? (
                     <View style={s.emptyCard}>
                         <ShoppingBag color={colors.slate300} size={40} />
                         <Text style={s.emptyText}>AUCUNE TRANSACTION</Text>
                     </View>
-                ) : (
-                    filtered.map(tx => {
-                        const tc = getTxColor(tx);
-                        const sc = STATUS_COLORS[tx.status] ?? STATUS_COLORS[tx.type] ?? { bg: '#f1f5f9', text: '#475569' };
-                        return (
-                            <View key={tx.id} style={s.txCard}>
-                                <View style={[s.txIcon, { backgroundColor: tc.bg }]}>
-                                    <ShoppingBag color={tc.icon} size={18} />
-                                </View>
-                                <View style={s.txInfo}>
-                                    <Text style={s.txProduct} numberOfLines={1}>
-                                        {tx.productName}
-                                    </Text>
-                                    <Text style={s.txClient} numberOfLines={1}>
-                                        {tx.client_name ?? 'Client inconnu'} · {tx.storeName}
-                                    </Text>
-                                    <Text style={s.txDate}>
-                                        {new Date(tx.created_at).toLocaleDateString('fr-FR', {
-                                            day: '2-digit', month: 'short', year: 'numeric',
-                                        })}
-                                    </Text>
-                                </View>
-                                <View style={s.txRight}>
-                                    <Text style={s.txAmount}>{(tx.price ?? 0).toLocaleString('fr-FR')} F</Text>
-                                    <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
-                                        <Text style={[s.statusText, { color: sc.text }]}>
-                                            {tx.status ?? tx.type ?? '–'}
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-                        );
-                    })
-                )}
-            </ScrollView>
-        </SafeAreaView>
+                ) : null}
+                ListFooterComponent={loadingMore ? (
+                    <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
+                ) : null}
+                renderItem={({ item: tx }) => <TxCard tx={tx} />}
+            />
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f8fafc' },
-
-    header: {
-        backgroundColor: '#059669',
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 28,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-    },
-    headerTop:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:      { fontSize: 16, fontWeight: '900', color: '#fff', letterSpacing: 1 },
-    headerSubtitle:   { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 1, marginTop: 2 },
 
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 12 },
@@ -251,14 +251,15 @@ const s = StyleSheet.create({
     kpiCard: {
         backgroundColor: '#059669', borderRadius: 10, padding: 20,
         flexDirection: 'row', alignItems: 'center', gap: 16,
+        marginBottom: 14,
     },
     kpiIconWrap: {
         width: 52, height: 52, borderRadius: 12,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: '#FFFFFF',
         alignItems: 'center', justifyContent: 'center',
     },
     kpiTextBlock: { flex: 1 },
-    kpiLabel:    { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2, textTransform: 'uppercase' },
+    kpiLabel:    { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2, textTransform: 'uppercase' },
     kpiValue:    { fontSize: 28, fontWeight: '900', color: '#fff', marginTop: 2, lineHeight: 32 },
     kpiSub:      { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.6)', marginTop: 2 },
 
@@ -288,16 +289,16 @@ const s = StyleSheet.create({
     txInfo:    { flex: 1, minWidth: 0, gap: 2 },
     txProduct: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
     txClient:  { fontSize: 11, color: '#64748b' },
-    txDate:    { fontSize: 10, color: '#94a3b8' },
+    txDate:    { fontSize: 11, color: '#94a3b8' },
     txRight:   { alignItems: 'flex-end', gap: 4, flexShrink: 0 },
     txAmount:  { fontSize: 14, fontWeight: '900', color: '#1e293b' },
     statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-    statusText:  { fontSize: 9, fontWeight: '700' },
+    statusText:  { fontSize: 11, fontWeight: '700' },
 
     emptyCard: {
         backgroundColor: '#fff', borderRadius: 10, padding: 48,
         alignItems: 'center', borderWidth: 2, borderColor: '#f1f5f9',
         borderStyle: 'dashed', gap: 12,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
 });

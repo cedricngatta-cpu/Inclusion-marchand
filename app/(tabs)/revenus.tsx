@@ -1,12 +1,12 @@
 // Revenus du marchand — adapté depuis Next.js /producteur/revenus/page.tsx
 // Utilise HistoryContext (transactions VENTE) au lieu de la table orders producteur
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { ChevronLeft, ChevronRight, TrendingUp, ShoppingBag } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { useHistoryContext } from '@/src/context/HistoryContext';
 import { colors } from '@/src/lib/colors';
 
@@ -26,10 +26,17 @@ const statusLabel = (status?: string) => {
 };
 
 export default function RevenusScreen() {
-    const router = useRouter();
     const { history, refreshHistory } = useHistoryContext();
+    const lastRefresh = useRef(0);
 
-    useFocusEffect(useCallback(() => { refreshHistory(); }, [refreshHistory]));
+    // Rafraîchir uniquement si les données ont plus de 30 secondes
+    useFocusEffect(useCallback(() => {
+        const now = Date.now();
+        if (now - lastRefresh.current > 30_000) {
+            lastRefresh.current = now;
+            refreshHistory();
+        }
+    }, [refreshHistory]));
 
     const now = new Date();
     const [year, setYear]   = useState(now.getFullYear());
@@ -70,32 +77,26 @@ export default function RevenusScreen() {
     }, [monthSales]);
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>REVENUS</Text>
-                        <Text style={styles.headerSub}>HISTORIQUE DES VENTES</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Revenus"
+                subtitle="Historique des ventes"
+                showBack={true}
+                paddingBottom={24}
+            >
                 {/* Sélecteur de mois */}
                 <View style={styles.monthRow}>
-                    <TouchableOpacity style={styles.monthBtn} onPress={prevMonth}>
-                        <ChevronLeft color={colors.white} size={16} />
+                    <TouchableOpacity style={styles.monthBtn} onPress={prevMonth} activeOpacity={0.8}>
+                        <ChevronLeft color={colors.primary} size={18} strokeWidth={2.5} />
                     </TouchableOpacity>
                     <Text style={styles.monthLabel}>{monthLabel(year, month)}</Text>
                     <TouchableOpacity
                         style={[styles.monthBtn, isCurrentMonth && styles.monthBtnDisabled]}
                         onPress={nextMonth}
                         disabled={isCurrentMonth}
+                        activeOpacity={0.8}
                     >
-                        <ChevronRight color={isCurrentMonth ? 'rgba(255,255,255,0.3)' : colors.white} size={16} />
+                        <ChevronRight color={isCurrentMonth ? colors.slate300 : colors.primary} size={18} strokeWidth={2.5} />
                     </TouchableOpacity>
                 </View>
 
@@ -113,7 +114,7 @@ export default function RevenusScreen() {
                         {saleCount} vente{saleCount !== 1 ? 's' : ''} ce mois
                     </Text>
                 </View>
-            </View>
+            </ScreenHeader>
 
             <ScrollView
                 style={styles.scroll}
@@ -185,44 +186,25 @@ export default function RevenusScreen() {
                     )}
                 </View>
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
 
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, marginTop: 2 },
-
     monthRow:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16 },
-    monthBtn:        { width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
-    monthBtnDisabled: { opacity: 0.4 },
+    monthBtn:        { width: 36, height: 36, borderRadius: 8, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
+    monthBtnDisabled: { opacity: 0.35 },
     monthLabel:      { fontSize: 11, fontWeight: '700', color: '#d1fae5', letterSpacing: 2, minWidth: 140, textAlign: 'center', textTransform: 'uppercase' },
 
     kpiBlock:      { alignItems: 'center' },
     kpiLabelRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-    kpiLabel:      { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3 },
+    kpiLabel:      { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3 },
     kpiAmountRow:  { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
     kpiAmount:     { fontSize: 48, fontWeight: '900', color: colors.white, letterSpacing: -2, lineHeight: 56 },
     kpiCurrency:   { fontSize: 22, fontWeight: '700', color: 'rgba(255,255,255,0.7)' },
-    kpiSub:        { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 2, marginTop: 4 },
+    kpiSub:        { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 2, marginTop: 4 },
 
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 14 },
@@ -233,7 +215,7 @@ const styles = StyleSheet.create({
         shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
     },
-    cardTitle: { fontSize: 10, fontWeight: '900', color: colors.slate900, letterSpacing: 2, marginBottom: 16 },
+    cardTitle: { fontSize: 11, fontWeight: '900', color: colors.slate900, letterSpacing: 2, marginBottom: 16 },
 
     // ── Produits ──
     productList: { gap: 14 },
@@ -242,14 +224,14 @@ const styles = StyleSheet.create({
     productName:   { fontSize: 12, fontWeight: '700', color: colors.slate700, flex: 1, marginRight: 8 },
     productAmounts: { flexDirection: 'row', alignItems: 'baseline', gap: 6, flexShrink: 0 },
     productTotal:  { fontSize: 12, fontWeight: '900', color: colors.slate800 },
-    productQty:    { fontSize: 10, color: colors.slate400 },
+    productQty:    { fontSize: 11, color: colors.slate400 },
     progressBar:   { height: 6, backgroundColor: colors.slate100, borderRadius: 3, overflow: 'hidden' },
     progressFill:  { height: 6, backgroundColor: colors.primary, borderRadius: 3 },
 
     // ── Ventes ──
     saleList: {},
     empty: { alignItems: 'center', paddingVertical: 32, gap: 8 },
-    emptyText: { fontSize: 10, fontWeight: '700', color: colors.slate300, letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '700', color: colors.slate300, letterSpacing: 2 },
 
     saleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
     saleRowBorder: { borderTopWidth: 1, borderTopColor: colors.slate100 },
@@ -259,10 +241,10 @@ const styles = StyleSheet.create({
     },
     saleInfo: { flex: 1, minWidth: 0 },
     saleName: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
-    saleMeta: { fontSize: 10, color: colors.slate400, marginTop: 2 },
+    saleMeta: { fontSize: 11, color: colors.slate400, marginTop: 2 },
 
     saleRight:  { alignItems: 'flex-end', flexShrink: 0 },
     saleAmount: { fontSize: 13, fontWeight: '900', color: colors.slate800 },
     statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 3 },
-    statusText:  { fontSize: 9, fontWeight: '700' },
+    statusText:  { fontSize: 11, fontWeight: '700' },
 });

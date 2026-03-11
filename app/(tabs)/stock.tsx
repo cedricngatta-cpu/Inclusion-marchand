@@ -8,8 +8,9 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Package, Plus, Search, X, Check, QrCode, ChevronLeft, Camera } from 'lucide-react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
+import { ScreenHeader } from '@/src/components/ui';
 import { useProductContext } from '@/src/context/ProductContext';
 import { useStockContext } from '@/src/context/StockContext';
 import { supabase } from '@/src/lib/supabase';
@@ -175,13 +176,16 @@ export default function StockScreen() {
     );
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            <View style={styles.header}>
-                <Text style={styles.headerTitle}>MON STOCK</Text>
-                <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setShowAddModal(true); }}>
-                    <Plus color={colors.white} size={20} />
-                </TouchableOpacity>
-            </View>
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Mon Stock"
+                showBack={true}
+                rightIcon={
+                    <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setShowAddModal(true); }}>
+                        <Plus color={colors.white} size={20} />
+                    </TouchableOpacity>
+                }
+            />
 
             {/* Recherche */}
             <View style={styles.searchContainer}>
@@ -255,7 +259,11 @@ export default function StockScreen() {
 
                             <View style={styles.modalHeader}>
                                 <Text style={styles.modalTitle}>NOUVEAU PRODUIT</Text>
-                                <TouchableOpacity onPress={() => setShowAddModal(false)}>
+                                <TouchableOpacity
+                                    style={styles.xCloseBtn}
+                                    onPress={() => setShowAddModal(false)}
+                                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                >
                                     <X color={colors.slate400} size={22} />
                                 </TouchableOpacity>
                             </View>
@@ -377,7 +385,7 @@ export default function StockScreen() {
 
                     <SafeAreaView edges={['top']} style={styles.scanHeader}>
                         <TouchableOpacity style={styles.scanBack} onPress={() => setShowScanner(false)}>
-                            <ChevronLeft color={colors.white} size={24} />
+                            <ChevronLeft color={colors.primary} size={24} />
                         </TouchableOpacity>
                         <Text style={styles.scanTitle}>SCANNER LE CODE-BARRES</Text>
                         <View style={{ width: 40 }} />
@@ -400,19 +408,13 @@ export default function StockScreen() {
                     </View>
                 </View>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.white },
-    header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: 20, paddingVertical: 16,
-        borderBottomWidth: 1, borderBottomColor: colors.slate100,
-    },
-    headerTitle: { fontSize: 18, fontWeight: '900', color: colors.slate900, letterSpacing: -0.5 },
-    addBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+    safe: { flex: 1, backgroundColor: colors.bgSecondary },
+    addBtn: { width: 44, height: 44, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
 
     searchContainer: { paddingHorizontal: 16, paddingVertical: 12 },
     searchWrapper: {
@@ -441,7 +443,7 @@ const styles = StyleSheet.create({
     productPrice: { fontSize: 14, fontWeight: '900', color: colors.slate900 },
     stockBadge: { backgroundColor: '#ecfdf5', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
     stockBadgeLow: { backgroundColor: '#fff7ed' },
-    stockText: { fontSize: 10, fontWeight: '700', color: colors.primary },
+    stockText: { fontSize: 11, fontWeight: '700', color: colors.primary },
     stockTextLow: { color: '#ea580c' },
     qtyControls: { flexDirection: 'row', gap: 4 },
     qtyBtn: { width: 30, height: 30, borderRadius: 10, backgroundColor: colors.slate100, alignItems: 'center', justifyContent: 'center' },
@@ -453,8 +455,9 @@ const styles = StyleSheet.create({
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
     modalCard: { backgroundColor: colors.white, borderTopLeftRadius: 10, borderTopRightRadius: 10, padding: 24, gap: 4, maxHeight: '92%' },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    xCloseBtn:   { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     modalTitle: { fontSize: 16, fontWeight: '900', color: colors.slate900, letterSpacing: 1 },
-    inputLabel: { fontSize: 9, fontWeight: '900', color: colors.slate400, letterSpacing: 3, textTransform: 'uppercase', marginTop: 10, marginBottom: 6 },
+    inputLabel: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 3, textTransform: 'uppercase', marginTop: 10, marginBottom: 6 },
     modalInput: {
         backgroundColor: colors.slate50, borderWidth: 1, borderColor: colors.slate200,
         borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,

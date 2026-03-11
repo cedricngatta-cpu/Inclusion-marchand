@@ -1,12 +1,16 @@
 // Contexte stock — migré depuis Next.js
 // Dexie/IndexedDB → AsyncStorage (simplifié pour Expo Go)
 // navigator.onLine → NetInfo
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/src/lib/supabase';
 import { useProfileContext } from './ProfileContext';
 import { emitEvent } from '@/src/lib/socket';
+import { useNetwork } from './NetworkContext';
+import { offlineQueue } from '@/src/lib/offlineQueue';
+
+const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
 interface StockLevels {
     [productId: string]: number;
@@ -24,6 +28,8 @@ const StockContext = createContext<StockContextType | undefined>(undefined);
 export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { activeProfile } = useProfileContext();
     const [stock, setStock] = useState<StockLevels>({});
+    const { isOnline }  = useNetwork();
+    const prevIsOnline  = useRef<boolean | null>(null);
 
     const fetchStock = useCallback(async () => {
         if (!activeProfile) return;
@@ -55,6 +61,28 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             console.error('[StockContext] fetchStock error:', err);
         }
     }, [activeProfile]);
+
+    // Sync hors-ligne au retour de connexion
+    useEffect(() => {
+        if (prevIsOnline.current === false && isOnline && activeProfile) {
+            (async () => {
+                const pending = await offlineQueue.getStockUpdates(activeProfile.id);
+                if (!pending.length) return;
+                log('[StockContext] Sync offline:', pending.length, 'mise(s) à jour stock...');
+                try {
+                    for (const update of pending) {
+                        await supabase.from('stock').upsert(update);
+                    }
+                    await offlineQueue.clearStockUpdates(activeProfile.id);
+                    log('[StockContext] ✅ Sync stock offline OK');
+                    await fetchStock();
+                } catch (err) {
+                    console.error('[StockContext] ❌ Sync stock offline erreur:', err);
+                }
+            })();
+        }
+        prevIsOnline.current = isOnline;
+    }, [isOnline, activeProfile?.id]); // eslint-disable-line
 
     useEffect(() => {
         let isMounted = true;
@@ -93,7 +121,7 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const currentQty = stock[productId] || 0;
         const newQty = Math.max(0, currentQty + amount);
 
-        console.log('[StockContext] updateStock — productId:', productId, 'delta:', amount, 'ancien:', currentQty, '→ nouveau:', newQty);
+        log('[StockContext] updateStock — productId:', productId, 'delta:', amount, 'ancien:', currentQty, '→ nouveau:', newQty);
 
         // Mise à jour optimiste
         const updatedStock = { ...stock, [productId]: newQty };
@@ -105,7 +133,7 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         // Synchroniser si connecté
         const netState = await NetInfo.fetch();
-        console.log('[StockContext] connecté:', netState.isConnected, '— store_id:', activeProfile.id);
+        log('[StockContext] connecté:', netState.isConnected, '— store_id:', activeProfile.id);
 
         if (netState.isConnected) {
             const upsertPayload = {
@@ -114,17 +142,19 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 quantity:   newQty,
                 updated_at: new Date().toISOString(),
             };
-            console.log('[StockContext] UPSERT stock payload:', upsertPayload);
+            log('[StockContext] UPSERT stock payload:', upsertPayload);
 
             const { error: upsertError } = await supabase.from('stock').upsert(upsertPayload);
 
             if (upsertError) {
                 console.error('[StockContext] ❌ UPSERT stock ERREUR:', upsertError.message, '| code:', upsertError.code);
             } else {
-                console.log('[StockContext] ✅ UPSERT stock OK — productId:', productId, 'qty:', newQty);
+                log('[StockContext] ✅ UPSERT stock OK — productId:', productId, 'qty:', newQty);
             }
         } else {
             console.warn('[StockContext] ⚠️ Hors-ligne — stock sauvegardé localement uniquement');
+            // Enregistrer dans la file d'attente pour sync à la reconnexion
+            await offlineQueue.setStockUpdate(activeProfile.id, productId, newQty);
         }
 
         // Diffusion realtime Socket.io (après Supabase)
@@ -134,7 +164,7 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             productName: productId,
             newQty,
         });
-        console.log('[StockContext] emitEvent stock-update envoyé — productId:', productId, 'newQty:', newQty);
+        log('[StockContext] emitEvent stock-update envoyé — productId:', productId, 'newQty:', newQty);
     }, [activeProfile, stock]);
 
     const getStockLevel = useCallback((productId: string) => stock[productId] || 0, [stock]);

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { storage } from '@/src/lib/storage';
@@ -17,8 +18,11 @@ export interface User {
 
 interface AuthContextType {
     user: User | null;
+    profile: Record<string, any> | null;
+    isLoading: boolean;
     isAuthenticated: boolean;
     isLocked: boolean;
+    sessionKey: number;
     login: (phoneNumber: string, pin: string) => Promise<boolean>;
     signup: (name: string, phoneNumber: string, pin: string, role: User['role']) => Promise<boolean>;
     unlock: (pin: string) => Promise<boolean>;
@@ -55,45 +59,53 @@ const normalizeRole = (raw: string | undefined): User['role'] => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser]               = useState<User | null>(null);
+    const [profile, setProfile]         = useState<Record<string, any> | null>(null);
+    const [isLoading, setIsLoading]     = useState<boolean>(true);
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-    const [isLocked, setIsLocked] = useState<boolean>(false);
+    const [isLocked, setIsLocked]       = useState<boolean>(false);
+    const [sessionKey, setSessionKey]   = useState<number>(0);
 
     // Restaurer la session au démarrage
     useEffect(() => {
         const checkUser = async () => {
-            const storedUser = await storage.getItem('auth_user');
-            if (storedUser) {
-                const parsed = JSON.parse(storedUser) as User;
-                setUser(parsed);
-                setIsAuthenticated(true);
-                connectSocket(parsed.id, parsed.name, parsed.role);
+            try {
+                const storedUser = await storage.getItem('auth_user');
+                if (storedUser) {
+                    const parsed = JSON.parse(storedUser) as User;
+                    setUser(parsed);
+                    setIsAuthenticated(true);
+                    connectSocket(parsed.id, parsed.name, parsed.role);
 
-                // Synchroniser le profil depuis Supabase
-                try {
-                    const { data } = await supabase
-                        .from('profiles')
-                        .select('*')
-                        .eq('phone_number', parsed.phoneNumber)
-                        .single();
+                    // Synchroniser le profil depuis Supabase
+                    try {
+                        const { data } = await supabase
+                            .from('profiles')
+                            .select('*')
+                            .eq('phone_number', parsed.phoneNumber)
+                            .single();
 
-                    if (data) {
-                        const updatedUser: User = {
-                            id: data.id,
-                            phoneNumber: data.phone_number,
-                            role: normalizeRole(data.role),
-                            name: data.full_name,
-                        };
-                        setUser(updatedUser);
-                        await storage.setItem('auth_user', JSON.stringify(updatedUser));
-                        connectSocket(updatedUser.id, updatedUser.name, updatedUser.role);
+                        if (data) {
+                            const updatedUser: User = {
+                                id: data.id,
+                                phoneNumber: data.phone_number,
+                                role: normalizeRole(data.role),
+                                name: data.full_name,
+                            };
+                            setUser(updatedUser);
+                            setProfile(data);
+                            await storage.setItem('auth_user', JSON.stringify(updatedUser));
+                            connectSocket(updatedUser.id, updatedUser.name, updatedUser.role);
+                        }
+                    } catch (err) {
+                        console.error('[Auth] Sync profile error:', err);
                     }
-                } catch (err) {
-                    console.error('[Auth] Sync profile error:', err);
-                }
 
-                const wasLocked = await storage.getItem('app_locked');
-                setIsLocked(wasLocked === 'true');
+                    const wasLocked = await storage.getItem('app_locked');
+                    setIsLocked(wasLocked === 'true');
+                }
+            } finally {
+                setIsLoading(false);
             }
         };
         checkUser();
@@ -116,7 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const subscription = AppState.addEventListener('change', handleAppStateChange);
         return () => {
-            subscription.remove();
+            subscription?.remove();
             if (lockTimeout) clearTimeout(lockTimeout);
         };
     }, [isAuthenticated]);
@@ -131,10 +143,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 .single();
 
             if (error || !data) {
-                // Mode démo
-                if (phoneNumber === '0000' && pin === '0000') {
+                // Mode démo — désactivé en production
+                if (__DEV__ && phoneNumber === '0000' && pin === '0000') {
                     const demoUser: User = { id: 'admin-001', phoneNumber: '0000', role: 'SUPERVISOR', name: 'Superviseur' };
                     await handleAuthSuccess(demoUser);
+                    await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline
                     return true;
                 }
                 return false;
@@ -147,7 +160,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 name: data.full_name,
             };
 
+            setProfile(data);
             await handleAuthSuccess(userData);
+            await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline
             return true;
         } catch (err) {
             console.error('[Auth] Login error:', err);
@@ -191,30 +206,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unlock = async (pin: string): Promise<boolean> => {
         if (!user) return false;
 
-        // Mode démo
-        if (user.phoneNumber === '0000' && pin === '0000') {
+        // Mode démo — désactivé en production
+        if (__DEV__ && user.phoneNumber === '0000' && pin === '0000') {
             setIsLocked(false);
             await storage.setItem('app_locked', 'false');
             return true;
         }
 
-        try {
-            const { data } = await supabase
-                .from('profiles')
-                .select('id')
-                .eq('phone_number', user.phoneNumber)
-                .eq('pin', pin)
-                .single();
+        const doUnlock = async () => {
+            setIsLocked(false);
+            await storage.setItem('app_locked', 'false');
+        };
 
-            if (data) {
-                setIsLocked(false);
-                await storage.setItem('app_locked', 'false');
-                return true;
+        try {
+            const netState = await NetInfo.fetch();
+
+            if (netState.isConnected) {
+                // En ligne : vérifier via Supabase
+                const { data } = await supabase
+                    .from('profiles')
+                    .select('id')
+                    .eq('phone_number', user.phoneNumber)
+                    .eq('pin', pin)
+                    .single();
+
+                if (data) {
+                    await storage.setItem('cached_pin', pin); // Rafraîchir le cache
+                    await doUnlock();
+                    return true;
+                }
+                return false;
+            } else {
+                // Hors-ligne : comparer avec le PIN mis en cache au dernier login
+                const cachedPin = await storage.getItem('cached_pin');
+                if (cachedPin && cachedPin === pin) {
+                    await doUnlock();
+                    return true;
+                }
+                return false;
             }
         } catch (err) {
             console.error('[Auth] Unlock error:', err);
+            // Fallback cache si erreur réseau
+            const cachedPin = await storage.getItem('cached_pin');
+            if (cachedPin && cachedPin === pin) {
+                await doUnlock();
+                return true;
+            }
+            return false;
         }
-        return false;
     };
 
     const logout = async () => {
@@ -224,8 +264,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLocked(false);
         // Efface toutes les données persistées (session, profil actif, notifications…)
         await AsyncStorage.clear();
-        // replace() supprime tout l'historique de navigation → impossible de revenir en arrière
+        // 1. Naviguer vers login immédiatement
         router.replace('/(auth)/login');
+        // 2. Après un tick : incrémenter sessionKey pour forcer le remontage complet
+        //    du Stack — détruit toute l'historique de navigation de la session précédente
+        setTimeout(() => setSessionKey(k => k + 1), 50);
     };
 
     const updatePin = async (newPin: string): Promise<boolean> => {
@@ -247,8 +290,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return (
         <AuthContext.Provider value={{
             user,
+            profile,
+            isLoading,
             isAuthenticated,
             isLocked,
+            sessionKey,
             login,
             signup,
             unlock,

@@ -4,9 +4,9 @@ import {
     View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, ShoppingBag, ArrowRight } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
+import { ShoppingBag, ArrowRight } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useAuth } from '@/src/context/AuthContext';
@@ -26,30 +26,28 @@ interface Order {
     sellerName?: string;
 }
 
-type OrderFilter = 'toutes' | 'PENDING' | 'ACCEPTED' | 'SHIPPING' | 'DELIVERED' | 'REJECTED';
+type OrderFilter = 'toutes' | 'PENDING' | 'ACCEPTED' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
     PENDING:   { bg: '#fef3c7', text: '#92400e', label: 'En attente' },
     ACCEPTED:  { bg: '#dbeafe', text: '#1e40af', label: 'Acceptée' },
-    SHIPPING:  { bg: '#ede9fe', text: '#5b21b6', label: 'En livraison' },
+    SHIPPED:   { bg: '#ede9fe', text: '#5b21b6', label: 'En livraison' },
     DELIVERED: { bg: '#d1fae5', text: '#065f46', label: 'Livrée' },
-    REJECTED:  { bg: '#fee2e2', text: '#991b1b', label: 'Refusée' },
+    CANCELLED: { bg: '#fee2e2', text: '#991b1b', label: 'Annulée' },
 };
 
 const ORDER_FILTERS: { key: OrderFilter; label: string }[] = [
     { key: 'toutes',    label: 'Toutes' },
     { key: 'PENDING',   label: 'En attente' },
     { key: 'ACCEPTED',  label: 'Acceptées' },
-    { key: 'SHIPPING',  label: 'En livraison' },
+    { key: 'SHIPPED',   label: 'En livraison' },
     { key: 'DELIVERED', label: 'Livrées' },
-    { key: 'REJECTED',  label: 'Refusées' },
+    { key: 'CANCELLED', label: 'Annulées' },
 ];
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function CommandesAdmin() {
-    const router = useRouter();
-
     const [orders, setOrders]         = useState<Order[]>([]);
     const [loading, setLoading]       = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -114,21 +112,8 @@ export default function CommandesAdmin() {
     );
 
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={s.header}>
-                <View style={s.headerTop}>
-                    <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={s.headerTitleBlock}>
-                        <Text style={s.headerTitle}>COMMANDES B2B</Text>
-                        <Text style={s.headerSubtitle}>INTER-BOUTIQUES</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
-                {/* Stats rapides */}
+        <View style={s.safe}>
+            <ScreenHeader title="Commandes B2B" subtitle="Inter-boutiques" showBack={true} paddingBottom={24}>
                 <View style={s.kpiRow}>
                     <View style={s.kpiItem}>
                         <Text style={s.kpiValue}>{loading ? '–' : filtered.length}</Text>
@@ -149,7 +134,7 @@ export default function CommandesAdmin() {
                         <Text style={s.kpiLabel}>EN ATTENTE</Text>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             <ScrollView
                 style={s.scroll}
@@ -223,32 +208,13 @@ export default function CommandesAdmin() {
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f8fafc' },
-
-    header: {
-        backgroundColor: '#059669',
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:      { fontSize: 16, fontWeight: '900', color: '#fff', letterSpacing: 1 },
-    headerSubtitle:   { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 1, marginTop: 2 },
 
     kpiRow: {
         flexDirection: 'row',
@@ -258,7 +224,7 @@ const s = StyleSheet.create({
     kpiItem:    { flex: 1, alignItems: 'center' },
     kpiDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 6 },
     kpiValue:   { fontSize: 24, fontWeight: '900', color: '#fff', lineHeight: 28 },
-    kpiLabel:   { fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 4, textAlign: 'center' },
+    kpiLabel:   { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 4, textAlign: 'center' },
 
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 10 },
@@ -283,7 +249,7 @@ const s = StyleSheet.create({
     orderTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, justifyContent: 'space-between' },
     orderNote: { flex: 1, fontSize: 13, fontWeight: '700', color: '#1e293b' },
     statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexShrink: 0 },
-    statusText:  { fontSize: 9, fontWeight: '700' },
+    statusText:  { fontSize: 11, fontWeight: '700' },
 
     orderFlow: {
         flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -292,7 +258,7 @@ const s = StyleSheet.create({
     storeName: { flex: 1, fontSize: 11, fontWeight: '700', color: '#475569', textAlign: 'center' },
 
     orderBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    orderMeta:   { fontSize: 10, color: '#94a3b8' },
+    orderMeta:   { fontSize: 11, color: '#94a3b8' },
     orderTotal:  { fontSize: 14, fontWeight: '900', color: '#1e293b' },
 
     emptyCard: {
@@ -300,5 +266,5 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: '#f1f5f9',
         borderStyle: 'dashed', gap: 12,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
 });

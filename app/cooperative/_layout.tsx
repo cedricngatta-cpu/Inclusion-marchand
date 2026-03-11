@@ -9,6 +9,7 @@ export default function CooperativeLayout() {
             <Stack.Screen name="achats" />
             <Stack.Screen name="performances" />
             <Stack.Screen name="analyses" />
+            <Stack.Screen name="membre-detail" />
         </Stack>
     );
 }

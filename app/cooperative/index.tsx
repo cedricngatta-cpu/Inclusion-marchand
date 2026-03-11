@@ -3,20 +3,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator,
+    ActivityIndicator, BackHandler,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
-    Bell, Settings, Users, Truck, TrendingUp, ShoppingBag,
+    Users, Truck, TrendingUp, ShoppingBag,
     ChevronRight, AlertCircle,
 } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { onSocketEvent } from '@/src/lib/socket';
 import { useAuth } from '@/src/context/AuthContext';
+import { colors } from '@/src/lib/colors';
 
 // ── Constantes violet ─────────────────────────────────────────────────────────
-const PURPLE  = '#6d28d9';
+const PURPLE  = '#059669';
 const PURPLEL = 'rgba(255,255,255,0.15)';
 const PURPLELT= 'rgba(255,255,255,0.7)';
 
@@ -77,16 +78,16 @@ export default function CooperativeDashboard() {
 
                 // Enrôlements en attente
                 supabase
-                    .from('enrollments')
+                    .from('demandes_enrolement')
                     .select('*', { count: 'exact', head: true })
-                    .eq('status', 'PENDING'),
+                    .eq('statut', 'en_attente'),
 
                 // Dernières demandes d'enrôlement
                 supabase
-                    .from('enrollments')
+                    .from('demandes_enrolement')
                     .select('*')
-                    .eq('status', 'PENDING')
-                    .order('created_at', { ascending: false })
+                    .eq('statut', 'en_attente')
+                    .order('date_demande', { ascending: false })
                     .limit(3),
             ]);
 
@@ -101,9 +102,9 @@ export default function CooperativeDashboard() {
             const acts: RecentActivity[] = (enrollRes.data ?? []).map((e: any) => ({
                 id: e.id,
                 type: 'ENROLEMENT' as const,
-                label: e.full_name ?? 'Nouveau membre',
-                sub: e.role === 'PRODUCER' ? 'Producteur' : 'Marchand',
-                created_at: e.created_at,
+                label: e.nom ?? 'Nouveau membre',
+                sub: e.type === 'PRODUCER' ? 'Producteur' : 'Marchand',
+                created_at: e.date_demande,
             }));
             setActivities(acts);
         } catch (err) {
@@ -128,30 +129,29 @@ export default function CooperativeDashboard() {
     // Recharge à chaque retour sur l'écran
     useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
 
+    // Bouton retour Android sur le dashboard → quitter l'app
+    useFocusEffect(useCallback(() => {
+        const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+            BackHandler.exitApp();
+            return true;
+        });
+        return () => backHandler.remove();
+    }, []));
+
     const prenom    = user?.name?.split(' ')[0] ?? 'Gestionnaire';
     const moisLabel = MONTH_LABELS[new Date().getMonth()];
 
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={s.safe}>
 
-            {/* ════════════════════════════════ HEADER ═══════════════════════════ */}
-            <View style={s.header}>
-                {/* Nav */}
-                <View style={s.nav}>
-                    <View style={{ flex: 1 }}>
-                        <Text style={s.headerGreet}>Bonjour, {prenom}</Text>
-                        <Text style={s.headerTitle}>COOPÉRATIVE</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                        <TouchableOpacity style={s.iconBtn} onPress={() => router.push('/(tabs)/notifications' as any)}>
-                            <Bell color="#fff" size={20} />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={s.iconBtn} onPress={() => router.push('/(tabs)/profil' as any)}>
-                            <Settings color="#fff" size={20} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-
+            <ScreenHeader
+                title={`Bonjour, ${prenom}`}
+                subtitle="Coopérative"
+                showBack={false}
+                showProfile={true}
+                showNotification={true}
+                paddingBottom={24}
+            >
                 {/* Hero : volume mensuel */}
                 <View style={s.heroBlock}>
                     <View style={s.heroLabelRow}>
@@ -191,7 +191,7 @@ export default function CooperativeDashboard() {
                         <Text style={s.kpiLabel}>COMMANDES B2B</Text>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ════════════════════════════════ CONTENU ══════════════════════════ */}
             <ScrollView
@@ -296,7 +296,7 @@ export default function CooperativeDashboard() {
                     </>
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -304,33 +304,14 @@ export default function CooperativeDashboard() {
 const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f8fafc' },
 
-    // ── Header VIOLET ──
-    header: {
-        backgroundColor: PURPLE,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 28,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    nav:         { flexDirection: 'row', alignItems: 'center' },
-    iconBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerGreet: { fontSize: 12, fontWeight: '600', color: PURPLELT },
-    headerTitle: { fontSize: 20, fontWeight: '900', color: '#fff', marginTop: 2, letterSpacing: 1 },
-
     // Hero
     heroBlock:     { alignItems: 'center', gap: 4 },
     heroLabelRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    heroLabel:     { fontSize: 10, fontWeight: '700', color: PURPLELT, letterSpacing: 2 },
+    heroLabel:     { fontSize: 11, fontWeight: '700', color: PURPLELT, letterSpacing: 2 },
     heroAmountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
     heroAmount:    { fontSize: 48, fontWeight: '900', color: '#fff', letterSpacing: -2, lineHeight: 56 },
     heroCurrency:  { fontSize: 24, fontWeight: '700', color: 'rgba(255,255,255,0.8)' },
-    heroSub:       { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase', marginTop: 4 },
+    heroSub:       { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase', marginTop: 4 },
 
     // KPIs
     kpiRow: {
@@ -341,9 +322,9 @@ const s = StyleSheet.create({
     },
     kpiCell:    { flex: 1, alignItems: 'center', gap: 4 },
     kpiSep:     { width: 1, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 8 },
-    kpiIconWrap: { width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+    kpiIconWrap: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
     kpiValue:   { fontSize: 28, fontWeight: '900', color: '#fff', lineHeight: 32 },
-    kpiLabel:   { fontSize: 9, fontWeight: '700', color: PURPLELT, letterSpacing: 1, textAlign: 'center' },
+    kpiLabel:   { fontSize: 11, fontWeight: '700', color: PURPLELT, letterSpacing: 1, textAlign: 'center' },
 
     // ── Scroll ──
     scroll:        { flex: 1 },
@@ -363,7 +344,7 @@ const s = StyleSheet.create({
         flexShrink: 0,
     },
     alertTitle: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-    alertSub:   { fontSize: 10, fontWeight: '700', marginTop: 2 },
+    alertSub:   { fontSize: 11, fontWeight: '700', marginTop: 2 },
 
     // CTAs
     cta: {
@@ -382,9 +363,9 @@ const s = StyleSheet.create({
     ctaText: { fontSize: 13, fontWeight: '900', color: '#fff', letterSpacing: 2 },
 
     // Section
-    sectionTitle:  { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 2 },
+    sectionTitle:  { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 2 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    sectionLink:   { fontSize: 10, fontWeight: '900', color: PURPLE, letterSpacing: 1 },
+    sectionLink:   { fontSize: 11, fontWeight: '900', color: PURPLE, letterSpacing: 1 },
 
     // Modules
     moduleCard: {
@@ -405,7 +386,7 @@ const s = StyleSheet.create({
     },
     activityDot:   { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
     activityLabel: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
-    activitySub:   { fontSize: 10, color: '#94a3b8', marginTop: 2 },
+    activitySub:   { fontSize: 11, color: '#94a3b8', marginTop: 2 },
     pendingBadge:  { backgroundColor: '#fef3c7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexShrink: 0 },
-    pendingBadgeText: { fontSize: 8, fontWeight: '900', color: '#92400e', letterSpacing: 0.5 },
+    pendingBadgeText: { fontSize: 11, fontWeight: '900', color: '#92400e', letterSpacing: 0.5 },
 });

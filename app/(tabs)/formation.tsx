@@ -5,12 +5,12 @@ import {
     Modal, BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import {
-    ChevronLeft, ChevronRight, GraduationCap, ShoppingBag,
+    ChevronRight, GraduationCap, ShoppingBag,
     Package, Mic, Store, PieChart, Volume2, VolumeX,
-    CheckCircle, Play, X,
+    CheckCircle, Play, X, ChevronLeft,
 } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import * as Speech from 'expo-speech';
 import { colors } from '@/src/lib/colors';
 
@@ -243,7 +243,6 @@ function buildSpeechText(tutorial: Tutorial): string {
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function FormationScreen() {
-    const router = useRouter();
     const [selected, setSelected] = useState<Tutorial | null>(null);
     const [speaking, setSpeaking] = useState(false);
     const [currentStep, setCurrentStep] = useState(0);
@@ -309,28 +308,22 @@ export default function FormationScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>FORMATION</Text>
-                        <Text style={styles.headerSub}>GUIDES & TUTORIELS</Text>
-                    </View>
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Formation"
+                subtitle="Guides & tutoriels"
+                showBack={true}
+                rightIcon={
                     <View style={styles.headerBadge}>
                         <GraduationCap color={colors.white} size={18} />
                     </View>
-                </View>
-
-                {/* Sous-titre header */}
+                }
+                paddingBottom={24}
+            >
                 <Text style={styles.headerDesc}>
                     Apprenez à utiliser chaque fonctionnalité avec nos guides audio interactifs
                 </Text>
-            </View>
+            </ScreenHeader>
 
             {/* ── LISTE TUTORIELS ── */}
             <ScrollView
@@ -389,6 +382,7 @@ export default function FormationScreen() {
             </ScrollView>
 
             {/* ── MODAL TUTORIEL ── */}
+
             {selected !== null && (
                 <Modal visible animationType="slide" statusBarTranslucent>
                     <SafeAreaView style={styles.modalSafe} edges={['top', 'bottom']}>
@@ -546,7 +540,7 @@ export default function FormationScreen() {
                     </SafeAreaView>
                 </Modal>
             )}
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -554,40 +548,21 @@ export default function FormationScreen() {
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
 
-    // ── Header ──
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 12,
-    },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center', flex: 1, marginHorizontal: 12 },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, marginTop: 2 },
     headerBadge: {
-        width: 40, height: 40, borderRadius: 10,
+        width: 44, height: 44, borderRadius: 10,
         backgroundColor: 'rgba(255,255,255,0.2)',
         alignItems: 'center', justifyContent: 'center',
     },
     headerDesc: {
         fontSize: 12, color: 'rgba(255,255,255,0.75)', textAlign: 'center',
-        fontWeight: '500', lineHeight: 18,
+        fontWeight: '500', lineHeight: 18, paddingBottom: 4,
     },
 
     // ── Liste ──
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 12 },
     sectionLabel: {
-        fontSize: 10, fontWeight: '900', color: colors.slate400,
+        fontSize: 11, fontWeight: '900', color: colors.slate400,
         letterSpacing: 2, marginBottom: 4,
     },
 
@@ -603,11 +578,11 @@ const styles = StyleSheet.create({
     cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
     cardTitle:    { fontSize: 14, fontWeight: '800', color: colors.slate800, flex: 1 },
     levelBadge:   { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, flexShrink: 0 },
-    levelText:    { fontSize: 9, fontWeight: '700' },
+    levelText:    { fontSize: 11, fontWeight: '700' },
     cardDesc:     { fontSize: 12, color: colors.slate500, lineHeight: 17, marginBottom: 6 },
     cardMeta:     { flexDirection: 'row', alignItems: 'center', gap: 5 },
-    cardMetaText: { fontSize: 10, color: colors.slate400, fontWeight: '600' },
-    cardMetaDot:  { fontSize: 10, color: colors.slate300 },
+    cardMetaText: { fontSize: 11, color: colors.slate400, fontWeight: '600' },
+    cardMetaDot:  { fontSize: 11, color: colors.slate300 },
 
     tipCard: {
         flexDirection: 'row', gap: 12, alignItems: 'flex-start',
@@ -627,13 +602,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16,
     },
     modalBackBtn: {
-        width: 38, height: 38, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        width: 44, height: 44, borderRadius: 10,
+        backgroundColor: '#FFFFFF',
         alignItems: 'center', justifyContent: 'center',
         flexShrink: 0,
     },
     modalTitle: { fontSize: 15, fontWeight: '900', color: colors.white },
-    modalSub:   { fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 2, fontWeight: '600' },
+    modalSub:   { fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 2, fontWeight: '600' },
 
     audioBtn: {
         width: 38, height: 38, borderRadius: 10,
@@ -672,7 +647,7 @@ const styles = StyleSheet.create({
 
     // Récap étapes
     allSteps:      { marginTop: 8, gap: 8 },
-    allStepsTitle: { fontSize: 9, fontWeight: '900', color: colors.slate400, letterSpacing: 2, marginBottom: 4 },
+    allStepsTitle: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 2, marginBottom: 4 },
     stepItem: {
         flexDirection: 'row', alignItems: 'center', gap: 10,
         paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10,

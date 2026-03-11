@@ -1,13 +1,32 @@
 // Bouton micro flottant — présent sur tous les écrans
-import React, { useState, useRef } from 'react';
-import { TouchableOpacity, StyleSheet, Animated } from 'react-native';
+// Masqué automatiquement pendant la vente manuelle (scanner, panier, clavier)
+import React, { useState, useRef, useEffect } from 'react';
+import { TouchableOpacity, StyleSheet, Animated, Keyboard } from 'react-native';
 import { Mic } from 'lucide-react-native';
 import { colors } from '@/src/lib/colors';
+import { useVoiceButton } from '@/src/context/VoiceButtonContext';
+import { useAuth } from '@/src/context/AuthContext';
 import VoiceModal from './VoiceModal';
 
 export default function VoiceButton() {
     const [modalOpen, setModalOpen] = useState(false);
+    const [keyboardVisible, setKeyboardVisible] = useState(false);
     const scale = useRef(new Animated.Value(1)).current;
+    const { voiceButtonVisible } = useVoiceButton();
+    const { user } = useAuth();
+
+    // Masquer quand le clavier est ouvert (saisie nom client, etc.)
+    useEffect(() => {
+        const showSub = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+        const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+        return () => { showSub.remove(); hideSub.remove(); };
+    }, []);
+
+    // Garde défensive : ne rien afficher si pas authentifié
+    if (!user) return null;
+
+    // Ne pas rendre si masqué par le contexte (scanner, panier) ou par le clavier
+    if (!voiceButtonVisible || keyboardVisible) return null;
 
     function handlePressIn() {
         Animated.spring(scale, { toValue: 0.92, useNativeDriver: true }).start();
@@ -19,7 +38,10 @@ export default function VoiceButton() {
 
     return (
         <>
-            <Animated.View style={[styles.wrapper, { transform: [{ scale }] }]}>
+            <Animated.View style={[
+                styles.wrapper,
+                { transform: [{ scale }] },
+            ]}>
                 <TouchableOpacity
                     style={styles.btn}
                     onPress={() => setModalOpen(true)}
@@ -39,7 +61,7 @@ export default function VoiceButton() {
 const styles = StyleSheet.create({
     wrapper: {
         position: 'absolute',
-        bottom: 30,
+        bottom: 16,
         right: 20,
         zIndex: 999,
     },

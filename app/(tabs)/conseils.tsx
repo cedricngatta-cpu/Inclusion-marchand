@@ -4,20 +4,17 @@ import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import {
-    ChevronLeft, RefreshCw, TrendingUp, TrendingDown,
+    RefreshCw, TrendingUp, TrendingDown,
     Package, AlertTriangle, Lightbulb, Sparkles,
 } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { useAuth } from '@/src/context/AuthContext';
 import { useProfileContext } from '@/src/context/ProfileContext';
 import { supabase } from '@/src/lib/supabase';
+import { chatWithHistory } from '@/src/lib/groqAI';
 import { colors } from '@/src/lib/colors';
-
-const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY ?? '';
-const CHAT_URL     = 'https://api.groq.com/openai/v1/chat/completions';
-const CHAT_MODEL   = 'llama-3.3-70b-versatile';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -56,6 +53,15 @@ const CONSEIL_CONFIG: Record<ConseilType, {
         bg: '#faf5ff', border: '#e9d5ff', icon: Sparkles,
         iconColor: '#7c3aed', badge: 'IA', badgeBg: '#ede9fe',
     },
+};
+
+// ── Routes des boutons d'action ───────────────────────────────────────────
+
+const ACTION_ROUTES: Record<string, string> = {
+    'Voir le stock':     '/(tabs)/stock',
+    'Voir les produits': '/(tabs)/stock',
+    'Voir les ventes':   '/(tabs)/revenus',
+    'Voir le marché':    '/(tabs)/marche',
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -205,30 +211,28 @@ async function analyserDonnees(storeId: string): Promise<Conseil[]> {
     // ────────────────────────────────────────────────
     // GROQ IA — conseils personnalisés supplémentaires
     // ────────────────────────────────────────────────
-    if (GROQ_API_KEY) {
-        try {
-            // Construire le résumé des données pour Groq
-            const topProduits = Object.entries(ventesCeMois)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 3)
-                .map(([id, qty]) => `${prodMap[id]?.name ?? id} (${qty} vendus)`)
-                .join(', ') || 'aucun';
+    try {
+        const topProduits = Object.entries(ventesCeMois)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([id, qty]) => `${prodMap[id]?.name ?? id} (${qty} vendus)`)
+            .join(', ') || 'aucun';
 
-            const stockCritique = stockList
-                .filter((s: any) => (s.quantity ?? 0) < 3 && (s.quantity ?? 0) > 0)
-                .map((s: any) => `${prodMap[s.product_id]?.name ?? '?'} (${s.quantity} restant)`)
-                .join(', ') || 'aucun';
+        const stockCritique = stockList
+            .filter((s: any) => (s.quantity ?? 0) < 3 && (s.quantity ?? 0) > 0)
+            .map((s: any) => `${prodMap[s.product_id]?.name ?? '?'} (${s.quantity} restant)`)
+            .join(', ') || 'aucun';
 
-            const contexte = [
-                `Chiffre d'affaires ce mois : ${totalMois.toLocaleString('fr-FR')} F`,
-                `Chiffre d'affaires mois dernier : ${totalPrev.toLocaleString('fr-FR')} F`,
-                `Nombre de ventes ce mois : ${txMoisList.length}`,
-                `Top produits vendus ce mois : ${topProduits}`,
-                `Stock critique (< 3 unités) : ${stockCritique}`,
-                `Nombre de produits en stock : ${stockList.filter((s: any) => (s.quantity ?? 0) > 0).length}`,
-            ].join('\n');
+        const contexte = [
+            `Chiffre d'affaires ce mois : ${totalMois.toLocaleString('fr-FR')} F`,
+            `Chiffre d'affaires mois dernier : ${totalPrev.toLocaleString('fr-FR')} F`,
+            `Nombre de ventes ce mois : ${txMoisList.length}`,
+            `Top produits vendus ce mois : ${topProduits}`,
+            `Stock critique (< 3 unités) : ${stockCritique}`,
+            `Nombre de produits en stock : ${stockList.filter((s: any) => (s.quantity ?? 0) > 0).length}`,
+        ].join('\n');
 
-            const prompt = `Tu es un conseiller financier pour un commerçant africain (Côte d'Ivoire).
+        const prompt = `Tu es un conseiller financier pour un commerçant africain (Côte d'Ivoire).
 Voici ses données de vente :
 
 ${contexte}
@@ -244,42 +248,28 @@ Réponds UNIQUEMENT au format JSON valide, sans texte avant/après :
   {"titre": "Titre court", "message": "Conseil précis et actionnable."}
 ]`;
 
-            const res = await fetch(CHAT_URL, {
-                method:  'POST',
-                headers: {
-                    'Content-Type':  'application/json',
-                    'Authorization': `Bearer ${GROQ_API_KEY}`,
-                },
-                body: JSON.stringify({
-                    model:       CHAT_MODEL,
-                    messages:    [{ role: 'user', content: prompt }],
-                    temperature: 0.6,
-                    max_tokens:  400,
-                }),
-            });
-
-            if (res.ok) {
-                const data  = await res.json();
-                const raw   = (data.choices?.[0]?.message?.content ?? '').trim();
-                // Extraire le JSON même si entouré de ```json ... ```
-                const match = raw.match(/\[[\s\S]*\]/);
-                if (match) {
-                    const iaItems = JSON.parse(match[0]) as { titre: string; message: string }[];
-                    iaItems.slice(0, 2).forEach((item, i) => {
-                        if (item.titre && item.message) {
-                            conseils.push({
-                                id:      `ia_${i}`,
-                                type:    'IA',
-                                titre:   item.titre,
-                                message: item.message,
-                            });
-                        }
-                    });
-                }
+        const raw   = await chatWithHistory([{ role: 'user', content: prompt }], 400);
+        // Extraire le JSON même si entouré de ```json ... ```
+        const match = raw.match(/\[[\s\S]*\]/);
+        if (match) {
+            try {
+                const iaItems = JSON.parse(match[0]) as { titre: string; message: string }[];
+                iaItems.slice(0, 2).forEach((item, i) => {
+                    if (item.titre && item.message) {
+                        conseils.push({
+                            id:      `ia_${i}`,
+                            type:    'IA',
+                            titre:   item.titre,
+                            message: item.message,
+                        });
+                    }
+                });
+            } catch (parseErr) {
+                console.warn('[conseils] Erreur JSON.parse Groq:', parseErr);
             }
-        } catch (e) {
-            console.warn('[conseils] Groq IA échoué, conseils locaux uniquement');
         }
+    } catch (e) {
+        console.warn('[conseils] Groq IA échoué, conseils locaux uniquement');
     }
 
     return conseils;
@@ -288,7 +278,7 @@ Réponds UNIQUEMENT au format JSON valide, sans texte avant/après :
 // ── Composant ──────────────────────────────────────────────────────────────
 
 export default function ConseilsScreen() {
-    const router        = useRouter();
+    const router            = useRouter();
     const { user }          = useAuth();
     const { activeProfile } = useProfileContext();
 
@@ -322,18 +312,12 @@ export default function ConseilsScreen() {
     const firstName = user?.name?.split(' ')[0] || 'Marchand';
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>MES CONSEILS</Text>
-                        <Text style={styles.headerSub}>ANALYSE INTELLIGENTE</Text>
-                    </View>
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Mes Conseils"
+                subtitle="Analyse intelligente"
+                showBack={true}
+                rightIcon={
                     <TouchableOpacity
                         style={[styles.refreshBtn, loading && { opacity: 0.5 }]}
                         onPress={charger}
@@ -341,8 +325,9 @@ export default function ConseilsScreen() {
                     >
                         <RefreshCw color={colors.white} size={18} />
                     </TouchableOpacity>
-                </View>
-
+                }
+                paddingBottom={24}
+            >
                 {/* Résumé */}
                 <View style={styles.kpiBlock}>
                     <Lightbulb color="rgba(255,255,255,0.8)" size={20} />
@@ -354,7 +339,7 @@ export default function ConseilsScreen() {
                                 : `Appuyez sur ↻ pour analyser, ${firstName}`}
                     </Text>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ── CONTENU ── */}
             <ScrollView
@@ -416,8 +401,12 @@ export default function ConseilsScreen() {
                                 </View>
                             </View>
                             <Text style={styles.conseilMessage}>{conseil.message}</Text>
-                            {conseil.action && (
-                                <TouchableOpacity style={[styles.actionBtn, { borderColor: cfg.border }]}>
+                            {conseil.action && ACTION_ROUTES[conseil.action] && (
+                                <TouchableOpacity
+                                    style={[styles.actionBtn, { borderColor: cfg.border }]}
+                                    onPress={() => router.push(ACTION_ROUTES[conseil.action!] as any)}
+                                    activeOpacity={0.75}
+                                >
                                     <Text style={[styles.actionBtnText, { color: cfg.iconColor }]}>
                                         {conseil.action} →
                                     </Text>
@@ -435,36 +424,15 @@ export default function ConseilsScreen() {
                 )}
             </ScrollView>
 
-        </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
 
-    // ── Header ──
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-    },
-    headerTop: {
-        flexDirection: 'row', alignItems: 'center',
-        justifyContent: 'space-between', marginBottom: 20,
-    },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, marginTop: 2 },
     refreshBtn: {
-        width: 40, height: 40, borderRadius: 10,
+        width: 44, height: 44, borderRadius: 10,
         backgroundColor: 'rgba(255,255,255,0.2)',
         alignItems: 'center', justifyContent: 'center',
     },
@@ -516,7 +484,7 @@ const styles = StyleSheet.create({
     },
     conseilTitleBlock: { flex: 1, gap: 4 },
     badge:       { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-    badgeText:   { fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+    badgeText:   { fontSize: 11, fontWeight: '900', letterSpacing: 1 },
     conseilTitre: { fontSize: 14, fontWeight: '900', color: colors.slate800, lineHeight: 20 },
     conseilMessage: { fontSize: 13, fontWeight: '500', color: colors.slate600, lineHeight: 20 },
     actionBtn: {
@@ -528,7 +496,7 @@ const styles = StyleSheet.create({
 
     // ── Timestamp ──
     timestamp: {
-        fontSize: 10, fontWeight: '600', color: colors.slate300,
+        fontSize: 11, fontWeight: '600', color: colors.slate300,
         textAlign: 'center', letterSpacing: 1,
     },
 });

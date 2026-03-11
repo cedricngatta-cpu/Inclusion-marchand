@@ -1,15 +1,15 @@
 // Dashboard Admin — Tableau de bord global de supervision
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, Dimensions,
+    View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, Dimensions, BackHandler,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
-    User, Bell, TrendingUp, Users, ShoppingBag, Package,
-    BarChart2, Shield, AlertCircle, Activity,
+    TrendingUp, Users, ShoppingBag, Package,
+    BarChart2, Shield, AlertCircle, Activity, UserPlus,
 } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { onSocketEvent } from '@/src/lib/socket';
@@ -92,7 +92,7 @@ export default function AdminDashboard() {
                 supabase.from('transactions').select('price').gte('created_at', monthStart),
                 supabase.from('products').select('*', { count: 'exact', head: true }),
                 supabase.from('orders').select('*', { count: 'exact', head: true }).in('status', ['PENDING', 'ACCEPTED']),
-                supabase.from('enrollments').select('*', { count: 'exact', head: true }).eq('status', 'PENDING'),
+                supabase.from('demandes_enrolement').select('*', { count: 'exact', head: true }).eq('statut', 'en_attente'),
             ]);
 
             const todayTxArr = (todayTxRes.data ?? []) as { price: number }[];
@@ -161,11 +161,25 @@ export default function AdminDashboard() {
             onSocketEvent('livraison-en-cours',     () => fetchDashboard()),
             onSocketEvent('livraison-terminee',     () => fetchDashboard()),
             onSocketEvent('signalement-conformite', () => fetchDashboard()),
+            onSocketEvent('achat-groupe-cree',      () => fetchDashboard()),
+            onSocketEvent('achat-groupe-rejoint',   () => fetchDashboard()),
+            onSocketEvent('prix-groupe-propose',    () => fetchDashboard()),
+            onSocketEvent('prix-groupe-accepte',    () => fetchDashboard()),
+            onSocketEvent('demande-prix-groupe',    () => fetchDashboard()),
         ];
         return () => unsubs.forEach(fn => fn());
     }, [fetchDashboard]);
 
     useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
+
+    // Bouton retour Android sur le dashboard → quitter l'app
+    useFocusEffect(useCallback(() => {
+        const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+            BackHandler.exitApp();
+            return true;
+        });
+        return () => backHandler.remove();
+    }, []));
 
     const onRefresh = () => { setRefreshing(true); fetchDashboard(); };
 
@@ -215,7 +229,8 @@ export default function AdminDashboard() {
     // ── Navigation modules ─────────────────────────────────────────────────────
     const NAV_MODULES = [
         { label: 'Utilisateurs',  bg: '#0891b2', Icon: Users,      route: '/admin/utilisateurs' },
-        { label: 'Transactions',  bg: '#059669', Icon: TrendingUp,  route: '/admin/transactions' },
+        { label: 'Enrôlements',   bg: '#059669', Icon: UserPlus,    route: '/admin/enrolements' },
+        { label: 'Transactions',  bg: '#16a34a', Icon: TrendingUp,  route: '/admin/transactions' },
         { label: 'Produits',      bg: '#d97706', Icon: Package,     route: '/admin/produits' },
         { label: 'Commandes',     bg: '#2563eb', Icon: ShoppingBag, route: '/admin/commandes' },
         { label: 'Signalements',  bg: '#dc2626', Icon: Shield,      route: '/admin/signalements' },
@@ -223,26 +238,15 @@ export default function AdminDashboard() {
     ];
 
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
-            {/* ════════════════ HEADER ════════════════ */}
-            <View style={s.header}>
-                {/* Nav icons */}
-                <View style={s.nav}>
-                    <TouchableOpacity style={s.iconBtn} onPress={() => router.push('/(tabs)/profil' as any)}>
-                        <User color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={{ flex: 1 }} />
-                    <TouchableOpacity style={s.iconBtn} onPress={() => router.push('/(tabs)/notifications' as any)}>
-                        <Bell color={colors.white} size={20} />
-                    </TouchableOpacity>
-                </View>
-
-                {/* Titre centré */}
-                <View style={s.headerTitleBlock}>
-                    <Text style={s.headerTitle}>ADMINISTRATION</Text>
-                    <Text style={s.headerSubtitle}>TABLEAU DE BORD</Text>
-                </View>
-
+        <View style={s.safe}>
+            <ScreenHeader
+                title="Administration"
+                subtitle="Tableau de bord"
+                showBack={false}
+                showProfile={true}
+                showNotification={true}
+                paddingBottom={24}
+            >
                 {/* Hero réseau */}
                 <View style={s.heroBlock}>
                     <Text style={s.heroNetworkLabel}>RÉSEAU INCLUSION MARCHAND</Text>
@@ -255,7 +259,7 @@ export default function AdminDashboard() {
                         {d?.merchants ?? 0} marchands · {d?.producers ?? 0} producteurs · {d?.agents ?? 0} agents · {d?.cooperatives ?? 0} coopératives
                     </Text>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ════════════════ CONTENU ════════════════ */}
             <ScrollView
@@ -273,7 +277,7 @@ export default function AdminDashboard() {
                     <TouchableOpacity
                         style={s.alertBanner}
                         activeOpacity={0.85}
-                        onPress={() => router.push('/admin/utilisateurs' as any)}
+                        onPress={() => router.push('/admin/enrolements' as any)}
                     >
                         <AlertCircle color="#92400e" size={18} />
                         <Text style={s.alertBannerText} numberOfLines={1}>
@@ -341,7 +345,7 @@ export default function AdminDashboard() {
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -349,31 +353,11 @@ export default function AdminDashboard() {
 const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f8fafc' },
 
-    // Header
-    header: {
-        backgroundColor: '#059669',
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 28,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 12,
-    },
-    nav: { flexDirection: 'row', alignItems: 'center' },
-    iconBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:    { fontSize: 18, fontWeight: '900', color: '#fff', letterSpacing: 2 },
-    headerSubtitle: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 2, marginTop: 2 },
-
     // Hero
     heroBlock:        { alignItems: 'center', gap: 4 },
-    heroNetworkLabel: { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2, textTransform: 'uppercase' },
+    heroNetworkLabel: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2, textTransform: 'uppercase' },
     heroTotalUsers:   { fontSize: 56, fontWeight: '900', color: '#fff', lineHeight: 64, letterSpacing: -3 },
-    heroNetworkSub:   { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.6)', textAlign: 'center', paddingHorizontal: 8 },
+    heroNetworkSub:   { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.6)', textAlign: 'center', paddingHorizontal: 8 },
 
     // Scroll
     scroll:        { flex: 1 },
@@ -406,12 +390,12 @@ const s = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#f1f5f9',
     },
-    statLabel: { fontSize: 8, fontWeight: '800', color: '#94a3b8', letterSpacing: 1.2, textTransform: 'uppercase' },
+    statLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', letterSpacing: 1.2, textTransform: 'uppercase' },
     statValue: { fontSize: 22, fontWeight: '900', color: '#1e293b', lineHeight: 26 },
-    statSub:   { fontSize: 10, fontWeight: '600', color: '#94a3b8' },
+    statSub:   { fontSize: 11, fontWeight: '600', color: '#94a3b8' },
 
     // Section titre
-    sectionTitle: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 2, textTransform: 'uppercase' },
+    sectionTitle: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 2, textTransform: 'uppercase' },
 
     // Nav grid 2 colonnes — largeur fixe en pixels via Dimensions
     navGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
@@ -444,8 +428,8 @@ const s = StyleSheet.create({
     },
     activityInfo:   { flex: 1, minWidth: 0, gap: 2 },
     activityAction: { fontSize: 12, fontWeight: '700', color: '#1e293b' },
-    activityUser:   { fontSize: 10, color: '#94a3b8' },
-    activityTime:   { fontSize: 10, color: '#94a3b8', flexShrink: 0 },
+    activityUser:   { fontSize: 11, color: '#94a3b8' },
+    activityTime:   { fontSize: 11, color: '#94a3b8', flexShrink: 0 },
 
     // Empty
     emptyCard: {
@@ -453,5 +437,5 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: '#f1f5f9',
         borderStyle: 'dashed', gap: 8,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
 });

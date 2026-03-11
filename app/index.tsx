@@ -1,64 +1,62 @@
-// Page d'accueil — redirige vers login ou dashboard selon l'état d'auth
-import { useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuth } from '@/src/context/AuthContext';
-import { colors } from '@/src/lib/colors';
+import { useAuth } from '../src/context/AuthContext';
 
-export default function IndexPage() {
-    const router = useRouter();
-    const { isAuthenticated, user } = useAuth();
+export default function Index() {
+  const router = useRouter();
+  const { user, profile, isLoading } = useAuth();
+  const [isReady, setIsReady] = useState(false);
 
-    const getDashboardPath = (role: string | undefined) => {
-        switch ((role ?? '').toLowerCase()) {
-            // Valeurs normalisées (AuthContext)
-            case 'supervisor':
-            // Valeurs brutes Supabase (sécurité)
-            case 'admin':
-            case 'superviseur':
-                return '/admin';
+  // Attendre que le layout soit complètement monté
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsReady(true);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
-            case 'producer':
-            case 'producteur':
-                return '/producteur';
+  // Naviguer seulement quand tout est prêt
+  useEffect(() => {
+    if (!isReady || isLoading) return;
 
-            case 'cooperative':
-            case 'coopérative':
-                return '/cooperative';
+    const role = profile?.role || user?.role;
 
-            case 'field_agent':
-            case 'agent':
-            case 'agent_terrain':
-                return '/agent';
+    if (!user) {
+      router.replace('/(auth)/login');
+      return;
+    }
 
-            case 'merchant':
-            case 'marchand':
-            case 'commercant':
-            default:
-                return '/(tabs)/commercant';
-        }
-    };
+    switch (role) {
+      case 'MERCHANT':
+      case 'commercant':
+        router.replace('/(tabs)/commercant');
+        break;
+      case 'PRODUCER':
+      case 'producteur':
+        router.replace('/producteur');
+        break;
+      case 'COOPERATIVE':
+      case 'cooperative':
+        router.replace('/cooperative');
+        break;
+      case 'FIELD_AGENT':
+      case 'agent':
+        router.replace('/agent');
+        break;
+      case 'SUPERVISOR':
+      case 'admin':
+        router.replace('/admin');
+        break;
+      default:
+        router.replace('/(auth)/login');
+    }
+  }, [isReady, isLoading, user, profile]);
 
-    useEffect(() => {
-        if (isAuthenticated && user) {
-            router.replace(getDashboardPath(user.role) as any);
-        } else if (isAuthenticated === false) {
-            router.replace('/(auth)/login' as any);
-        }
-    }, [isAuthenticated, user]);
-
-    return (
-        <View style={styles.container}>
-            <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-    );
+  // Écran de chargement en attendant
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#059669' }}>
+      <ActivityIndicator size="large" color="white" />
+    </View>
+  );
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: colors.white,
-    },
-});

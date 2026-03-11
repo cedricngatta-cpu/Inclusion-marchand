@@ -35,7 +35,8 @@ export default function SignupScreen() {
 
     useEffect(() => {
         if (isAuthenticated && user) {
-            router.replace('/(tabs)/commercant' as any);
+            // Laisser index.tsx gérer la redirection selon le rôle
+            router.replace('/' as any);
         }
     }, [isAuthenticated, user]);
 
@@ -85,7 +86,7 @@ export default function SignupScreen() {
                     {/* Header */}
                     <View style={styles.header}>
                         <View style={styles.logoBox}>
-                            <User color={colors.white} size={30} />
+                            <User color={colors.primary} size={30} />
                         </View>
                         <Text style={styles.title}>NOUVEAU COMPTE</Text>
                         <Text style={styles.subtitle}>REJOIGNEZ L'ÉCOSYSTÈME MARCHAND</Text>
@@ -237,7 +238,7 @@ const styles = StyleSheet.create({
         shadowColor: colors.primary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 8,
     },
     title: { fontSize: 22, fontWeight: '900', color: colors.slate900, letterSpacing: -0.5, textTransform: 'uppercase' },
-    subtitle: { fontSize: 9, fontWeight: '700', color: colors.slate400, letterSpacing: 3, marginTop: 4, textTransform: 'uppercase', textAlign: 'center' },
+    subtitle: { fontSize: 11, fontWeight: '700', color: colors.slate400, letterSpacing: 3, marginTop: 4, textTransform: 'uppercase', textAlign: 'center' },
 
     progress: { flexDirection: 'row', gap: 8, marginBottom: 28 },
     progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.slate200 },
@@ -245,7 +246,7 @@ const styles = StyleSheet.create({
     progressDotCurrent: { width: 24 },
 
     form: { width: '100%', gap: 16 },
-    label: { fontSize: 9, fontWeight: '900', color: colors.slate400, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 6, marginLeft: 4 },
+    label: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 6, marginLeft: 4 },
     inputWrapper: {
         flexDirection: 'row', alignItems: 'center',
         backgroundColor: colors.slate50, borderWidth: 2, borderColor: colors.slate100,
@@ -285,12 +286,12 @@ const styles = StyleSheet.create({
     },
     btnPrimaryText: { color: colors.white, fontSize: 13, fontWeight: '900', letterSpacing: 2, textTransform: 'uppercase' },
     linkBtn: { alignItems: 'center', paddingVertical: 10 },
-    linkBtnText: { fontSize: 9, fontWeight: '900', color: colors.slate400, letterSpacing: 3, textTransform: 'uppercase' },
+    linkBtnText: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 3, textTransform: 'uppercase' },
 
     pinContainer: { width: '100%', alignItems: 'center', gap: 20 },
     pinIconBox: { width: 64, height: 64, backgroundColor: colors.primaryBg, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     pinTitle: { fontSize: 18, fontWeight: '900', color: colors.slate900, letterSpacing: -0.5, textTransform: 'uppercase' },
-    pinSubtitle: { fontSize: 9, fontWeight: '700', color: colors.slate400, letterSpacing: 2, textTransform: 'uppercase', textAlign: 'center' },
+    pinSubtitle: { fontSize: 11, fontWeight: '700', color: colors.slate400, letterSpacing: 2, textTransform: 'uppercase', textAlign: 'center' },
     pinDots: { flexDirection: 'row', gap: 18 },
     dot: { width: 18, height: 18, borderRadius: 4, borderWidth: 3, borderColor: colors.slate200 },
     dotFilled: { backgroundColor: colors.primary, borderColor: colors.primary, transform: [{ scale: 1.2 }] },

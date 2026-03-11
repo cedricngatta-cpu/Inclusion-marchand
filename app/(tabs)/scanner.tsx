@@ -122,7 +122,7 @@ export default function ScannerScreen() {
                 {/* Header avec fond sombre */}
                 <View style={styles.headerMask}>
                     <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={24} />
+                        <ChevronLeft color={colors.primary} size={24} />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>SCANNER PRODUIT</Text>
                     <TouchableOpacity style={styles.iconBtn} onPress={() => setTorch(v => !v)}>
@@ -316,10 +316,10 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     resultFoundTag: {
-        fontSize: 10, fontWeight: '900', color: '#16a34a', letterSpacing: 2, textTransform: 'uppercase',
+        fontSize: 11, fontWeight: '900', color: '#16a34a', letterSpacing: 2, textTransform: 'uppercase',
     },
     resultNotFoundTag: {
-        fontSize: 10, fontWeight: '900', color: '#dc2626', letterSpacing: 2, textTransform: 'uppercase',
+        fontSize: 11, fontWeight: '900', color: '#dc2626', letterSpacing: 2, textTransform: 'uppercase',
     },
     resultName: { fontSize: 18, fontWeight: '900', color: colors.slate900, textAlign: 'center' },
     resultPrice: { fontSize: 22, fontWeight: '900', color: colors.primary },

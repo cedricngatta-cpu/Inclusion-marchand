@@ -1,12 +1,11 @@
 // Revenus — Producteur
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator,
+    View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { ChevronLeft, ChevronRight, TrendingUp, Package } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useProfileContext } from '@/src/context/ProfileContext';
@@ -36,7 +35,6 @@ const MONTHS_FR = [
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function RevenusScreen() {
-    const router = useRouter();
     const { activeProfile } = useProfileContext();
 
     const now = new Date();
@@ -107,20 +105,8 @@ export default function RevenusScreen() {
     const maxRevenue  = productList[0]?.total ?? 1;
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>MES REVENUS</Text>
-                        <Text style={styles.headerSub}>COMMANDES LIVRÉES</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
+        <View style={styles.safe}>
+            <ScreenHeader title="Mes Revenus" subtitle="Commandes livrées" showBack={true} paddingBottom={24}>
                 {/* Sélecteur de mois */}
                 <View style={styles.monthSelector}>
                     <TouchableOpacity style={styles.monthArrow} onPress={prevMonth}>
@@ -162,7 +148,7 @@ export default function RevenusScreen() {
                         </View>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ── CONTENU ── */}
             <ScrollView
@@ -239,36 +225,13 @@ export default function RevenusScreen() {
                     </>
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
-
-    // Header
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop: {
-        flexDirection: 'row', alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2, marginTop: 2 },
 
     // Sélecteur mois
     monthSelector: {
@@ -299,14 +262,14 @@ const styles = StyleSheet.create({
         alignItems: 'center', justifyContent: 'center',
     },
     kpiValue: { fontSize: 20, fontWeight: '900', color: colors.white, lineHeight: 24 },
-    kpiUnit:  { fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 2 },
+    kpiUnit:  { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 2 },
 
     // Scroll
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 12 },
 
     // Section
-    sectionTitle: { fontSize: 10, fontWeight: '900', color: colors.slate400, letterSpacing: 2 },
+    sectionTitle: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 2 },
 
     // Produits card
     productsCard: {
@@ -332,7 +295,7 @@ const styles = StyleSheet.create({
         borderRadius: 3, overflow: 'hidden',
     },
     progressFill: { height: 6, backgroundColor: colors.primary, borderRadius: 3 },
-    productRowCount: { fontSize: 10, fontWeight: '600', color: colors.slate400 },
+    productRowCount: { fontSize: 11, fontWeight: '600', color: colors.slate400 },
 
     // Order card
     orderCard: {
@@ -353,12 +316,12 @@ const styles = StyleSheet.create({
     orderInfo:    { flex: 1, minWidth: 0 },
     orderProduct: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
     orderBuyer:   { fontSize: 11, fontWeight: '600', color: colors.slate500, marginTop: 2 },
-    orderMeta:    { fontSize: 10, color: colors.slate400, marginTop: 2 },
+    orderMeta:    { fontSize: 11, color: colors.slate400, marginTop: 2 },
     orderRight:   { alignItems: 'flex-end', gap: 4, flexShrink: 0 },
     orderAmount:  { fontSize: 14, fontWeight: '900', color: colors.primary },
 
     deliveredBadge:     { backgroundColor: '#f0fdf4', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-    deliveredBadgeText: { fontSize: 9, fontWeight: '700', color: '#166534' },
+    deliveredBadgeText: { fontSize: 11, fontWeight: '700', color: '#166534' },
 
     // Empty
     emptyCard: {
@@ -366,6 +329,6 @@ const styles = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: colors.slate100,
         borderStyle: 'dashed', gap: 12,
     },
-    emptyText:    { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2, textAlign: 'center' },
+    emptyText:    { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2, textAlign: 'center' },
     emptySubText: { fontSize: 12, fontWeight: '500', color: colors.slate400, textAlign: 'center' },
 });

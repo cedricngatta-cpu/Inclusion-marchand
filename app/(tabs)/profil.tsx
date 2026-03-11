@@ -2,10 +2,12 @@
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { User, LogOut, Store, Shield, Phone, ChevronRight } from 'lucide-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
+import { ScreenHeader } from '@/src/components/ui';
 import { useAuth } from '@/src/context/AuthContext';
 import { useProfileContext } from '@/src/context/ProfileContext';
+import { useVoiceButton } from '@/src/context/VoiceButtonContext';
 import { colors } from '@/src/lib/colors';
 
 const ROLE_LABELS: Record<string, string> = {
@@ -28,6 +30,13 @@ export default function ProfilScreen() {
     const router = useRouter();
     const { user, logout } = useAuth();
     const { activeProfile } = useProfileContext();
+    const { hideVoiceButton, showVoiceButton } = useVoiceButton();
+
+    // Masquer l'assistant vocal sur l'écran profil
+    useFocusEffect(useCallback(() => {
+        hideVoiceButton();
+        return () => showVoiceButton();
+    }, []));
 
     const handleLogout = () => {
         Alert.alert(
@@ -51,7 +60,11 @@ export default function ProfilScreen() {
     const roleLabel = ROLE_LABELS[user?.role || 'MERCHANT'];
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Mon Profil"
+                showBack={true}
+            />
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
                 {/* Avatar + infos */}
                 <View style={styles.avatarSection}>
@@ -72,8 +85,14 @@ export default function ProfilScreen() {
 
                     <InfoRow icon={<Phone color={colors.primary} size={18} />} label="Téléphone" value={user?.phoneNumber || '—'} />
                     <InfoRow icon={<Shield color={colors.primary} size={18} />} label="Rôle" value={roleLabel} />
-                    {activeProfile && (
+                    {(user?.role === 'MERCHANT' || user?.role === 'PRODUCER') && activeProfile && (
                         <InfoRow icon={<Store color={colors.primary} size={18} />} label="Boutique" value={activeProfile.name} />
+                    )}
+                    {user?.role === 'COOPERATIVE' && activeProfile && (
+                        <InfoRow icon={<Store color={colors.primary} size={18} />} label="Coopérative" value={activeProfile.name} />
+                    )}
+                    {user?.role === 'SUPERVISOR' && (
+                        <InfoRow icon={<Shield color={colors.primary} size={18} />} label="Niveau d'accès" value="Super Administrateur" />
                     )}
                     <InfoRow icon={<User color={colors.primary} size={18} />} label="ID Compte" value={user?.id?.substring(0, 8) + '...' || '—'} />
                 </View>
@@ -99,7 +118,7 @@ export default function ProfilScreen() {
 
                 <Text style={styles.footer}>Inclusion Marchand • v1.0.0</Text>
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -119,12 +138,12 @@ const infoStyles = StyleSheet.create({
     row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, gap: 12, borderBottomWidth: 1, borderBottomColor: colors.slate100 },
     iconBox: { width: 36, height: 36, borderRadius: 12, backgroundColor: colors.primaryBg, alignItems: 'center', justifyContent: 'center' },
     content: { flex: 1 },
-    label: { fontSize: 10, fontWeight: '700', color: colors.slate400, textTransform: 'uppercase', letterSpacing: 1 },
+    label: { fontSize: 11, fontWeight: '700', color: colors.slate400, textTransform: 'uppercase', letterSpacing: 1 },
     value: { fontSize: 14, fontWeight: '600', color: colors.slate800, marginTop: 2 },
 });
 
 const styles = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.white },
+    safe: { flex: 1, backgroundColor: colors.bgSecondary },
     scroll: { paddingBottom: 40 },
 
     avatarSection: { alignItems: 'center', paddingVertical: 32, backgroundColor: colors.primaryBg },
@@ -140,7 +159,7 @@ const styles = StyleSheet.create({
     roleBadgeText: { fontSize: 12, fontWeight: '700', color: colors.slate700 },
 
     section: { paddingHorizontal: 20, paddingTop: 24 },
-    sectionTitle: { fontSize: 10, fontWeight: '900', color: colors.slate400, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 12 },
+    sectionTitle: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 12 },
 
     actionRow: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

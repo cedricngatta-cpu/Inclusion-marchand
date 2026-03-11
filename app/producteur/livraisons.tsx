@@ -4,9 +4,9 @@ import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, Truck } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
+import { Truck } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useProfileContext } from '@/src/context/ProfileContext';
@@ -27,32 +27,32 @@ interface DeliveryOrder {
 const STATUS_LABELS: Record<string, string> = {
     PENDING:   'En attente',
     ACCEPTED:  'Acceptée',
-    SHIPPING:  'En livraison',
+    SHIPPED:   'En livraison',
     DELIVERED: 'Livrée',
-    REJECTED:  'Refusée',
+    CANCELLED: 'Annulée',
 };
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
     PENDING:   { bg: '#fef3c7', text: '#92400e' },
     ACCEPTED:  { bg: '#d1fae5', text: '#065f46' },
-    SHIPPING:  { bg: '#dbeafe', text: '#1e40af' },
+    SHIPPED:   { bg: '#dbeafe', text: '#1e40af' },
     DELIVERED: { bg: '#f0fdf4', text: '#166534' },
-    REJECTED:  { bg: '#fee2e2', text: '#991b1b' },
+    CANCELLED: { bg: '#fee2e2', text: '#991b1b' },
 };
 
 // Progression des statuts
-const STEPS = ['PENDING', 'ACCEPTED', 'SHIPPING', 'DELIVERED'];
+const STEPS = ['PENDING', 'ACCEPTED', 'SHIPPED', 'DELIVERED'];
 const STEP_LABELS = ['En attente', 'Acceptée', 'En préparation', 'En livraison', 'Livrée'];
 
 function getNextStatus(current: string): string | null {
-    if (current === 'ACCEPTED') return 'SHIPPING';
-    if (current === 'SHIPPING') return 'DELIVERED';
+    if (current === 'ACCEPTED') return 'SHIPPED';
+    if (current === 'SHIPPED') return 'DELIVERED';
     return null;
 }
 
 function getNextLabel(current: string): string | null {
     if (current === 'ACCEPTED') return 'MARQUER EN LIVRAISON';
-    if (current === 'SHIPPING') return 'MARQUER LIVRÉE';
+    if (current === 'SHIPPED') return 'MARQUER LIVRÉE';
     return null;
 }
 
@@ -85,7 +85,6 @@ const pb = StyleSheet.create({
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function LivraisonsScreen() {
-    const router = useRouter();
     const { activeProfile } = useProfileContext();
 
     const [orders, setOrders]   = useState<DeliveryOrder[]>([]);
@@ -102,7 +101,7 @@ export default function LivraisonsScreen() {
                 .from('orders')
                 .select('*, products(name, price), stores!buyer_store_id(name)')
                 .eq('seller_store_id', activeProfile.id)
-                .in('status', ['ACCEPTED', 'SHIPPING'])
+                .in('status', ['ACCEPTED', 'SHIPPED'])
                 .order('created_at', { ascending: false });
 
             setOrders((data as DeliveryOrder[]) || []);
@@ -151,7 +150,7 @@ export default function LivraisonsScreen() {
                         type:      'livraison',
                     }]);
                 } catch {}
-            } else if (nextStatus === 'SHIPPING') {
+            } else if (nextStatus === 'SHIPPED') {
                 emitEvent('livraison-en-cours', {
                     orderId,
                     sellerStoreId: activeProfile?.id,
@@ -168,22 +167,12 @@ export default function LivraisonsScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>LIVRAISONS</Text>
-                        <Text style={styles.headerSub}>EN COURS</Text>
-                    </View>
-                    <View style={styles.kpiBadge}>
-                        <Text style={styles.kpiBadgeText}>{orders.length}</Text>
-                    </View>
-                </View>
-            </View>
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Livraisons"
+                subtitle="En cours"
+                showBack={true}
+            />
 
             {/* ── LISTE ── */}
             <ScrollView
@@ -302,42 +291,13 @@ export default function LivraisonsScreen() {
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
-
-    // Header
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-    },
-    headerTop: {
-        flexDirection: 'row', alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, marginTop: 2 },
-    kpiBadge: {
-        minWidth: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-        paddingHorizontal: 8,
-    },
-    kpiBadgeText: { fontSize: 16, fontWeight: '900', color: colors.white },
 
     // Scroll
     scroll:        { flex: 1 },
@@ -362,18 +322,18 @@ const styles = StyleSheet.create({
     productName:    { fontSize: 14, fontWeight: '700', color: colors.slate800 },
     buyerName:      { fontSize: 11, fontWeight: '600', color: colors.slate500, marginTop: 2 },
     statusBadge:    { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, flexShrink: 0 },
-    statusText:     { fontSize: 10, fontWeight: '700' },
+    statusText:     { fontSize: 11, fontWeight: '700' },
 
     // Steps
     stepsLabels: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-    stepLabel: { fontSize: 8, fontWeight: '600', color: colors.slate400, textAlign: 'center', flex: 1 },
+    stepLabel: { fontSize: 11, fontWeight: '600', color: colors.slate400, textAlign: 'center', flex: 1 },
     stepLabelActive: { color: colors.primary, fontWeight: '900' },
 
     // Détails
     detailsRow:    { flexDirection: 'row', backgroundColor: colors.slate50, borderRadius: 8, padding: 12 },
     detailItem:    { flex: 1, alignItems: 'center' },
     detailDivider: { width: 1, backgroundColor: colors.slate200 },
-    detailLabel:   { fontSize: 9, fontWeight: '700', color: colors.slate400, letterSpacing: 1, marginBottom: 4 },
+    detailLabel:   { fontSize: 11, fontWeight: '700', color: colors.slate400, letterSpacing: 1, marginBottom: 4 },
     detailValue:   { fontSize: 12, fontWeight: '700', color: colors.slate800 },
 
     // Bouton statut
@@ -398,6 +358,6 @@ const styles = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: colors.slate100,
         borderStyle: 'dashed', gap: 12,
     },
-    emptyText:    { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2, textAlign: 'center' },
+    emptyText:    { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2, textAlign: 'center' },
     emptySubText: { fontSize: 12, fontWeight: '500', color: colors.slate400, textAlign: 'center' },
 });

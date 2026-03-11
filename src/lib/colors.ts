@@ -1,39 +1,89 @@
-// Palette de couleurs — fidèle au thème Tailwind du projet Next.js
+// Palette de couleurs — design system unifié
 export const colors = {
     // Couleur principale : emerald-600
     primary: '#059669',
     primaryLight: '#10b981',
     primaryDark: '#047857',
-    primaryBg: '#ecfdf5',       // emerald-50
-    primaryBg2: '#d1fae5',      // emerald-100
+    primaryBg: '#ECFDF5',
+    primaryBg2: '#D1FAE5',
 
     // Neutres
-    white: '#ffffff',
+    white: '#FFFFFF',
     black: '#000000',
-    slate50: '#f8fafc',
-    slate100: '#f1f5f9',
-    slate200: '#e2e8f0',
-    slate300: '#cbd5e1',
-    slate400: '#94a3b8',
-    slate500: '#64748b',
-    slate600: '#475569',
-    slate700: '#334155',
-    slate800: '#1e293b',
-    slate900: '#0f172a',
+    slate50: '#F9FAFB',
+    slate100: '#F3F4F6',
+    slate200: '#E5E7EB',
+    slate300: '#D1D5DB',
+    slate400: '#9CA3AF',
+    slate500: '#6B7280',
+    slate600: '#4B5563',
+    slate700: '#374151',
+    slate800: '#1F2937',
+    slate900: '#111827',
 
     // Statuts
     success: '#059669',
-    warning: '#d97706',
-    error: '#dc2626',
-    info: '#2563eb',
+    warning: '#D97706',
+    error: '#DC2626',
+    info: '#2563EB',
 
     // Couleurs secondaires
-    amber500: '#f59e0b',
-    blue500: '#3b82f6',
-    red500: '#ef4444',
-    red600: '#dc2626',
+    amber500: '#F59E0B',
+    blue500: '#3B82F6',
+    red500: '#EF4444',
+    red600: '#DC2626',
 
     // Fond global
-    bg: '#ffffff',
-    bgSecondary: '#f8fafc',
+    bg: '#FFFFFF',
+    bgSecondary: '#F9FAFB',
+
+    // Bordures
+    border: '#F3F4F6',
+    borderLight: '#E5E7EB',
+
+    // Texte
+    textPrimary: '#1F2937',
+    textSecondary: '#6B7280',
+    textMuted: '#9CA3AF',
+
+    // Status badges
+    orangeLight: '#FEF3C7',
+    orange: '#D97706',
+    blueLight: '#EFF6FF',
+    blue: '#2563EB',
+    redLight: '#FEE2E2',
+    red: '#DC2626',
+    greenLight: '#ECFDF5',
+    green: '#059669',
+    purpleLight: '#F3E8FF',
+    purple: '#7C3AED',
+};
+
+// Typographie standard
+export const FONTS = {
+    h1: { fontSize: 24, fontWeight: '700' as const },
+    h2: { fontSize: 18, fontWeight: '700' as const, letterSpacing: 0.5 as const },
+    h3: { fontSize: 15, fontWeight: '600' as const },
+    body: { fontSize: 14, fontWeight: '400' as const },
+    caption: { fontSize: 12, fontWeight: '400' as const, color: '#6B7280' },
+    label: { fontSize: 11, fontWeight: '600' as const, letterSpacing: 1 as const, color: '#6B7280' },
+    button: { fontSize: 15, fontWeight: '700' as const, letterSpacing: 0.5 as const },
+};
+
+// Ombres standard
+export const SHADOWS = {
+    sm: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    md: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 3,
+    },
 };

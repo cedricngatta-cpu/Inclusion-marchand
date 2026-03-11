@@ -131,10 +131,17 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const updateProduct = async (id: string, updates: Partial<Product>): Promise<boolean> => {
         console.log('[ProductContext] UPDATE products — id:', id, 'updates:', updates);
-        const { error } = await supabase.from('products').update({
-            name: updates.name, price: updates.price,
-            audio_name: updates.audioName, category: updates.category,
-        }).eq('id', id);
+        // Ne mettre à jour que les champs explicitement définis (éviter d'écraser avec undefined)
+        const payload: Record<string, any> = {};
+        if (updates.name      !== undefined) payload.name       = updates.name;
+        if (updates.price     !== undefined) payload.price      = updates.price;
+        if (updates.audioName !== undefined) payload.audio_name = updates.audioName;
+        if (updates.category  !== undefined) payload.category   = updates.category;
+        if (updates.barcode   !== undefined) payload.barcode    = updates.barcode;
+        if (updates.imageUrl  !== undefined) payload.image_url  = updates.imageUrl;
+        if (updates.color     !== undefined) payload.color      = updates.color;
+        if (updates.iconColor !== undefined) payload.icon_color = updates.iconColor;
+        const { error } = await supabase.from('products').update(payload).eq('id', id);
         if (error) {
             console.error('[ProductContext] ❌ UPDATE products ERREUR:', error.message);
             return false;

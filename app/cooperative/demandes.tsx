@@ -4,40 +4,39 @@ import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, Phone, MapPin, User, Store } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
+import { Phone, MapPin, Store } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { onSocketEvent, emitEvent } from '@/src/lib/socket';
+import { useAuth } from '@/src/context/AuthContext';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Enrollment {
     id: string;
-    status: 'PENDING' | 'VALIDATED' | 'REJECTED';
-    created_at: string;
-    first_name?: string;
-    last_name?: string;
-    phone?: string;
-    role?: string;
-    shop_name?: string;
-    address?: string;
+    statut: 'en_attente' | 'valide' | 'rejete';
+    date_demande: string;
+    nom?: string;
+    telephone?: string;
+    type?: string;
+    nom_boutique?: string;
+    adresse?: string;
     agent_id?: string;   // UUID de l'agent — utilisé pour router la notification Socket.io
-    agent_name?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const FILTER_TABS = [
-    { key: 'ALL',       label: 'Toutes' },
-    { key: 'PENDING',   label: 'En attente' },
-    { key: 'VALIDATED', label: 'Validées' },
-    { key: 'REJECTED',  label: 'Refusées' },
+    { key: 'ALL',        label: 'Toutes' },
+    { key: 'en_attente', label: 'En attente' },
+    { key: 'valide',     label: 'Validées' },
+    { key: 'rejete',     label: 'Refusées' },
 ];
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-    PENDING:   { bg: '#fef3c7', text: '#92400e', label: 'En attente' },
-    VALIDATED: { bg: '#d1fae5', text: '#065f46', label: 'Validée' },
-    REJECTED:  { bg: '#fee2e2', text: '#991b1b', label: 'Refusée' },
+    en_attente: { bg: '#fef3c7', text: '#92400e', label: 'En attente' },
+    valide:     { bg: '#d1fae5', text: '#065f46', label: 'Validée' },
+    rejete:     { bg: '#fee2e2', text: '#991b1b', label: 'Refusée' },
 };
 
 const ROLE_CONFIG: Record<string, { bg: string; text: string }> = {
@@ -46,9 +45,10 @@ const ROLE_CONFIG: Record<string, { bg: string; text: string }> = {
     AGENT:    { bg: '#ede9fe', text: '#5b21b6' },
 };
 
-function getInitials(firstName?: string, lastName?: string) {
-    const f = (firstName ?? '?')[0]?.toUpperCase() ?? '?';
-    const l = (lastName ?? '')[0]?.toUpperCase() ?? '';
+function getInitials(nom?: string) {
+    const parts = (nom ?? '?').trim().split(' ');
+    const f = (parts[0] ?? '?')[0]?.toUpperCase() ?? '?';
+    const l = parts.length > 1 ? (parts[parts.length - 1][0]?.toUpperCase() ?? '') : '';
     return f + l;
 }
 
@@ -61,8 +61,7 @@ function getAvatarColor(id: string) {
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function DemandesScreen() {
-    const router = useRouter();
-
+    const { user } = useAuth();
     const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
     const [activeFilter, setActiveFilter] = useState<string>('ALL');
     const [loading, setLoading]           = useState(true);
@@ -71,21 +70,26 @@ export default function DemandesScreen() {
     const fetchDemandes = useCallback(async () => {
         setLoading(true);
         try {
-            const { data } = await supabase
-                .from('enrollments')
+            const coopId = user?.id;
+            const query = supabase
+                .from('demandes_enrolement')
                 .select('*')
-                .order('created_at', { ascending: false })
+                .order('date_demande', { ascending: false })
                 .limit(50);
+            // Filtrer par coopérative si l'ID est disponible
+            const { data } = coopId
+                ? await query.eq('cooperative_id', coopId)
+                : await query;
 
             const list = (data as Enrollment[]) || [];
             setEnrollments(list);
-            setPendingCount(list.filter(e => e.status === 'PENDING').length);
+            setPendingCount(list.filter(e => e.statut === 'en_attente').length);
         } catch (err) {
             console.error('[Demandes] fetch error:', err);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [user]);
 
     useEffect(() => { fetchDemandes(); }, [fetchDemandes]);
 
@@ -100,29 +104,29 @@ export default function DemandesScreen() {
     // Recharge à chaque retour sur l'écran
     useFocusEffect(useCallback(() => { fetchDemandes(); }, [fetchDemandes]));
 
-    const handleUpdateStatus = async (enroll: Enrollment, status: 'VALIDATED' | 'REJECTED') => {
-        const marchandName = `${enroll.first_name ?? ''} ${enroll.last_name ?? ''}`.trim();
+    const handleUpdateStatus = async (enroll: Enrollment, status: 'valide' | 'rejete') => {
+        const marchandName = enroll.nom ?? '';
         console.log('[Demandes] handleUpdateStatus — id:', enroll.id, '→ nouveau statut:', status, '| agent_id:', enroll.agent_id);
 
         try {
             // 1. Mise à jour Supabase EN PREMIER
             const { error: updateError } = await supabase
-                .from('enrollments')
-                .update({ status })
+                .from('demandes_enrolement')
+                .update({ statut: status })
                 .eq('id', enroll.id);
 
             if (updateError) {
-                console.error('[Demandes] ❌ UPDATE enrollments ERREUR:', updateError.message, '| code:', updateError.code);
+                console.error('[Demandes] ❌ UPDATE demandes_enrolement ERREUR:', updateError.message, '| code:', updateError.code);
                 return;
             }
-            console.log('[Demandes] ✅ UPDATE enrollments OK — id:', enroll.id, 'statut:', status);
+            console.log('[Demandes] ✅ UPDATE demandes_enrolement OK — id:', enroll.id, 'statut:', status);
 
             // 2. Log activité
             try {
                 await supabase.from('activity_logs').insert([{
                     user_id:   null,
                     user_name: 'Coopérative',
-                    action:    `Enrôlement ${status === 'VALIDATED' ? 'validé' : 'rejeté'} : ${marchandName}`,
+                    action:    `Enrôlement ${status === 'valide' ? 'validé' : 'rejeté'} : ${marchandName}`,
                     type:      'enrolement',
                 }]);
                 console.log('[Demandes] ✅ activity_log inséré');
@@ -130,8 +134,25 @@ export default function DemandesScreen() {
                 console.warn('[Demandes] ⚠️ activity_log échec (non bloquant):', logErr);
             }
 
+            // Créer/mettre à jour le profil avec cooperative_id si la demande en contient un
+            if (status === 'valide' && (enroll as any).cooperative_id) {
+                try {
+                    const d = enroll as any;
+                    // Insérer le profil s'il n'existe pas (par téléphone)
+                    await supabase.from('profiles').upsert({
+                        full_name:      d.nom,
+                        phone_number:   d.telephone,
+                        pin:            '1234',          // PIN temporaire — à changer à la première connexion
+                        role:           d.type === 'MERCHANT' ? 'MERCHANT' : 'PRODUCER',
+                        cooperative_id: d.cooperative_id,
+                    }, { onConflict: 'phone_number', ignoreDuplicates: false });
+                } catch (profileErr) {
+                    console.warn('[Demandes] profil upsert non bloquant:', profileErr);
+                }
+            }
+
             // 3. Émettre Socket.io APRÈS Supabase
-            if (status === 'VALIDATED') {
+            if (status === 'valide') {
                 emitEvent('enrolement-valide', {
                     agentId:         enroll.agent_id,
                     marchandId:      enroll.id,
@@ -159,28 +180,21 @@ export default function DemandesScreen() {
 
     const filtered = activeFilter === 'ALL'
         ? enrollments
-        : enrollments.filter(e => e.status === activeFilter);
+        : enrollments.filter(e => e.statut === activeFilter);
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={styles.headerTitle}>DEMANDES</Text>
-                        <Text style={styles.headerSub}>ENRÔLEMENTS EN ATTENTE</Text>
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Demandes"
+                subtitle="Enrôlements en attente"
+                showBack={true}
+                paddingBottom={12}
+                rightIcon={pendingCount > 0 ? (
+                    <View style={styles.countBadge}>
+                        <Text style={styles.countBadgeText}>{pendingCount}</Text>
                     </View>
-                    {pendingCount > 0 && (
-                        <View style={styles.countBadge}>
-                            <Text style={styles.countBadgeText}>{pendingCount}</Text>
-                        </View>
-                    )}
-                </View>
-
-                {/* Filtres */}
+                ) : undefined}
+            >
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
                     {FILTER_TABS.map(tab => (
                         <TouchableOpacity
@@ -194,7 +208,7 @@ export default function DemandesScreen() {
                         </TouchableOpacity>
                     ))}
                 </ScrollView>
-            </View>
+            </ScreenHeader>
 
             {/* ── CONTENU ── */}
             <ScrollView
@@ -210,9 +224,9 @@ export default function DemandesScreen() {
                     </View>
                 ) : (
                     filtered.map(enroll => {
-                        const sc   = STATUS_CONFIG[enroll.status] ?? STATUS_CONFIG.PENDING;
-                        const rc   = ROLE_CONFIG[enroll.role ?? ''] ?? { bg: colors.slate100, text: colors.slate600 };
-                        const init = getInitials(enroll.first_name, enroll.last_name);
+                        const sc   = STATUS_CONFIG[enroll.statut] ?? STATUS_CONFIG.en_attente;
+                        const rc   = ROLE_CONFIG[enroll.type ?? ''] ?? { bg: colors.slate100, text: colors.slate600 };
+                        const init = getInitials(enroll.nom);
                         const av   = getAvatarColor(enroll.id);
 
                         return (
@@ -224,12 +238,12 @@ export default function DemandesScreen() {
                                     </View>
                                     <View style={{ flex: 1, marginLeft: 12 }}>
                                         <Text style={styles.cardName}>
-                                            {enroll.first_name ?? ''} {enroll.last_name ?? '–'}
+                                            {enroll.nom ?? '–'}
                                         </Text>
                                         <View style={styles.badgeRow}>
                                             <View style={[styles.badge, { backgroundColor: rc.bg }]}>
                                                 <Text style={[styles.badgeText, { color: rc.text }]}>
-                                                    {enroll.role ?? 'INCONNU'}
+                                                    {enroll.type ?? 'INCONNU'}
                                                 </Text>
                                             </View>
                                         </View>
@@ -241,47 +255,41 @@ export default function DemandesScreen() {
 
                                 {/* Détails */}
                                 <View style={styles.detailsBlock}>
-                                    {enroll.phone && (
+                                    {enroll.telephone && (
                                         <View style={styles.detailRow}>
                                             <Phone color={colors.slate400} size={13} />
-                                            <Text style={styles.detailText}>{enroll.phone}</Text>
+                                            <Text style={styles.detailText}>{enroll.telephone}</Text>
                                         </View>
                                     )}
-                                    {enroll.shop_name && (
+                                    {enroll.nom_boutique && (
                                         <View style={styles.detailRow}>
                                             <Store color={colors.slate400} size={13} />
-                                            <Text style={styles.detailText}>{enroll.shop_name}</Text>
+                                            <Text style={styles.detailText}>{enroll.nom_boutique}</Text>
                                         </View>
                                     )}
-                                    {enroll.address && (
+                                    {enroll.adresse && (
                                         <View style={styles.detailRow}>
                                             <MapPin color={colors.slate400} size={13} />
-                                            <Text style={styles.detailText}>{enroll.address}</Text>
-                                        </View>
-                                    )}
-                                    {enroll.agent_name && (
-                                        <View style={styles.detailRow}>
-                                            <User color={colors.slate400} size={13} />
-                                            <Text style={styles.detailText}>Agent : {enroll.agent_name}</Text>
+                                            <Text style={styles.detailText}>{enroll.adresse}</Text>
                                         </View>
                                     )}
                                     <Text style={styles.dateText}>
-                                        Soumis le {new Date(enroll.created_at).toLocaleDateString('fr-FR')}
+                                        Soumis le {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
                                     </Text>
                                 </View>
 
-                                {/* Actions PENDING */}
-                                {enroll.status === 'PENDING' && (
+                                {/* Actions en attente */}
+                                {enroll.statut === 'en_attente' && (
                                     <View style={styles.actionRow}>
                                         <TouchableOpacity
                                             style={styles.validateBtn}
-                                            onPress={() => handleUpdateStatus(enroll, 'VALIDATED')}
+                                            onPress={() => handleUpdateStatus(enroll, 'valide')}
                                         >
                                             <Text style={styles.validateBtnText}>VALIDER</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={styles.rejectBtn}
-                                            onPress={() => handleUpdateStatus(enroll, 'REJECTED')}
+                                            onPress={() => handleUpdateStatus(enroll, 'rejete')}
                                         >
                                             <Text style={styles.rejectBtnText}>REJETER</Text>
                                         </TouchableOpacity>
@@ -292,7 +300,7 @@ export default function DemandesScreen() {
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -300,23 +308,6 @@ export default function DemandesScreen() {
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
 
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop:  { flexDirection: 'row', alignItems: 'center' },
-    headerTitle:{ fontSize: 18, fontWeight: '900', color: colors.white },
-    headerSub:  { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.6)', marginTop: 2, letterSpacing: 1 },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
     countBadge: {
         backgroundColor: '#fbbf24',
         borderRadius: 6,
@@ -362,12 +353,12 @@ const styles = StyleSheet.create({
     cardName:   { fontSize: 14, fontWeight: '800', color: colors.slate800 },
     badgeRow:   { flexDirection: 'row', gap: 6, marginTop: 4 },
     badge:      { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-    badgeText:  { fontSize: 9, fontWeight: '700' },
+    badgeText:  { fontSize: 11, fontWeight: '700' },
 
     detailsBlock: { gap: 6 },
     detailRow:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
     detailText:   { fontSize: 12, color: colors.slate600, flex: 1 },
-    dateText:     { fontSize: 10, color: colors.slate400, marginTop: 2 },
+    dateText:     { fontSize: 11, color: colors.slate400, marginTop: 2 },
 
     actionRow: { flexDirection: 'row', gap: 10 },
     validateBtn: {
@@ -390,5 +381,5 @@ const styles = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: colors.slate100,
         borderStyle: 'dashed',
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
 });

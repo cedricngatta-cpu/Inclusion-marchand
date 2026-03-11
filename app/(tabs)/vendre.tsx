@@ -6,15 +6,17 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import {
-    ChevronLeft, ShoppingBag, Trash2, CheckCircle, Smartphone, Banknote,
-    BookOpen, Plus, Minus, QrCode, X, Flashlight, FlashlightOff, RotateCcw,
+    ShoppingBag, Trash2, CheckCircle, Smartphone, Banknote,
+    BookOpen, Plus, Minus, QrCode, X, Flashlight, FlashlightOff, RotateCcw, ChevronLeft,
 } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { useProductContext } from '@/src/context/ProductContext';
 import { useStockContext } from '@/src/context/StockContext';
 import { useHistoryContext } from '@/src/context/HistoryContext';
 import { useAuth } from '@/src/context/AuthContext';
+import { useNetwork } from '@/src/context/NetworkContext';
+import { offlineQueue, syncOfflineQueue, PendingTransaction } from '@/src/lib/offlineQueue';
 import { colors } from '@/src/lib/colors';
 import { supabase } from '@/src/lib/supabase';
 
@@ -41,11 +43,11 @@ const PAYMENT_OPTIONS = [
 ];
 
 export default function VendreScreen() {
-    const router = useRouter();
     const { user } = useAuth();
     const { products } = useProductContext();
     const { updateStock, getStockLevel } = useStockContext();
     const { addTransaction } = useHistoryContext();
+    const { isOnline, addToPendingCount, resetPendingCount } = useNetwork();
 
     // ── Panier ──
     const [cart, setCart]             = useState<CartItem[]>([]);
@@ -62,7 +64,26 @@ export default function VendreScreen() {
     const [torch, setTorch]                   = useState(false);
     const [scanFeedback, setScanFeedback]     = useState<'found' | 'unknown' | null>(null);
     const [scanFeedbackName, setScanFeedbackName] = useState('');
-    const cooldown = useRef(false);
+    const cooldown       = useRef(false);
+    const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Nettoyage du timeout scanner au démontage
+    useEffect(() => {
+        return () => {
+            if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+        };
+    }, []);
+
+    // Synchronisation hors-ligne → Supabase à la reconnexion
+    const prevIsOnlineRef = useRef(isOnline);
+    useEffect(() => {
+        if (!prevIsOnlineRef.current && isOnline && user?.id) {
+            syncOfflineQueue(user.id)
+                .then(count => { if (count > 0) resetPendingCount(); })
+                .catch(() => {});
+        }
+        prevIsOnlineRef.current = isOnline;
+    }, [isOnline]);
 
     // Animation ligne de scan
     const scanAnim = useRef(new Animated.Value(0)).current;
@@ -126,7 +147,8 @@ export default function VendreScreen() {
             setScanFeedback('unknown');
         }
 
-        setTimeout(() => {
+        if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = setTimeout(() => {
             setScanFeedback(null);
             setScanFeedbackName('');
             cooldown.current = false;
@@ -158,6 +180,37 @@ export default function VendreScreen() {
         }
 
         setIsLoading(true);
+
+        // ── Chemin hors-ligne : mise en file d'attente locale ──
+        if (!isOnline) {
+            const storeId = user?.id ?? '';
+            for (const item of cart) {
+                const tx: PendingTransaction = {
+                    id: `offline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    store_id: storeId,
+                    type: 'VENTE',
+                    product_id: item.id,
+                    product_name: item.name,
+                    quantity: item.quantity,
+                    price: item.price * item.quantity,
+                    client_name: clientName || undefined,
+                    status: paymentStatus,
+                    created_at: new Date().toISOString(),
+                };
+                await offlineQueue.addTransaction(storeId, tx);
+            }
+            addToPendingCount(cart.length);
+            setIsLoading(false);
+            setShowSuccess(true);
+            setTimeout(() => {
+                setCart([]);
+                setClientName('');
+                setPaymentStatus('PAYÉ');
+                setShowSuccess(false);
+            }, 2500);
+            return;
+        }
+
         const skipped: string[] = [];
 
         try {
@@ -219,22 +272,26 @@ export default function VendreScreen() {
         } finally {
             setIsLoading(false);
         }
-    }, [cart, paymentStatus, clientName, getStockLevel, updateStock, addTransaction]);
+    }, [cart, paymentStatus, clientName, getStockLevel, updateStock, addTransaction, isOnline, addToPendingCount]);
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-
-            {/* ── Header ── */}
-            <View style={styles.header}>
-                <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                    <ChevronLeft color={colors.white} size={24} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>VENDRE</Text>
-                {cart.length > 0
-                    ? <TouchableOpacity onPress={() => setCart([])}><Trash2 color="rgba(255,255,255,0.7)" size={20} /></TouchableOpacity>
-                    : <View style={{ width: 24 }} />
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Vendre"
+                showBack={true}
+                rightIcon={
+                    <View style={styles.headerRight}>
+                        <TouchableOpacity style={styles.headerIconBtn} onPress={() => setShowScanner(true)} activeOpacity={0.8}>
+                            <QrCode color={colors.white} size={20} />
+                        </TouchableOpacity>
+                        {cart.length > 0 && (
+                            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setCart([])} activeOpacity={0.8}>
+                                <Trash2 color={colors.white} size={20} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
                 }
-            </View>
+            />
 
             <View style={styles.container}>
 
@@ -362,14 +419,6 @@ export default function VendreScreen() {
                     </View>
                 )}
 
-                {/* ── Bouton flottant Scanner ── */}
-                <TouchableOpacity
-                    style={[styles.scanFab, cart.length > 0 && styles.scanFabWithCart]}
-                    onPress={() => setShowScanner(true)}
-                    activeOpacity={0.85}
-                >
-                    <QrCode color={colors.white} size={22} />
-                </TouchableOpacity>
             </View>
 
             {/* ── Modal Scanner ── */}
@@ -473,18 +522,14 @@ export default function VendreScreen() {
                 </View>
             </Modal>
 
-        </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safe:      { flex: 1, backgroundColor: colors.primary },
-    header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: 16, paddingVertical: 14,
-    },
-    backBtn:     { padding: 4 },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 2 },
+    safe:           { flex: 1, backgroundColor: colors.bgSecondary },
+    headerRight:    { flexDirection: 'row', gap: 8 },
+    headerIconBtn:  { width: 44, height: 44, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
 
     container: { flex: 1, backgroundColor: colors.bgSecondary },
 
@@ -503,7 +548,7 @@ const styles = StyleSheet.create({
     productEmoji:      { fontSize: 22, fontWeight: '900', color: colors.white },
     productName:       { fontSize: 13, fontWeight: '700', color: colors.slate800, textAlign: 'center' },
     productPrice:      { fontSize: 14, fontWeight: '900', color: colors.primary },
-    productStock:      { fontSize: 10, color: colors.slate400, fontWeight: '600' },
+    productStock:      { fontSize: 11, color: colors.slate400, fontWeight: '600' },
     productStockLow:   { color: colors.error },
     productBadge: {
         position: 'absolute', top: -6, right: -6,
@@ -518,7 +563,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.slate400,
         paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
     },
-    epuiseBadgeText: { fontSize: 8, fontWeight: '900', color: colors.white, letterSpacing: 0.5 },
+    epuiseBadgeText: { fontSize: 11, fontWeight: '900', color: colors.white, letterSpacing: 0.5 },
 
     // ── Panier ──
     cartPanel: {
@@ -553,17 +598,6 @@ const styles = StyleSheet.create({
     },
     validateBtnText: { color: colors.white, fontSize: 15, fontWeight: '900', letterSpacing: 1 },
 
-    // ── Bouton flottant scanner ──
-    scanFab: {
-        position: 'absolute', bottom: 24, right: 20,
-        width: 56, height: 56, borderRadius: 10,
-        backgroundColor: colors.primary,
-        alignItems: 'center', justifyContent: 'center',
-        shadowColor: colors.primary, shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4, shadowRadius: 10, elevation: 8,
-    },
-    scanFabWithCart: { bottom: 300 },
-
     // ── Empty ──
     empty:        { alignItems: 'center', paddingTop: 80, gap: 12 },
     emptyText:    { fontSize: 12, fontWeight: '900', color: colors.slate400, letterSpacing: 2 },
@@ -587,7 +621,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16, paddingVertical: 12,
     },
     scanIconBtn: {
-        width: 40, height: 40, borderRadius: 10,
+        width: 44, height: 44, borderRadius: 10,
         backgroundColor: 'rgba(255,255,255,0.15)',
         alignItems: 'center', justifyContent: 'center',
     },

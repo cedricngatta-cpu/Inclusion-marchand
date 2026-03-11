@@ -7,7 +7,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, Camera, X, Edit2, Trash2, Package } from 'lucide-react-native';
+import { Camera, X, Edit2, Trash2, Package, ChevronLeft } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
@@ -260,21 +261,9 @@ export default function MesProduits() {
 
     // ── Rendu ──────────────────────────────────────────────────────────────────
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={s.safe}>
 
-            {/* ════ HEADER ════ */}
-            <View style={s.header}>
-                <View style={s.headerTop}>
-                    <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={s.headerTitleBlock}>
-                        <Text style={s.headerTitle}>MES PRODUITS</Text>
-                        <Text style={s.headerSub}>MARCHÉ VIRTUEL</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-            </View>
+            <ScreenHeader title="Mes Produits" subtitle="Marché virtuel" showBack={true} />
 
             {/* ════ LISTE ════ */}
             {loading ? (
@@ -366,11 +355,11 @@ export default function MesProduits() {
                 presentationStyle="pageSheet"
                 onRequestClose={() => setEditModal(false)}
             >
-                <SafeAreaView style={s.modalSafe} edges={['top']}>
+                <SafeAreaView style={s.modalSafe} edges={['top', 'bottom']}>
                     {/* Header modal */}
                     <View style={s.modalHeader}>
                         <TouchableOpacity style={s.modalCloseBtn} onPress={() => setEditModal(false)}>
-                            <ChevronLeft color={colors.white} size={20} />
+                            <ChevronLeft color={colors.primary} size={20} />
                         </TouchableOpacity>
                         <View style={s.headerTitleBlock}>
                             <Text style={s.headerTitle}>MODIFIER LE PRODUIT</Text>
@@ -576,7 +565,7 @@ export default function MesProduits() {
                     </ScrollView>
                 </SafeAreaView>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -585,27 +574,11 @@ const s = StyleSheet.create({
     safe:   { flex: 1, backgroundColor: colors.bgSecondary },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-    // ── Header ──
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24,
-        borderBottomLeftRadius: 32, borderBottomRightRadius: 32,
-    },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center', flex: 1, marginHorizontal: 8 },
-    headerTitle: { fontSize: 15, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2, marginTop: 2 },
-
     // ── Scroll ──
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 14 },
 
-    countLabel: { fontSize: 10, fontWeight: '700', color: colors.slate400, letterSpacing: 1.5, textTransform: 'uppercase' },
+    countLabel: { fontSize: 11, fontWeight: '700', color: colors.slate400, letterSpacing: 1.5, textTransform: 'uppercase' },
 
     // ── Carte produit ──
     productCard: {
@@ -625,12 +598,12 @@ const s = StyleSheet.create({
     },
     productInfo:    { flex: 1, minWidth: 0, gap: 3 },
     productName:    { fontSize: 13, fontWeight: '700', color: colors.slate800 },
-    productCategory:{ fontSize: 10, fontWeight: '600', color: colors.slate400, textTransform: 'uppercase', letterSpacing: 0.5 },
+    productCategory:{ fontSize: 11, fontWeight: '600', color: colors.slate400, textTransform: 'uppercase', letterSpacing: 0.5 },
     productMeta:    { flexDirection: 'row', alignItems: 'center', gap: 6 },
     productPrice:   { fontSize: 13, fontWeight: '900', color: colors.primary },
     productSep:     { fontSize: 12, color: colors.slate300 },
     productQty:     { fontSize: 11, fontWeight: '600', color: colors.slate500 },
-    productDelivery:{ fontSize: 10, color: colors.slate400, fontWeight: '500' },
+    productDelivery:{ fontSize: 11, color: colors.slate400, fontWeight: '500' },
     productActions: { flexDirection: 'column', gap: 8, flexShrink: 0 },
     editBtn: {
         width: 34, height: 34, borderRadius: 8,
@@ -649,7 +622,7 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: colors.slate100,
         borderStyle: 'dashed', gap: 10, marginTop: 20,
     },
-    emptyTitle: { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+    emptyTitle: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
     emptySub:   { fontSize: 12, color: colors.slate400, textAlign: 'center', lineHeight: 18 },
     emptyBtn: {
         backgroundColor: colors.primary, borderRadius: 10,
@@ -667,9 +640,12 @@ const s = StyleSheet.create({
     },
     modalCloseBtn: {
         width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
+        backgroundColor: '#FFFFFF',
         alignItems: 'center', justifyContent: 'center',
     },
+    headerTitleBlock: { flex: 1, alignItems: 'center' },
+    headerTitle: { fontSize: 13, fontWeight: '800', color: colors.slate900, letterSpacing: 0.5 },
+    headerSub: { fontSize: 11, fontWeight: '500', color: colors.slate500, marginTop: 2 },
     deleteHeaderBtn: {
         width: 40, height: 40, borderRadius: 10,
         backgroundColor: 'rgba(220,38,38,0.3)',

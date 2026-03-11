@@ -1,14 +1,14 @@
 // Écran Bilan — migré depuis Next.js /bilan/page.tsx
 import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { Wallet, TrendingUp, RotateCcw, ShoppingBag, Package, Eye, EyeOff, ChevronLeft } from 'lucide-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Wallet, TrendingUp, RotateCcw, ShoppingBag, Package } from 'lucide-react-native';
 import { useHistoryContext } from '@/src/context/HistoryContext';
 import { useProductContext } from '@/src/context/ProductContext';
 import { useStockContext } from '@/src/context/StockContext';
 import { useAuth } from '@/src/context/AuthContext';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { colors } from '@/src/lib/colors';
+import { ScreenHeader } from '@/src/components/ui';
 
 export default function BilanScreen() {
     const router = useRouter();
@@ -50,18 +50,16 @@ export default function BilanScreen() {
     ];
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* Header coloré */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={24} />
-                    </TouchableOpacity>
-                    <Text style={styles.headerTitle}>BILAN</Text>
-                    <TouchableOpacity onPress={() => setShowBalance(v => !v)}>
-                        {showBalance ? <EyeOff color="rgba(255,255,255,0.7)" size={22} /> : <Eye color="rgba(255,255,255,0.7)" size={22} />}
-                    </TouchableOpacity>
-                </View>
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Bilan"
+                subtitle="Tableau de bord financier"
+                showBack={true}
+                showEye={true}
+                eyeVisible={showBalance}
+                onEyeToggle={() => setShowBalance(v => !v)}
+                paddingBottom={24}
+            >
                 <View style={styles.balanceBox}>
                     <Text style={styles.balanceLabel}>CAISSE GLOBALE</Text>
                     <Text style={styles.balanceAmount}>
@@ -69,9 +67,9 @@ export default function BilanScreen() {
                     </Text>
                     <Text style={styles.balanceName}>Bonjour, {user?.name?.split(' ')[0]}</Text>
                 </View>
-            </View>
+            </ScreenHeader>
 
-            <ScrollView style={styles.body} contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }}>
+            <ScrollView style={styles.body} contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
                 {/* Grille stats */}
                 <View style={styles.statsGrid}>
                     {STATS.map(stat => (
@@ -123,27 +121,24 @@ export default function BilanScreen() {
                     <Text style={styles.resetBtnText}>REMETTRE À ZÉRO</Text>
                 </TouchableOpacity>
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: colors.primary },
-    header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 40 },
-    headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 2 },
-    balanceBox: { alignItems: 'center' },
-    balanceLabel: { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, textTransform: 'uppercase', marginBottom: 8 },
+    safe: { flex: 1, backgroundColor: colors.bgSecondary },
+    balanceBox: { alignItems: 'center', paddingTop: 8 },
+    balanceLabel: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, textTransform: 'uppercase', marginBottom: 8 },
     balanceAmount: { fontSize: 44, fontWeight: '900', color: colors.white, letterSpacing: -1 },
     balanceCurrency: { fontSize: 22, fontWeight: '700' },
     balanceName: { fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
 
-    body: { flex: 1, backgroundColor: colors.bgSecondary, borderTopLeftRadius: 10, borderTopRightRadius: 10, marginTop: -8 },
+    body: { flex: 1, backgroundColor: colors.bgSecondary },
     statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
     statCard: { width: '47%', borderRadius: 10, padding: 16, gap: 8 },
     statIconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.7)' },
     statValue: { fontSize: 18, fontWeight: '900' },
-    statLabel: { fontSize: 9, fontWeight: '700', color: colors.slate500, letterSpacing: 1.5, textTransform: 'uppercase' },
+    statLabel: { fontSize: 11, fontWeight: '700', color: colors.slate500, letterSpacing: 1.5, textTransform: 'uppercase' },
 
     historyCard: { backgroundColor: colors.white, borderRadius: 10, padding: 16, borderWidth: 1, borderColor: colors.slate100 },
     historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
@@ -156,7 +151,7 @@ const styles = StyleSheet.create({
     txIconDelivery: { backgroundColor: '#eff6ff' },
     txInfo: { flex: 1 },
     txName: { fontSize: 13, fontWeight: '600', color: colors.slate800 },
-    txDate: { fontSize: 10, color: colors.slate400, marginTop: 1 },
+    txDate: { fontSize: 11, color: colors.slate400, marginTop: 1 },
     txAmount: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
     txDebt: { color: '#f97316' },
     empty: { alignItems: 'center', paddingVertical: 24 },

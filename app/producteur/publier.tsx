@@ -2,11 +2,11 @@
 import React, { useState } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    TextInput, Alert, ActivityIndicator, Image,
+    TextInput, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, Camera, X } from 'lucide-react-native';
+import { Camera, X } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
@@ -26,17 +26,19 @@ export default function PublierScreen() {
     const router = useRouter();
     const { activeProfile } = useProfileContext();
 
-    const [imageUri,       setImageUri]       = useState<string | null>(null);
-    const [nom,            setNom]            = useState('');
-    const [description,    setDescription]    = useState('');
-    const [prix,           setPrix]           = useState('');
-    const [prixLivraison,  setPrixLivraison]  = useState('');
-    const [quantite,       setQuantite]       = useState('');
-    const [unite,          setUnite]          = useState<Unite>('unité');
-    const [zoneLivraison,  setZoneLivraison]  = useState<ZoneLivr>('Abidjan');
-    const [delaiLivraison, setDelaiLivraison] = useState<DelaiLivr>('3-5 jours');
-    const [categorie,      setCategorie]      = useState<Categorie>('Alimentation');
-    const [loading,        setLoading]        = useState(false);
+    const [imageUri,          setImageUri]          = useState<string | null>(null);
+    const [nom,               setNom]               = useState('');
+    const [description,       setDescription]       = useState('');
+    const [prix,              setPrix]              = useState('');
+    const [prixLivraison,     setPrixLivraison]     = useState('');
+    const [quantite,          setQuantite]          = useState('');
+    const [unite,             setUnite]             = useState<Unite>('unité');
+    const [zoneLivraison,     setZoneLivraison]     = useState<ZoneLivr>('Abidjan');
+    const [delaiLivraison,    setDelaiLivraison]    = useState<DelaiLivr>('3-5 jours');
+    const [livreurNom,        setLivreurNom]        = useState('');
+    const [livreurTelephone,  setLivreurTelephone]  = useState('');
+    const [categorie,         setCategorie]         = useState<Categorie>('Alimentation');
+    const [loading,           setLoading]           = useState(false);
 
     // ── Sélection photo ─────────────────────────────────────────────────────
     const handlePickImage = () => {
@@ -98,26 +100,25 @@ export default function PublierScreen() {
             if (imageUri) imageUrl = await uploadImage(imageUri);
 
             const insertPayload = {
-                store_id:        activeProfile.id,
-                name:            nom.trim(),
-                category:        categorie,
-                price:           parseFloat(prix),
-                delivery_price:  prixLivraison ? parseFloat(prixLivraison) : null,
-                description:     description.trim() || null,
-                image_url:       imageUrl,
-                zone_livraison:  zoneLivraison,
-                delai_livraison: delaiLivraison,
+                store_id:           activeProfile.id,
+                name:               nom.trim(),
+                category:           categorie,
+                price:              parseFloat(prix),
+                delivery_price:     prixLivraison ? parseFloat(prixLivraison) : null,
+                description:        description.trim() || null,
+                image_url:          imageUrl,
+                zone_livraison:     zoneLivraison,
+                delai_livraison:    delaiLivraison,
+                unite:              unite,
+                livreur_nom:        livreurNom.trim() || null,
+                livreur_telephone:  livreurTelephone.trim() || null,
             };
-            console.log('[Publier] INSERT products payload:', insertPayload);
 
             const { data, error } = await supabase
                 .from('products')
                 .insert([insertPayload])
                 .select()
                 .single();
-
-            console.log('[Publier] INSERT result:', data);
-            console.log('[Publier] INSERT error:', error);
 
             if (error) throw error;
 
@@ -128,13 +129,8 @@ export default function PublierScreen() {
                     quantity:   parseInt(quantite, 10),
                     updated_at: new Date().toISOString(),
                 };
-                console.log('[Publier] UPSERT stock payload:', stockPayload);
                 const { error: stockErr } = await supabase.from('stock').upsert(stockPayload);
-                if (stockErr) {
-                    console.error('[Publier] ❌ UPSERT stock ERREUR:', stockErr.message, '| code:', stockErr.code);
-                } else {
-                    console.log('[Publier] ✅ UPSERT stock OK — product_id:', data.id, 'qty:', parseInt(quantite, 10));
-                }
+                if (stockErr) console.warn('[Publier] stock upsert:', stockErr.message);
             }
 
             emitEvent('nouveau-produit-marche', {
@@ -172,20 +168,15 @@ export default function PublierScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>PUBLIER PRODUIT</Text>
-                        <Text style={styles.headerSub}>MARCHÉ VIRTUEL</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-            </View>
+        <KeyboardAvoidingView
+            style={styles.safe}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+            <ScreenHeader
+                title="Publier un produit"
+                subtitle="Marché virtuel"
+                showBack={true}
+            />
 
             {/* ── FORMULAIRE ── */}
             <ScrollView
@@ -337,7 +328,32 @@ export default function PublierScreen() {
                     </View>
                 </View>
 
-                {/* 10. Catégorie */}
+                {/* 10. Informations livreur */}
+                <View style={styles.field}>
+                    <Text style={styles.label}>Nom du livreur <Text style={styles.optional}>optionnel</Text></Text>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Ex : Koné Moussa"
+                        placeholderTextColor={colors.slate400}
+                        value={livreurNom}
+                        onChangeText={setLivreurNom}
+                        autoCapitalize="words"
+                    />
+                </View>
+
+                <View style={styles.field}>
+                    <Text style={styles.label}>Téléphone du livreur <Text style={styles.optional}>optionnel</Text></Text>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Ex : 0701020304"
+                        placeholderTextColor={colors.slate400}
+                        value={livreurTelephone}
+                        onChangeText={setLivreurTelephone}
+                        keyboardType="phone-pad"
+                    />
+                </View>
+
+                {/* 12. Catégorie */}
                 <View style={styles.field}>
                     <Text style={styles.label}>Catégorie</Text>
                     <View style={styles.categoryGrid}>
@@ -354,7 +370,7 @@ export default function PublierScreen() {
                     </View>
                 </View>
 
-                {/* 11. Bouton publier */}
+                {/* 13. Bouton publier */}
                 <TouchableOpacity
                     style={[styles.publishBtn, loading && { opacity: 0.6 }]}
                     onPress={handlePublish}
@@ -368,27 +384,12 @@ export default function PublierScreen() {
                     )}
                 </TouchableOpacity>
             </ScrollView>
-        </SafeAreaView>
+        </KeyboardAvoidingView>
     );
 }
 
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
-
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24,
-        borderBottomLeftRadius: 32, borderBottomRightRadius: 32,
-    },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle: { fontSize: 15, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, marginTop: 2 },
 
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 40, gap: 16 },

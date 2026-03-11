@@ -3,19 +3,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator,
+    ActivityIndicator, BackHandler,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
-    User, Bell, Eye, EyeOff, Package, ShoppingBag,
+    Package, ShoppingBag,
     Truck, TrendingUp, ChevronRight, Plus, List,
 } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useProfileContext } from '@/src/context/ProfileContext';
 import { useAuth } from '@/src/context/AuthContext';
 import { onSocketEvent } from '@/src/lib/socket';
+
+const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface RecentOrder {
@@ -32,17 +34,17 @@ interface RecentOrder {
 const STATUS_LABELS: Record<string, string> = {
     PENDING:   'En attente',
     ACCEPTED:  'Acceptée',
-    SHIPPING:  'En livraison',
+    SHIPPED:   'En livraison',
     DELIVERED: 'Livrée',
-    REJECTED:  'Refusée',
+    CANCELLED: 'Annulée',
 };
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
     PENDING:   { bg: '#fef3c7', text: '#92400e' },
     ACCEPTED:  { bg: '#dbeafe', text: '#1e40af' },
-    SHIPPING:  { bg: '#ede9fe', text: '#5b21b6' },
+    SHIPPED:   { bg: '#ede9fe', text: '#5b21b6' },
     DELIVERED: { bg: '#d1fae5', text: '#065f46' },
-    REJECTED:  { bg: '#fee2e2', text: '#991b1b' },
+    CANCELLED: { bg: '#fee2e2', text: '#991b1b' },
 };
 
 const MONTH_LABELS = [
@@ -68,13 +70,13 @@ export default function ProducteurDashboard() {
     const fetchDashboard = useCallback(async () => {
         if (!activeProfile) return;
         setLoading(true);
-        console.log('[Dashboard] activeProfile.id =', activeProfile.id);
+        log('[Dashboard] activeProfile.id =', activeProfile.id);
         try {
             const debut = new Date();
             debut.setDate(1);
             debut.setHours(0, 0, 0, 0);
 
-            console.log('[Dashboard] Fetching stock depuis table "stock" WHERE store_id =', activeProfile.id);
+            log('[Dashboard] Fetching stock depuis table "stock" WHERE store_id =', activeProfile.id);
 
             const [prodRes, pendRes, revRes, delivRes, ordersRes] = await Promise.all([
                 // Stock — lire depuis la table stock (et non products.quantity)
@@ -115,9 +117,9 @@ export default function ProducteurDashboard() {
                     .limit(5),
             ]);
 
-            console.log('[Dashboard] stock result:', prodRes.data, 'error:', prodRes.error);
-            console.log('[Dashboard] orders PENDING:', pendRes.count, 'error:', pendRes.error);
-            console.log('[Dashboard] revenus data:', revRes.data, 'error:', revRes.error);
+            log('[Dashboard] stock result:', prodRes.data, 'error:', prodRes.error);
+            log('[Dashboard] orders PENDING:', pendRes.count, 'error:', pendRes.error);
+            log('[Dashboard] revenus data:', revRes.data, 'error:', revRes.error);
 
             const products = prodRes.data ?? [];
             setStockUnits(products.reduce((s: number, p: any) => s + (p.quantity ?? 0), 0));
@@ -146,13 +148,22 @@ export default function ProducteurDashboard() {
     // Recharge à chaque retour sur l'écran (ex: après avoir publié un produit)
     useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
 
+    // Bouton retour Android sur le dashboard → quitter l'app
+    useFocusEffect(useCallback(() => {
+        const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+            BackHandler.exitApp();
+            return true;
+        });
+        return () => backHandler.remove();
+    }, []));
+
     if (!activeProfile) {
         return (
-            <SafeAreaView style={s.safe} edges={['top']}>
+            <View style={s.safe}>
                 <View style={s.center}>
                     <ActivityIndicator color={colors.primary} size="large" />
                 </View>
-            </SafeAreaView>
+            </View>
         );
     }
 
@@ -160,26 +171,18 @@ export default function ProducteurDashboard() {
     const moisLabel = MONTH_LABELS[new Date().getMonth()];
 
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
-
-            {/* ════════════════════════════════ HEADER ═══════════════════════════ */}
-            <View style={s.header}>
-                {/* Nav */}
-                <View style={s.nav}>
-                    <TouchableOpacity style={s.iconBtn} onPress={() => router.push('/(tabs)/profil' as any)}>
-                        <User color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={{ flex: 1 }} />
-                    <TouchableOpacity style={s.iconBtn} onPress={() => router.push('/(tabs)/notifications' as any)}>
-                        <Bell color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={s.iconBtn} onPress={() => setShowRevenu(v => !v)}>
-                        {showRevenu
-                            ? <Eye    color={colors.white} size={20} />
-                            : <EyeOff color={colors.white} size={20} />}
-                    </TouchableOpacity>
-                </View>
-
+        <View style={s.safe}>
+            <ScreenHeader
+                title="Tableau de bord"
+                subtitle={`Bonjour, ${prenom}`}
+                showBack={false}
+                showProfile={true}
+                showNotification={true}
+                showEye={true}
+                eyeVisible={showRevenu}
+                onEyeToggle={() => setShowRevenu(v => !v)}
+                paddingBottom={24}
+            >
                 {/* Hero revenus */}
                 <View style={s.heroBlock}>
                     <View style={s.heroLabelRow}>
@@ -199,9 +202,8 @@ export default function ProducteurDashboard() {
                     <Text style={s.heroSub}>
                         {monthDeliveries} livraison{monthDeliveries > 1 ? 's' : ''} validée{monthDeliveries > 1 ? 's' : ''}
                     </Text>
-                    <Text style={s.heroGreet}>Bonjour, {prenom} 👋</Text>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ════════════════════════════════ CONTENU ══════════════════════════ */}
             <ScrollView
@@ -352,7 +354,7 @@ export default function ProducteurDashboard() {
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -361,32 +363,15 @@ const s = StyleSheet.create({
     safe:   { flex: 1, backgroundColor: '#f8fafc' },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-    // ── Header ──
-    header: {
-        backgroundColor: '#059669',
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 32,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    nav: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    iconBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-
     // Hero
     heroBlock:     { alignItems: 'center', gap: 4 },
     heroLabelRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    heroLabel:     { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2 },
+    heroLabel:     { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 2 },
     heroAmountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
     heroAmount:    { fontSize: 48, fontWeight: '900', color: '#fff', letterSpacing: -2, lineHeight: 56 },
     heroCurrency:  { fontSize: 24, fontWeight: '700', color: 'rgba(255,255,255,0.8)' },
-    heroHidden:    { fontSize: 32, fontWeight: '900', color: 'rgba(255,255,255,0.4)', lineHeight: 56, letterSpacing: 6 },
-    heroSub:       { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 },
+    heroHidden:    { fontSize: 18, fontWeight: '900', color: 'rgba(255,255,255,0.4)', lineHeight: 56, letterSpacing: 4 },
+    heroSub:       { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 },
     heroGreet:     { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.85)', marginTop: 4 },
 
     // ── Scroll ──
@@ -409,7 +394,7 @@ const s = StyleSheet.create({
         elevation: 2,
     },
     kpiIconWrap:  { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
-    kpiCellLabel: { fontSize: 9, fontWeight: '800', color: '#94a3b8', letterSpacing: 1.5, textTransform: 'uppercase' },
+    kpiCellLabel: { fontSize: 11, fontWeight: '800', color: '#94a3b8', letterSpacing: 1.5, textTransform: 'uppercase' },
     kpiCellValue: { fontSize: 22, fontWeight: '900', color: '#1e293b', lineHeight: 26 },
     kpiCellSub:   { fontSize: 11, fontWeight: '600', color: '#94a3b8' },
     kpiBadge: {
@@ -419,7 +404,7 @@ const s = StyleSheet.create({
         alignItems: 'center', justifyContent: 'center',
         paddingHorizontal: 4,
     },
-    kpiBadgeText: { fontSize: 10, fontWeight: '900', color: '#fff' },
+    kpiBadgeText: { fontSize: 11, fontWeight: '900', color: '#fff' },
 
     // ── CTA ──
     cta: {
@@ -454,8 +439,8 @@ const s = StyleSheet.create({
 
     // ── Section ──
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    sectionTitle:  { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 2 },
-    sectionLink:   { fontSize: 10, fontWeight: '900', color: '#059669', letterSpacing: 1 },
+    sectionTitle:  { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 2 },
+    sectionLink:   { fontSize: 11, fontWeight: '900', color: '#059669', letterSpacing: 1 },
 
     // ── Commandes ──
     orderCard: {
@@ -469,11 +454,11 @@ const s = StyleSheet.create({
     orderInfo:    { flex: 1, minWidth: 0 },
     orderProduct: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
     orderBuyer:   { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 2 },
-    orderMeta:    { fontSize: 10, color: '#94a3b8', marginTop: 2 },
+    orderMeta:    { fontSize: 11, color: '#94a3b8', marginTop: 2 },
     orderRight:   { alignItems: 'flex-end', gap: 4, flexShrink: 0 },
     orderPrice:   { fontSize: 12, fontWeight: '900', color: '#1e293b' },
     statusBadge:  { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-    statusText:   { fontSize: 9, fontWeight: '700' },
+    statusText:   { fontSize: 11, fontWeight: '700' },
 
     // ── Empty ──
     emptyCard: {
@@ -481,6 +466,6 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: '#f1f5f9',
         borderStyle: 'dashed', gap: 8,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
     emptySub:  { fontSize: 11, color: '#94a3b8', textAlign: 'center' },
 });

@@ -1,12 +1,12 @@
 // Mon Secteur — Agent Terrain
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, TextInput,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ChevronLeft, Search, Users } from 'lucide-react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Search, Users } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useAuth } from '@/src/context/AuthContext';
@@ -14,13 +14,13 @@ import { useAuth } from '@/src/context/AuthContext';
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Enrollment {
     id: string;
-    full_name: string;
-    role: 'MERCHANT' | 'PRODUCER';
-    phone_number: string;
-    shop_name: string;
-    address: string;
-    status: 'PENDING' | 'VALIDATED' | 'REJECTED';
-    created_at: string;
+    nom: string;
+    type: 'MERCHANT' | 'PRODUCER';
+    telephone: string;
+    nom_boutique: string;
+    adresse: string;
+    statut: 'en_attente' | 'valide' | 'rejete';
+    date_demande: string;
     agent_id: string;
 }
 
@@ -28,14 +28,14 @@ type FilterType = 'ALL' | 'MERCHANT' | 'PRODUCER';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_LABELS: Record<string, string> = {
-    PENDING:   'En attente',
-    VALIDATED: 'Validé',
-    REJECTED:  'Refusé',
+    en_attente: 'En attente',
+    valide:     'Validé',
+    rejete:     'Refusé',
 };
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-    PENDING:   { bg: '#fef3c7', text: '#92400e' },
-    VALIDATED: { bg: '#d1fae5', text: '#065f46' },
-    REJECTED:  { bg: '#fee2e2', text: '#991b1b' },
+    en_attente: { bg: '#fef3c7', text: '#92400e' },
+    valide:     { bg: '#d1fae5', text: '#065f46' },
+    rejete:     { bg: '#fee2e2', text: '#991b1b' },
 };
 
 const ROLE_COLORS: Record<string, { bg: string; text: string }> = {
@@ -68,10 +68,10 @@ export default function Secteur() {
         setLoading(true);
         try {
             const { data, error } = await supabase
-                .from('enrollments')
+                .from('demandes_enrolement')
                 .select('*')
                 .eq('agent_id', user.id)
-                .order('created_at', { ascending: false });
+                .order('date_demande', { ascending: false });
 
             if (error) throw error;
             setEnrollments((data as Enrollment[]) || []);
@@ -82,37 +82,27 @@ export default function Secteur() {
         }
     }, [user?.id]);
 
-    useEffect(() => { fetchEnrollments(); }, [fetchEnrollments]);
+    useFocusEffect(useCallback(() => { fetchEnrollments(); }, [fetchEnrollments]));
 
     const filtered = useMemo(() => {
         return enrollments.filter(e => {
-            const matchRole = filter === 'ALL' || e.role === filter;
+            const matchRole = filter === 'ALL' || e.type === filter;
             const q = search.toLowerCase();
             const matchSearch = !q
-                || e.full_name.toLowerCase().includes(q)
-                || e.phone_number.toLowerCase().includes(q);
+                || e.nom.toLowerCase().includes(q)
+                || e.telephone.toLowerCase().includes(q);
             return matchRole && matchSearch;
         });
     }, [enrollments, search, filter]);
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>MON SECTEUR</Text>
-                        <Text style={styles.headerSubtitle}>
-                            {loading ? '…' : `${enrollments.length} MEMBRE(S) ENRÔLÉ(S)`}
-                        </Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
-                {/* KPI */}
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Mon Secteur"
+                subtitle={loading ? undefined : `${enrollments.length} membre(s) enrôlé(s)`}
+                showBack={true}
+                paddingBottom={24}
+            >
                 <View style={styles.kpiRow}>
                     <View style={styles.kpiCard}>
                         <Text style={styles.kpiValue}>{loading ? '–' : enrollments.length}</Text>
@@ -121,19 +111,19 @@ export default function Secteur() {
                     <View style={styles.kpiDivider} />
                     <View style={styles.kpiCard}>
                         <Text style={styles.kpiValue}>
-                            {loading ? '–' : enrollments.filter(e => e.status === 'VALIDATED').length}
+                            {loading ? '–' : enrollments.filter(e => e.statut === 'valide').length}
                         </Text>
                         <Text style={styles.kpiLabel}>VALIDÉS</Text>
                     </View>
                     <View style={styles.kpiDivider} />
                     <View style={styles.kpiCard}>
                         <Text style={styles.kpiValue}>
-                            {loading ? '–' : enrollments.filter(e => e.status === 'PENDING').length}
+                            {loading ? '–' : enrollments.filter(e => e.statut === 'en_attente').length}
                         </Text>
                         <Text style={styles.kpiLabel}>EN ATTENTE</Text>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             <ScrollView
                 style={styles.scroll}
@@ -180,82 +170,62 @@ export default function Secteur() {
                     </View>
                 ) : (
                     filtered.map(enroll => {
-                        const sc   = STATUS_COLORS[enroll.status] ?? STATUS_COLORS.PENDING;
-                        const rc   = ROLE_COLORS[enroll.role] ?? ROLE_COLORS.MERCHANT;
+                        const sc   = STATUS_COLORS[enroll.statut] ?? STATUS_COLORS.en_attente;
+                        const rc   = ROLE_COLORS[enroll.type] ?? ROLE_COLORS.MERCHANT;
                         return (
                             <View key={enroll.id} style={styles.memberCard}>
                                 {/* Ligne 1 : nom + badges */}
                                 <View style={styles.memberRow}>
                                     <Text style={styles.memberName} numberOfLines={1}>
-                                        {enroll.full_name}
+                                        {enroll.nom}
                                     </Text>
                                     <View style={styles.badgesRow}>
                                         <View style={[styles.badge, { backgroundColor: rc.bg }]}>
                                             <Text style={[styles.badgeText, { color: rc.text }]}>
-                                                {ROLE_LABELS[enroll.role] ?? enroll.role}
+                                                {ROLE_LABELS[enroll.type] ?? enroll.type}
                                             </Text>
                                         </View>
                                         <View style={[styles.badge, { backgroundColor: sc.bg }]}>
                                             <Text style={[styles.badgeText, { color: sc.text }]}>
-                                                {STATUS_LABELS[enroll.status] ?? enroll.status}
+                                                {STATUS_LABELS[enroll.statut] ?? enroll.statut}
                                             </Text>
                                         </View>
                                     </View>
                                 </View>
 
                                 {/* Ligne 2 : téléphone */}
-                                <Text style={styles.memberMeta}>{enroll.phone_number}</Text>
+                                <Text style={styles.memberMeta}>{enroll.telephone}</Text>
 
                                 {/* Ligne 3 : boutique */}
-                                {!!enroll.shop_name && (
+                                {!!enroll.nom_boutique && (
                                     <Text style={styles.memberShop} numberOfLines={1}>
-                                        {enroll.shop_name}
+                                        {enroll.nom_boutique}
                                     </Text>
                                 )}
 
                                 {/* Ligne 4 : adresse */}
-                                {!!enroll.address && (
+                                {!!enroll.adresse && (
                                     <Text style={styles.memberAddress} numberOfLines={1}>
-                                        {enroll.address}
+                                        {enroll.adresse}
                                     </Text>
                                 )}
 
                                 {/* Ligne 5 : date */}
                                 <Text style={styles.memberDate}>
-                                    Enrôlé le {new Date(enroll.created_at).toLocaleDateString('fr-FR')}
+                                    Enrôlé le {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
                                 </Text>
                             </View>
                         );
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
-
-    // Header
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:      { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSubtitle:   { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 1, marginTop: 2 },
 
     // KPI
     kpiRow: {
@@ -267,7 +237,7 @@ const styles = StyleSheet.create({
     kpiCard:    { flex: 1, alignItems: 'center' },
     kpiDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 6 },
     kpiValue:   { fontSize: 26, fontWeight: '900', color: colors.white, lineHeight: 30 },
-    kpiLabel:   { fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 4, textAlign: 'center' },
+    kpiLabel:   { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 4, textAlign: 'center' },
 
     // Scroll
     scroll:        { flex: 1 },
@@ -311,11 +281,11 @@ const styles = StyleSheet.create({
     memberName:   { flex: 1, fontSize: 13, fontWeight: '700', color: colors.slate800 },
     badgesRow:    { flexDirection: 'row', gap: 4, flexShrink: 0 },
     badge:        { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
-    badgeText:    { fontSize: 9, fontWeight: '700' },
+    badgeText:    { fontSize: 11, fontWeight: '700' },
     memberMeta:   { fontSize: 11, fontWeight: '600', color: colors.slate500 },
     memberShop:   { fontSize: 11, fontWeight: '600', color: colors.slate600 },
-    memberAddress: { fontSize: 10, color: colors.slate400 },
-    memberDate:   { fontSize: 10, color: colors.slate400, marginTop: 2 },
+    memberAddress: { fontSize: 11, color: colors.slate400 },
+    memberDate:   { fontSize: 11, color: colors.slate400, marginTop: 2 },
 
     // Empty
     emptyCard: {
@@ -323,5 +293,5 @@ const styles = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: colors.slate100,
         borderStyle: 'dashed', gap: 12, marginTop: 8,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
 });

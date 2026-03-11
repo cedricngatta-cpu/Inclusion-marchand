@@ -5,11 +5,12 @@ import {
     RefreshControl, Alert,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, Shield, UserX, AlertTriangle } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
+import { Shield, UserX, AlertTriangle } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
+import { emitEvent } from '@/src/lib/socket';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Signalement {
@@ -41,8 +42,6 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }>
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function Signalements() {
-    const router = useRouter();
-
     const [signalements, setSignalements]   = useState<Signalement[]>([]);
     const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({});
     const [loading, setLoading]             = useState(true);
@@ -78,24 +77,24 @@ export default function Signalements() {
                     sigs = (allLogs as Signalement[]);
                     setUseFallback(false);
                 } else {
-                    // Fallback final : enrollments rejetés
+                    // Fallback final : demandes_enrolement rejetées
                     setUseFallback(true);
                     const { data: enrollData } = await supabase
-                        .from('enrollments')
-                        .select('id, full_name, phone_number, role, status, created_at, agent_id')
-                        .in('status', ['REJECTED', 'PENDING'])
-                        .order('created_at', { ascending: false })
+                        .from('demandes_enrolement')
+                        .select('id, nom, telephone, type, statut, date_demande, agent_id')
+                        .in('statut', ['rejete', 'en_attente'])
+                        .order('date_demande', { ascending: false })
                         .limit(50);
 
                     sigs = ((enrollData ?? []) as any[]).map(e => ({
                         id:         e.id,
                         user_id:    e.agent_id ?? null,
-                        user_name:  e.full_name,
-                        action:     `Enrôlement ${e.status === 'REJECTED' ? 'refusé' : 'en attente'} · ${e.role === 'MERCHANT' ? 'Marchand' : 'Producteur'}`,
-                        details:    e.phone_number ?? null,
+                        user_name:  e.nom,
+                        action:     `Enrôlement ${e.statut === 'rejete' ? 'refusé' : 'en attente'} · ${e.type === 'MERCHANT' ? 'Marchand' : 'Producteur'}`,
+                        details:    e.telephone ?? null,
                         type:       'signalement',
-                        status:     e.status === 'REJECTED' ? 'clos' : 'ouvert',
-                        created_at: e.created_at,
+                        status:     e.statut === 'rejete' ? 'clos' : 'ouvert',
+                        created_at: e.date_demande,
                     }));
                 }
             }
@@ -139,6 +138,14 @@ export default function Signalements() {
         try {
             await supabase.from('activity_logs').update({ status: newStatus }).eq('id', sig.id);
         } catch { /* colonne status peut-être absente — override local maintenu */ }
+        emitEvent('signalement-conformite', {
+            agentId:     sig.user_id,
+            agentName:   sig.user_name,
+            marchandName: sig.user_name,
+            type:        'statut',
+            description: `Statut mis à jour : ${newStatus}`,
+            severity:    newStatus === 'clos' ? 'resolved' : 'medium',
+        });
     }, []);
 
     // ── Sanctionner ───────────────────────────────────────────────────────────
@@ -164,6 +171,15 @@ export default function Signalements() {
                                 action:    `Membre sanctionné : ${sig.user_name}`,
                                 type:      'sanction',
                             }]);
+                            emitEvent('signalement-conformite', {
+                                agentId:     'admin',
+                                agentName:   'Admin',
+                                marchandId:  sig.user_id,
+                                marchandName: sig.user_name,
+                                type:        'sanction',
+                                description: `Compte désactivé par l'admin`,
+                                severity:    'critical',
+                            });
                             handleChangeStatus(sig, 'clos');
                             Alert.alert('Sanction appliquée', `Le compte de "${sig.user_name}" a été désactivé.`);
                         } catch {
@@ -179,21 +195,8 @@ export default function Signalements() {
     }, [handleChangeStatus]);
 
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={s.header}>
-                <View style={s.headerTop}>
-                    <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={s.headerTitleBlock}>
-                        <Text style={s.headerTitle}>SIGNALEMENTS</Text>
-                        <Text style={s.headerSubtitle}>CONFORMITÉ TERRAIN</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
-                {/* KPIs */}
+        <View style={s.safe}>
+            <ScreenHeader title="Signalements" subtitle="Conformité terrain" showBack={true} paddingBottom={24}>
                 <View style={s.kpiRow}>
                     <View style={s.kpiItem}>
                         <Text style={s.kpiValue}>{loading ? '–' : counts.total}</Text>
@@ -219,7 +222,7 @@ export default function Signalements() {
                         <Text style={s.kpiLabel}>CLOS</Text>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             <ScrollView
                 style={s.scroll}
@@ -344,29 +347,13 @@ export default function Signalements() {
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f8fafc' },
-
-    header: {
-        backgroundColor: '#059669',
-        paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24,
-        borderBottomLeftRadius: 32, borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:      { fontSize: 16, fontWeight: '900', color: '#fff', letterSpacing: 1 },
-    headerSubtitle:   { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 1, marginTop: 2 },
 
     kpiRow: {
         flexDirection: 'row',
@@ -376,7 +363,7 @@ const s = StyleSheet.create({
     kpiItem:    { flex: 1, alignItems: 'center' },
     kpiDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 4 },
     kpiValue:   { fontSize: 22, fontWeight: '900', color: '#fff', lineHeight: 26 },
-    kpiLabel:   { fontSize: 7, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 0.5, marginTop: 4, textAlign: 'center' },
+    kpiLabel:   { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 0.5, marginTop: 4, textAlign: 'center' },
 
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 10 },
@@ -413,13 +400,13 @@ const s = StyleSheet.create({
     sigInfo:    { flex: 1, minWidth: 0, gap: 3 },
     sigAction:  { fontSize: 13, fontWeight: '700', color: '#1e293b' },
     sigDetails: { fontSize: 11, color: '#64748b' },
-    sigMeta:    { fontSize: 10, color: '#94a3b8', marginTop: 2 },
+    sigMeta:    { fontSize: 11, color: '#94a3b8', marginTop: 2 },
     statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, flexShrink: 0, alignSelf: 'flex-start' },
-    statusText:  { fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
+    statusText:  { fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
 
     // Boutons d'action
     actionRow:    { flexDirection: 'row', gap: 8 },
-    btnText:      { fontSize: 10, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
+    btnText:      { fontSize: 11, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
     btnTraitement: {
         flex: 1, backgroundColor: '#d97706', borderRadius: 8,
         paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
@@ -439,6 +426,6 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: '#f1f5f9',
         borderStyle: 'dashed', gap: 10,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
     emptySub:  { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
 });

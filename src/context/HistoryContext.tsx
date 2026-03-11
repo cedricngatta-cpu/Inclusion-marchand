@@ -1,11 +1,13 @@
 // Contexte historique transactions — migré depuis Next.js
 // Dexie/IndexedDB → AsyncStorage, navigator.onLine → NetInfo
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/src/lib/supabase';
 import { useProfileContext } from './ProfileContext';
 import { emitEvent, onSocketEvent } from '@/src/lib/socket';
+import { useNetwork } from './NetworkContext';
+import { offlineQueue } from '@/src/lib/offlineQueue';
 
 export type TransactionType = 'VENTE' | 'LIVRAISON' | 'RETRAIT';
 
@@ -43,6 +45,8 @@ const generateUUID = (): string =>
 export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { activeProfile } = useProfileContext();
     const [history, setHistory] = useState<Transaction[]>([]);
+    const { isOnline }     = useNetwork();
+    const prevIsOnline     = useRef<boolean | null>(null);
 
     const cacheKey = activeProfile ? `history_${activeProfile.id}` : null;
 
@@ -82,6 +86,30 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
         }
     };
+
+    // Sync hors-ligne au retour de connexion
+    useEffect(() => {
+        if (prevIsOnline.current === false && isOnline && activeProfile && cacheKey) {
+            (async () => {
+                const pending = await offlineQueue.getTransactions(activeProfile.id);
+                if (!pending.length) return;
+                console.log('[HistoryContext] Sync offline:', pending.length, 'transaction(s) en attente...');
+                try {
+                    const { error } = await supabase
+                        .from('transactions')
+                        .upsert(pending, { onConflict: 'id' });
+                    if (!error) {
+                        await offlineQueue.clearTransactions(activeProfile.id);
+                        console.log('[HistoryContext] ✅ Sync offline OK');
+                        await fetchHistory();
+                    }
+                } catch (err) {
+                    console.error('[HistoryContext] ❌ Sync offline erreur:', err);
+                }
+            })();
+        }
+        prevIsOnline.current = isOnline;
+    }, [isOnline, activeProfile?.id]); // eslint-disable-line
 
     useEffect(() => {
         if (!activeProfile) { setHistory([]); return; }
@@ -168,6 +196,19 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
         } else {
             console.warn('[HistoryContext] ⚠️ Hors-ligne — transaction sauvegardée localement uniquement');
+            // Ajouter à la file d'attente pour sync à la reconnexion
+            await offlineQueue.addTransaction(activeProfile.id, {
+                id:           newTx.id,
+                store_id:     activeProfile.id,
+                type:         newTx.type,
+                product_id:   newTx.productId,
+                product_name: newTx.productName,
+                quantity:     newTx.quantity,
+                price:        newTx.price,
+                client_name:  newTx.clientName,
+                status:       newTx.status || 'PAYÉ',
+                created_at:   new Date(newTx.timestamp).toISOString(),
+            });
         }
 
         // Diffusion realtime Socket.io (après Supabase)

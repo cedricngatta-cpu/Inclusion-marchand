@@ -15,14 +15,13 @@ import {
     stopSpeaking, speakText, initConversation,
     isVoiceConfirmation, isVoiceCancellation,
     getLocalRoute, isLogoutCommand, isLocalCommand, getLocalConfirmation,
+    executeVoiceAction,
     AssistantState,
 } from '@/src/lib/voiceAssistant';
 import {
     GroqMessage, VoiceAction, transcribeAudio,
-    chatWithHistory, parseAction, isOnline,
+    chatWithHistory, parseAction, isOnline, fetchScreenDebrief,
 } from '@/src/lib/groqAI';
-import { supabase } from '@/src/lib/supabase';
-import { emitEvent } from '@/src/lib/socket';
 
 // ── Types UI ───────────────────────────────────────────────────────────────
 interface DisplayMsg {
@@ -128,10 +127,24 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const generateWelcome = useCallback(async () => {
         setState('welcome');
 
+        // Timeout global de 20s — jamais de chargement infini
+        const globalTimeout = setTimeout(() => {
+            console.log('TIMEOUT generateWelcome — 20s dépassés');
+            const fallback = `Bonjour ${userName.split(' ')[0]} ! Connexion lente. Mode local activé.`;
+            setMode('local');
+            addAssistantMessage(fallback, { isWelcome: true });
+            speakText(fallback, () => setState('idle'));
+        }, 20000);
+
         try {
-            const online = await isOnline();
+            // Paralléliser : vérification réseau + récupération contexte Supabase simultanément
+            const [online, systemMsg] = await Promise.all([
+                isOnline(),
+                initConversation(role, userId, userName, storeId).catch(() => null),
+            ]);
 
             if (!online) {
+                clearTimeout(globalTimeout);
                 const txt = `Bonjour ${userName.split(' ')[0]} ! Je suis en mode hors ligne. Vous pouvez me donner des commandes directes comme "vendre", "stock" ou "bilan".`;
                 setMode('offline');
                 addAssistantMessage(txt, { isWelcome: true });
@@ -139,11 +152,19 @@ export default function VoiceModal({ visible, onClose }: Props) {
                 return;
             }
 
+            if (!systemMsg) {
+                clearTimeout(globalTimeout);
+                throw new Error('Contexte indisponible');
+            }
+
             setMode('ai');
-            const systemMsg = await initConversation(role, userId, userName, storeId);
-            const welcomePrompt: GroqMessage = { role: 'user', content: 'Donne-moi un accueil chaleureux et un résumé rapide de mon activité.' };
+            const welcomePrompt: GroqMessage = { role: 'user', content: 'Accueil chaleureux et résumé rapide de mon activité en 2 phrases max.' };
             const msgs = [systemMsg, welcomePrompt];
-            const welcomeReply = await chatWithHistory(msgs);
+
+            // max_tokens réduit (300) pour accélérer le message d'accueil
+            const welcomeReply = await chatWithHistory(msgs, 300);
+            clearTimeout(globalTimeout);
+
             const { text } = parseAction(welcomeReply);
             const welcomeText = text || welcomeReply;
 
@@ -153,26 +174,19 @@ export default function VoiceModal({ visible, onClose }: Props) {
             addAssistantMessage(welcomeText, { isWelcome: true });
             setState('speaking');
             speakText(welcomeText, () => setState('idle'));
-        } catch {
-            const fallback = `Bonjour ${userName.split(' ')[0]} ! Comment puis-je vous aider ?`;
+        } catch (err: any) {
+            clearTimeout(globalTimeout);
+            console.log('ERREUR generateWelcome:', err?.message ?? err);
+            const isTimeout = err?.message === 'TIMEOUT';
+            const fallback = isTimeout
+                ? `Bonjour ${userName.split(' ')[0]} ! Connexion lente. Je suis prêt, parlez-moi.`
+                : `Bonjour ${userName.split(' ')[0]} ! Comment puis-je vous aider ?`;
             addAssistantMessage(fallback, { isWelcome: true });
             speakText(fallback, () => setState('idle'));
         }
     }, [role, userId, userName, storeId]);
 
     // ── Enregistrement ─────────────────────────────────────────────────────
-    const handleMicPress = useCallback(async () => {
-        // Interrompre le TTS si en cours (speaking ou autre)
-        Speech.stop();
-        if (state === 'speaking') { setState('idle'); return; }
-
-        if (state === 'listening') {
-            await handleStopListening();
-        } else if (state !== 'processing' && state !== 'welcome') {
-            await handleStartListening();
-        }
-    }, [state, handleStopListening, handleStartListening]);
-
     const handleStartListening = useCallback(async () => {
         try {
             setError('');
@@ -182,8 +196,12 @@ export default function VoiceModal({ visible, onClose }: Props) {
             timerRef.current = setTimeout(async () => {
                 await handleStopListening();
             }, 10_000);
-        } catch {
-            setError('Permission micro refusée. Activez-la dans les paramètres.');
+        } catch (err: any) {
+            console.log('ERREUR startRecording:', err?.message ?? err);
+            const msg = err?.message?.includes('refusée')
+                ? 'Permission microphone refusée. Activez-la dans Réglages > Confidentialité.'
+                : `Erreur micro : ${err?.message ?? 'inconnue'}`;
+            setError(msg);
             setState('error');
         }
     }, []);
@@ -202,9 +220,15 @@ export default function VoiceModal({ visible, onClose }: Props) {
         let transcript = '';
         try {
             transcript = await transcribeAudio(uri);
-        } catch {
-            setError("Je n'ai pas compris. Pouvez-vous répéter ?");
-            setState('idle');
+        } catch (err: any) {
+            console.log('ERREUR WHISPER dans VoiceModal:', err?.message ?? err);
+            const msg = err?.message?.includes('réseau')
+                ? 'Erreur de connexion. Vérifiez votre internet.'
+                : err?.message?.includes('401') || err?.message?.includes('403')
+                    ? 'Clé API invalide. Contactez le support.'
+                    : `Erreur de transcription : ${err?.message ?? 'inconnue'}`;
+            setError(msg);
+            setState('error');
             return;
         }
 
@@ -239,13 +263,39 @@ export default function VoiceModal({ visible, onClose }: Props) {
                 return;
             }
 
-            const route = getLocalRoute(transcript, role);
+            const route       = getLocalRoute(transcript, role);
             const confirmation = getLocalConfirmation(transcript, role) ?? 'Compris.';
             addAssistantMessage(confirmation);
-            setMode('local');
-            speakText(confirmation, () => {
-                onClose();
-                if (route) router.push(route as any);
+            setMode('ai');
+
+            // Naviguer immédiatement (le modal reste ouvert pour le débrief)
+            if (route) router.push(route as any);
+
+            // Parler l'intro, puis enchaîner avec le débrief de la page
+            speakText(confirmation, async () => {
+                if (!route) { setState('idle'); return; }
+                setState('processing');
+                try {
+                    const debrief = await fetchScreenDebrief(route, role, userId, storeId);
+                    if (!debrief) { setState('idle'); return; }
+
+                    // Petite pause avant de parler pour laisser l'écran se charger
+                    await new Promise(r => setTimeout(r, 700));
+
+                    addAssistantMessage(debrief);
+
+                    // Mémoriser dans l'historique Groq pour les questions suivantes
+                    groqHistoryRef.current = [
+                        ...groqHistoryRef.current,
+                        { role: 'user',      content: transcript },
+                        { role: 'assistant', content: `${confirmation} ${debrief}` },
+                    ];
+
+                    setState('speaking');
+                    speakText(debrief, () => setState('idle'));
+                } catch {
+                    setState('idle');
+                }
             });
             return;
         }
@@ -267,6 +317,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
                 { role: 'user', content: transcript },
             ];
 
+            // chatWithHistory a déjà un timeout de 15s interne
             const rawReply = await chatWithHistory(newHistory);
             const { text, action } = parseAction(rawReply);
             const replyText = text || rawReply;
@@ -283,195 +334,45 @@ export default function VoiceModal({ visible, onClose }: Props) {
                 setState('speaking');
                 speakText(replyText, () => setState('idle'));
             }
-        } catch {
-            const errTxt = "Désolé, je n'ai pas pu traiter votre demande.";
+        } catch (err: any) {
+            console.log('ERREUR chatWithHistory:', err?.message ?? err);
+            const errTxt = err?.message === 'TIMEOUT'
+                ? 'Connexion lente. Réessayez.'
+                : "Désolé, je n'ai pas pu traiter votre demande.";
             addAssistantMessage(errTxt);
             speakText(errTxt, () => setState('idle'));
         }
     }, [pendingAction, role, userId, userName, storeId]);
 
-    // ── Recherche flexible d'un produit (insensible à la casse + pluriel) ──
-    const findProductFuzzy = useCallback(async (
-        nomRecherche: string,
-        fields: string = 'id, name, price',
-    ): Promise<{ data: any | null; listeDisponibles: string }> => {
-        if (!storeId) return { data: null, listeDisponibles: '' };
+    const handleMicPress = useCallback(async () => {
+        Speech.stop();
+        if (state === 'speaking') { setState('idle'); return; }
 
-        // Normalise : minuscules, sans ponctuation superflue
-        const normalize = (s: string) => s.toLowerCase().trim();
-
-        // Variantes à essayer dans l'ordre
-        const base = normalize(nomRecherche);
-        const sansS = base.replace(/s$/i, '');          // "bonnets rouges" → "bonnet rouge"
-        const sansSFinal = sansS.replace(/s\s/gi, ' '); // "bonnets rouges" → "bonnet rouge" (milieu)
-        const motsCles = base.split(/\s+/).filter(w => w.length > 2); // mots significatifs
-
-        const trySearch = async (pattern: string) => {
-            const { data } = await supabase
-                .from('products').select(fields)
-                .eq('store_id', storeId)
-                .ilike('name', `%${pattern}%`)
-                .limit(1);
-            return data?.[0] ?? null;
-        };
-
-        // 1. Essai direct
-        let prod = await trySearch(base);
-        // 2. Sans pluriel final
-        if (!prod && sansS !== base) prod = await trySearch(sansS);
-        // 3. Sans pluriel au milieu
-        if (!prod && sansSFinal !== sansS) prod = await trySearch(sansSFinal);
-        // 4. Mot-clé le plus long
-        if (!prod && motsCles.length > 0) {
-            const motLong = motsCles.sort((a, b) => b.length - a.length)[0];
-            prod = await trySearch(motLong);
+        if (state === 'listening') {
+            await handleStopListening();
+        } else if (state !== 'processing' && state !== 'welcome') {
+            await handleStartListening();
         }
-
-        // Liste des produits dispo pour le message d'erreur
-        let listeDisponibles = '';
-        if (!prod) {
-            const { data: tous } = await supabase
-                .from('products').select('name').eq('store_id', storeId).limit(10);
-            listeDisponibles = (tous ?? []).map((p: any) => p.name).join(', ');
-        }
-
-        return { data: prod, listeDisponibles };
-    }, [storeId]);
+    }, [state, handleStopListening, handleStartListening]);
 
     // ── Exécution d'une action confirmée ──────────────────────────────────
     const executeAction = useCallback(async (action: VoiceAction) => {
         setState('processing');
         setPendingAction(null);
-        let confirmText = "C'est fait !";
 
-        try {
-            if (action.type === 'publier' && storeId) {
-                const d = action.details;
+        const confirmText = await executeVoiceAction(
+            action,
+            { storeId, userId, role },
+            (route: string) => { onClose(); router.push(route as any); },
+        );
 
-                // Extraction robuste du nom — le LLM peut varier les noms de champs
-                const nomProduit: string = (
-                    d.nom ?? d.name ?? d.produit ?? d.titre ?? d.product_name ?? ''
-                ).toString().trim();
-
-                const prixProduit: number = parseFloat(
-                    String(d.prix ?? d.price ?? d.prix_unitaire ?? 0)
-                ) || 0;
-
-                console.log('[VoiceModal] ACTION publier — details bruts:', JSON.stringify(d));
-                console.log('[VoiceModal] nom extrait:', nomProduit);
-                console.log('[VoiceModal] prix extrait:', prixProduit);
-
-                // Validation — refus si nom vide
-                if (!nomProduit) {
-                    confirmText = "Je n'ai pas compris le nom du produit. Dites par exemple : « Publie du maïs à 500 francs, 100 kilos ».";
-                    addAssistantMessage(confirmText);
-                    speakText(confirmText, () => setState('idle'));
-                    return;
-                }
-
-                const insertPayload = {
-                    store_id:    storeId,
-                    name:        nomProduit,
-                    price:       prixProduit,
-                    category:    (d.categorie ?? d.category ?? 'Autre').toString(),
-                    description: d.description ? String(d.description) : null,
-                };
-                console.log('[VoiceModal] INSERT products payload:', JSON.stringify(insertPayload));
-
-                const { data: newProd, error } = await supabase
-                    .from('products')
-                    .insert([insertPayload])
-                    .select()
-                    .single();
-
-                console.log('[VoiceModal] INSERT products résultat:', newProd?.id ?? null);
-                console.log('[VoiceModal] INSERT products erreur:', error?.message ?? null);
-
-                if (error) throw error;
-
-                const quantite = parseInt(String(d.quantite ?? d.quantity ?? 0), 10);
-                if (newProd && quantite > 0) {
-                    const { error: stockErr } = await supabase.from('stock').upsert({
-                        product_id: newProd.id, store_id: storeId, quantity: quantite,
-                    });
-                    console.log('[VoiceModal] UPSERT stock erreur:', stockErr?.message ?? null);
-                }
-
-                emitEvent('nouveau-produit-marche', { storeId, name: nomProduit, productId: newProd?.id });
-                console.log('[VoiceModal] Socket emit nouveau-produit-marche');
-
-                confirmText = `C'est fait ! ${nomProduit} est maintenant publié sur le marché${prixProduit > 0 ? ` à ${prixProduit.toLocaleString('fr-FR')} F` : ''}.`;
-
-            } else if (action.type === 'vendre' && storeId) {
-                const d = action.details;
-                const { data: prod, listeDisponibles } = await findProductFuzzy(
-                    d.produit_nom ?? '', 'id, name, price',
-                );
-
-                if (prod) {
-                    const qte   = d.quantite ?? 1;
-                    const total = (prod.price ?? 0) * qte;
-                    // Colonne "price" dans transactions (pas total_amount)
-                    await supabase.from('transactions').insert([{
-                        store_id: storeId, product_id: prod.id,
-                        quantity: qte, price: total,
-                        client_name: d.client_nom ?? null,
-                    }]);
-                    // Décrémenter le stock
-                    const { data: st } = await supabase.from('stock').select('id, quantity')
-                        .eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
-                    if (st) {
-                        await supabase.from('stock')
-                            .update({ quantity: Math.max(0, st.quantity - qte) })
-                            .eq('id', st.id);
-                    }
-                    confirmText = `Vente enregistrée ! ${qte} ${prod.name} pour ${total.toLocaleString('fr-FR')}F.`;
-                } else {
-                    confirmText = listeDisponibles
-                        ? `Je n'ai pas trouvé "${d.produit_nom}". Vos produits disponibles : ${listeDisponibles}.`
-                        : `Je n'ai pas trouvé "${d.produit_nom}" dans votre stock.`;
-                }
-
-            } else if (action.type === 'commander' && storeId) {
-                const d = action.details;
-                await supabase.from('orders').insert([{
-                    buyer_store_id: storeId, quantity: d.quantite ?? 1,
-                    status: 'PENDING', note: d.produit_nom ?? '',
-                }]);
-                emitEvent('nouvelle-commande', { buyerStoreId: storeId });
-                confirmText = `Commande passée ! ${d.quantite ?? 1} ${d.produit_nom} commandé(s).`;
-
-            } else if (action.type === 'stock' && storeId) {
-                const d = action.details;
-                const { data: prod, listeDisponibles } = await findProductFuzzy(d.produit_nom ?? '', 'id, name');
-                if (prod) {
-                    const { data: st } = await supabase.from('stock').select('id, quantity')
-                        .eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
-                    if (st) {
-                        await supabase.from('stock')
-                            .update({ quantity: st.quantity + (d.quantite ?? 0) }).eq('id', st.id);
-                        confirmText = `Stock mis à jour ! +${d.quantite} ${prod.name}.`;
-                    } else {
-                        confirmText = `Produit trouvé mais aucun stock enregistré pour ${prod.name}.`;
-                    }
-                } else {
-                    confirmText = listeDisponibles
-                        ? `Je n'ai pas trouvé "${d.produit_nom}". Vos produits : ${listeDisponibles}.`
-                        : `Je n'ai pas trouvé "${d.produit_nom}".`;
-                }
-            }
-        } catch {
-            confirmText = "Une erreur est survenue. Réessayez.";
-        }
-
-        // Ajouter la confirmation à l'historique et à l'affichage
         groqHistoryRef.current = [
             ...groqHistoryRef.current,
             { role: 'assistant', content: confirmText },
         ];
         addAssistantMessage(confirmText);
         speakText(confirmText, () => setState('idle'));
-    }, [storeId, findProductFuzzy]);
+    }, [storeId, userId, role, onClose]);
 
     const handleConfirmAction = useCallback(() => {
         if (pendingAction) executeAction(pendingAction);
@@ -491,9 +392,9 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
     const stateLabel: Record<string, string> = {
         idle:       'Appuyez sur le micro pour parler',
-        welcome:    'Chargement de votre contexte…',
+        welcome:    'Chargement… (max 20 secondes)',
         listening:  'Je vous écoute…',
-        processing: 'Traitement…',
+        processing: 'Je réfléchis…',
         speaking:   'En train de répondre… (appuyez pour interrompre)',
         confirming: 'Confirmez-vous cette action ?',
         error:      '',
@@ -618,7 +519,7 @@ const styles = StyleSheet.create({
 
     sheet: {
         backgroundColor: '#fff',
-        borderTopLeftRadius: 20, borderTopRightRadius: 20,
+        borderTopLeftRadius: 12, borderTopRightRadius: 12,
         paddingTop: 16, paddingHorizontal: 16, paddingBottom: 32,
         maxHeight: '82%',
         gap: 10,
@@ -632,7 +533,7 @@ const styles = StyleSheet.create({
     modeText:   { fontSize: 11, fontWeight: '700', color: '#94a3b8' },
     sheetTitle: { fontSize: 14, fontWeight: '900', color: '#1e293b' },
     closeBtn: {
-        width: 32, height: 32, borderRadius: 8,
+        width: 44, height: 44, borderRadius: 10,
         backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center',
     },
 

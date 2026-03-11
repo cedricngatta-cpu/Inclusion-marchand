@@ -63,6 +63,8 @@ const BUSINESS_EVENTS = [
     'stats-reseau-update',
     // Notifications
     'nouvelle-notification',
+    // Activité admin
+    'nouvelle-activite',
 ] as const;
 
 export type SocketEvent = typeof BUSINESS_EVENTS[number];

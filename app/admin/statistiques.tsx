@@ -4,9 +4,9 @@ import {
     View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { ChevronLeft, ChevronRight, TrendingUp, ShoppingBag, Users, Package } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useAuth } from '@/src/context/AuthContext';
@@ -53,8 +53,6 @@ const RANK_COLORS = ['#f59e0b', '#94a3b8', '#d97706', '#64748b', '#64748b'];
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function Statistiques() {
-    const router = useRouter();
-
     const now = new Date();
     const [year, setYear]     = useState(now.getFullYear());
     const [month, setMonth]   = useState(now.getMonth()); // 0-indexed
@@ -260,21 +258,8 @@ export default function Statistiques() {
     const maxDayTotal  = Math.max(...dailyData.map(d => d.total), 1);
 
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={s.header}>
-                <View style={s.headerTop}>
-                    <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={s.headerTitleBlock}>
-                        <Text style={s.headerTitle}>STATISTIQUES</Text>
-                        <Text style={s.headerSubtitle}>ANALYSES RÉSEAU</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
-                {/* Sélecteur de mois */}
+        <View style={s.safe}>
+            <ScreenHeader title="Statistiques" subtitle="Analyses réseau" showBack={true} paddingBottom={16}>
                 <View style={s.monthSelector}>
                     <TouchableOpacity style={s.monthBtn} onPress={prevMonth}>
                         <ChevronLeft color={colors.white} size={18} />
@@ -288,7 +273,7 @@ export default function Statistiques() {
                         <ChevronRight color={colors.white} size={18} />
                     </TouchableOpacity>
                 </View>
-            </View>
+            </ScreenHeader>
 
             <ScrollView
                 style={s.scroll}
@@ -461,32 +446,13 @@ export default function Statistiques() {
                     </>
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f8fafc' },
-
-    header: {
-        backgroundColor: '#059669',
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:      { fontSize: 16, fontWeight: '900', color: '#fff', letterSpacing: 1 },
-    headerSubtitle:   { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 1, marginTop: 2 },
 
     monthSelector: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -499,7 +465,7 @@ const s = StyleSheet.create({
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 12 },
 
-    sectionTitle: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 2, textTransform: 'uppercase' },
+    sectionTitle: { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 2, textTransform: 'uppercase' },
 
     // Graphique ventes par jour
     chartCard: {
@@ -517,7 +483,7 @@ const s = StyleSheet.create({
     chartEmptyText: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
     barCol: { alignItems: 'center', width: 22, gap: 3 },
     barTopLabel: {
-        fontSize: 7, fontWeight: '700', color: '#64748b',
+        fontSize: 11, fontWeight: '700', color: '#64748b',
         textAlign: 'center', height: 12,
     },
     barTrackVert: {
@@ -527,7 +493,7 @@ const s = StyleSheet.create({
     },
     barFillVert: { width: 14, borderRadius: 4 },
     barDayLabel: {
-        fontSize: 8, fontWeight: '600', color: '#94a3b8',
+        fontSize: 11, fontWeight: '600', color: '#94a3b8',
         textAlign: 'center', marginTop: 4, marginBottom: 8,
     },
 
@@ -542,9 +508,9 @@ const s = StyleSheet.create({
         shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
     },
     kpiIconWrap:   { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-    kpiCardLabel:  { fontSize: 8, fontWeight: '800', color: '#94a3b8', letterSpacing: 1.2, textTransform: 'uppercase' },
+    kpiCardLabel:  { fontSize: 11, fontWeight: '800', color: '#94a3b8', letterSpacing: 1.2, textTransform: 'uppercase' },
     kpiCardValue:  { fontSize: 22, fontWeight: '900', color: '#1e293b', lineHeight: 26 },
-    kpiCardSub:    { fontSize: 10, fontWeight: '600', color: '#94a3b8' },
+    kpiCardSub:    { fontSize: 11, fontWeight: '600', color: '#94a3b8' },
 
     // Ranking card
     rankCard: {

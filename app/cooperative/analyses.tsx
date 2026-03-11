@@ -1,36 +1,36 @@
-// Analyses marché — Coopérative (sans bibliothèque de graphiques)
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+// Analyses marché — Coopérative (par boutique, 100% temps réel)
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator,
+    ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ChevronLeft, BarChart2 } from 'lucide-react-native';
+import { BarChart2 } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
+import { useFocusEffect } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
+import { onSocketEvent } from '@/src/lib/socket';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface TxRow {
-    product_name?: string;
-    quantity?: number;
-    price?: number;
+    store_id: string | null;
+    quantity: number | null;
+    price: number | null;
     created_at: string;
-    type?: string;
+    storeName: string;
 }
 
-interface ProductStat {
-    name: string;
-    totalQty: number;
-    totalRevenue: number;
+interface OrderRow {
+    seller_store_id: string | null;
+    total_amount: number | null;
+    created_at: string;
+    storeName: string;
 }
 
-interface DayStat {
-    label: string;       // "lun.", "mar." …
-    date: string;        // YYYY-MM-DD
-    revenue: number;
-    txCount: number;
-}
+interface RoleStat   { label: string; color: string; count: number; pct: number; }
+interface StoreStat  { storeId: string; name: string; revenue: number; txCount: number; }
+interface ProducerStat { storeId: string; name: string; b2bRevenue: number; orderCount: number; }
+interface DayStat    { label: string; date: string; revenue: number; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const PERIOD_TABS = [
@@ -38,7 +38,6 @@ const PERIOD_TABS = [
     { key: '30d', label: '30 jours' },
     { key: '3m',  label: '3 mois' },
 ];
-
 const SHORT_DAYS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
 const BAR_COLORS = ['#059669', '#2563eb', '#7c3aed', '#d97706', '#dc2626'];
 
@@ -51,91 +50,219 @@ function getPeriodStart(key: string): string {
 
 function toDateStr(iso: string) { return iso.slice(0, 10); }
 
+const ROLE_MAP: Record<string, { key: string; label: string; color: string }> = {
+    merchant:    { key: 'merchant', label: 'Marchands',    color: '#2563eb' },
+    producer:    { key: 'producer', label: 'Producteurs',  color: '#059669' },
+    cooperative: { key: 'coop',     label: 'Coopératives', color: '#d97706' },
+};
+const EXCLUDED_ROLES = ['field_agent', 'agent', 'agent_terrain', 'supervisor', 'admin'];
+
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function AnalysesScreen() {
-    const router = useRouter();
+    const [period, setPeriod]         = useState('7d');
+    const [txRows, setTxRows]         = useState<TxRow[]>([]);
+    const [orderRows, setOrderRows]   = useState<OrderRow[]>([]);
+    const [roleStats, setRoleStats]   = useState<RoleStat[]>([]);
+    const [loading, setLoading]       = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
-    const [period, setPeriod]   = useState('7d');
-    const [txData, setTxData]   = useState<TxRow[]>([]);
-    const [loading, setLoading] = useState(true);
+    // ── Ref toujours à jour — évite les closures figées ───────────────────────
+    const periodRef = useRef(period);
+    periodRef.current = period;
 
-    const fetchData = useCallback(async (p: string) => {
-        setLoading(true);
-        try {
-            const periodStart = getPeriodStart(p);
-            const { data } = await supabase
-                .from('transactions')
-                .select('product_name, quantity, price, created_at, type')
-                .eq('type', 'VENTE')
-                .gte('created_at', periodStart)
-                .order('created_at', { ascending: true });
-            setTxData((data as TxRow[]) || []);
-        } catch (err) {
-            console.error('[Analyses] fetch error:', err);
-        } finally {
-            setLoading(false);
+    // ── Fetch ventes par période ──────────────────────────────────────────────
+    const loadTx = useCallback(async (p: string) => {
+        const { data: raw, error } = await supabase
+            .from('transactions')
+            .select('store_id, quantity, price, created_at')
+            .eq('type', 'VENTE')
+            .gte('created_at', getPeriodStart(p))
+            .order('created_at', { ascending: true });
+        if (error) { console.error('[Analyses] loadTx:', error.message); return; }
+        const rows = raw ?? [];
+
+        // Noms boutiques en une seule requête
+        const ids = [...new Set(rows.map(r => r.store_id).filter(Boolean))] as string[];
+        const nameMap: Record<string, string> = {};
+        if (ids.length) {
+            const { data: stores } = await supabase.from('stores').select('id, name').in('id', ids);
+            for (const s of stores ?? []) nameMap[s.id] = s.name;
         }
+
+        setTxRows(rows.map(r => ({
+            store_id:   r.store_id,
+            quantity:   r.quantity,
+            price:      Number(r.price) || 0,
+            created_at: r.created_at,
+            storeName:  r.store_id ? (nameMap[r.store_id] ?? `Boutique (${r.store_id.slice(0,6)})`) : 'Inconnue',
+        })));
     }, []);
 
-    useEffect(() => { fetchData(period); }, [fetchData, period]);
+    // ── Fetch commandes B2B livrées par période ───────────────────────────────
+    const loadOrders = useCallback(async (p: string) => {
+        const { data: raw, error } = await supabase
+            .from('orders')
+            .select('seller_store_id, total_amount, created_at')
+            .eq('status', 'DELIVERED')
+            .gte('created_at', getPeriodStart(p))
+            .order('created_at', { ascending: true });
+        if (error) { console.error('[Analyses] loadOrders:', error.message); return; }
+        const rows = raw ?? [];
 
-    // ── Calculs ────────────────────────────────────────────────────────────────
-    const productStats = useMemo<ProductStat[]>(() => {
-        const map: Record<string, ProductStat> = {};
-        for (const tx of txData) {
-            const name = tx.product_name ?? 'Inconnu';
-            if (!map[name]) map[name] = { name, totalQty: 0, totalRevenue: 0 };
-            map[name].totalQty     += tx.quantity ?? 1;
-            map[name].totalRevenue += tx.price    ?? 0;
+        const ids = [...new Set(rows.map(r => r.seller_store_id).filter(Boolean))] as string[];
+        const nameMap: Record<string, string> = {};
+        if (ids.length) {
+            const { data: stores } = await supabase.from('stores').select('id, name').in('id', ids);
+            for (const s of stores ?? []) nameMap[s.id] = s.name;
         }
-        return Object.values(map)
-            .sort((a, b) => b.totalQty - a.totalQty)
-            .slice(0, 5);
-    }, [txData]);
+
+        setOrderRows(rows.map(r => ({
+            seller_store_id: r.seller_store_id,
+            total_amount:    Number(r.total_amount) || 0,
+            created_at:      r.created_at,
+            storeName:       r.seller_store_id ? (nameMap[r.seller_store_id] ?? `Boutique (${r.seller_store_id.slice(0,6)})`) : 'Inconnue',
+        })));
+    }, []);
+
+    // ── Fetch répartition membres (pas de filtre période) ─────────────────────
+    const loadRoles = useCallback(async () => {
+        const { data, error } = await supabase.from('profiles').select('role');
+        if (error) { console.error('[Analyses] loadRoles:', error.message); return; }
+        const counts: Record<string, { label: string; color: string; count: number }> = {};
+        let total = 0;
+        for (const p of data ?? []) {
+            const r = (p.role ?? '').toLowerCase();
+            if (EXCLUDED_ROLES.includes(r)) continue;
+            const mapped = ROLE_MAP[r];
+            if (!mapped) continue;
+            total++;
+            if (!counts[mapped.key]) counts[mapped.key] = { label: mapped.label, color: mapped.color, count: 0 };
+            counts[mapped.key].count++;
+        }
+        if (!total) { setRoleStats([]); return; }
+        setRoleStats(
+            Object.values(counts)
+                .map(c => ({ ...c, pct: Math.round(c.count / total * 100) }))
+                .sort((a, b) => b.count - a.count)
+        );
+    }, []);
+
+    // ── Chargement principal — lit la période depuis le ref ───────────────────
+    // Deps vides intentionnels : on lit toujours periodRef.current à l'intérieur
+    const doLoad = useCallback(async (silent = false) => {
+        const p = periodRef.current;          // période courante, toujours fraîche
+        if (!silent) setLoading(true);
+        try {
+            await Promise.all([loadTx(p), loadOrders(p), loadRoles()]);
+        } catch (err) {
+            console.error('[Analyses] doLoad error:', err);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loadTx, loadOrders, loadRoles]);
+
+    // Déclenche un rechargement complet dès que la période change
+    useEffect(() => {
+        setLoading(true);
+        const p = period;                     // capture locale pour cette exécution
+        Promise.all([loadTx(p), loadOrders(p), loadRoles()])
+            .finally(() => setLoading(false));
+    }, [period, loadTx, loadOrders, loadRoles]);
+
+    // Rechargement silencieux au focus (retour sur l'écran)
+    useFocusEffect(useCallback(() => { doLoad(true); }, [doLoad]));
+
+    // ── Supabase Realtime ─────────────────────────────────────────────────────
+    useEffect(() => {
+        const txCh = supabase.channel('analyses-tx')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transactions' },
+                () => loadTx(periodRef.current))
+            .subscribe();
+
+        const ordCh = supabase.channel('analyses-ord')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' },
+                () => loadOrders(periodRef.current))
+            .subscribe();
+
+        const profCh = supabase.channel('analyses-prof')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' },
+                () => loadRoles())
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(txCh);
+            supabase.removeChannel(ordCh);
+            supabase.removeChannel(profCh);
+        };
+    }, [loadTx, loadOrders, loadRoles]);
+
+    // ── Socket.io — couche complémentaire ─────────────────────────────────────
+    useEffect(() => {
+        const u = [
+            onSocketEvent('nouvelle-vente',     () => loadTx(periodRef.current)),
+            onSocketEvent('livraison-terminee', () => loadOrders(periodRef.current)),
+            onSocketEvent('enrolement-valide',  () => loadRoles()),
+        ];
+        return () => u.forEach(fn => fn());
+    }, [loadTx, loadOrders, loadRoles]);
+
+    const onRefresh = useCallback(() => {
+        setRefreshing(true);
+        doLoad(true);
+    }, [doLoad]);
+
+    // ── Calculs dérivés ───────────────────────────────────────────────────────
+    const storeStats = useMemo<StoreStat[]>(() => {
+        const map: Record<string, StoreStat> = {};
+        for (const tx of txRows) {
+            if (!tx.store_id) continue;
+            if (!map[tx.store_id]) map[tx.store_id] = { storeId: tx.store_id, name: tx.storeName, revenue: 0, txCount: 0 };
+            map[tx.store_id].revenue += tx.price ?? 0;
+            map[tx.store_id].txCount += 1;
+        }
+        return Object.values(map).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    }, [txRows]);
+
+    const producerStats = useMemo<ProducerStat[]>(() => {
+        const map: Record<string, ProducerStat> = {};
+        for (const o of orderRows) {
+            if (!o.seller_store_id) continue;
+            if (!map[o.seller_store_id]) map[o.seller_store_id] = { storeId: o.seller_store_id, name: o.storeName, b2bRevenue: 0, orderCount: 0 };
+            map[o.seller_store_id].b2bRevenue += o.total_amount ?? 0;
+            map[o.seller_store_id].orderCount += 1;
+        }
+        return Object.values(map).sort((a, b) => b.b2bRevenue - a.b2bRevenue).slice(0, 5);
+    }, [orderRows]);
 
     const dailyStats = useMemo<DayStat[]>(() => {
         const map: Record<string, DayStat> = {};
-        const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
-        const now  = new Date();
-        // Préremplir les jours (seulement 7 derniers pour le graphe vertical)
-        const displayDays = Math.min(days, 7);
-        for (let i = displayDays - 1; i >= 0; i--) {
-            const d    = new Date(now.getTime() - i * 86400_000);
-            const key  = toDateStr(d.toISOString());
-            const dow  = d.getDay();
-            map[key]   = { label: SHORT_DAYS[dow], date: key, revenue: 0, txCount: 0 };
+        const now = new Date();
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(now.getTime() - i * 86400_000);
+            const k = toDateStr(d.toISOString());
+            map[k] = { label: SHORT_DAYS[d.getDay()], date: k, revenue: 0 };
         }
-        for (const tx of txData) {
-            const key = toDateStr(tx.created_at);
-            if (map[key]) {
-                map[key].revenue += tx.price    ?? 0;
-                map[key].txCount += 1;
-            }
+        for (const tx of txRows) {
+            const k = toDateStr(tx.created_at);
+            if (map[k]) map[k].revenue += tx.price ?? 0;
         }
         return Object.values(map);
-    }, [txData, period]);
+    }, [txRows]);
 
-    // Répartition par rôle (simulation à partir des données)
-    const totalTx        = txData.length;
-    const totalRevenue   = txData.reduce((s, t) => s + (t.price ?? 0), 0);
-    const maxProductQty  = productStats[0]?.totalQty ?? 1;
-    const maxDayRevenue  = Math.max(...dailyStats.map(d => d.revenue), 1);
+    const totalTxRevenue  = txRows.reduce((s, t)  => s + (t.price         ?? 0), 0);
+    const totalTxCount    = txRows.length;
+    const totalB2BRevenue = orderRows.reduce((s, o) => s + (o.total_amount ?? 0), 0);
+    const totalB2BCount   = orderRows.length;
+    const maxStoreRevenue    = storeStats[0]?.revenue      ?? 1;
+    const maxProducerRevenue = producerStats[0]?.b2bRevenue ?? 1;
+    const maxDayRevenue      = Math.max(...dailyStats.map(d => d.revenue), 1);
 
+    // ── Rendu ─────────────────────────────────────────────────────────────────
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={styles.headerTitle}>ANALYSES</Text>
-                        <Text style={styles.headerSub}>TENDANCES MARCHÉ</Text>
-                    </View>
-                </View>
-
-                {/* Période */}
+        <View style={styles.safe}>
+            <ScreenHeader title="Analyses" subtitle="Tendances par boutique" showBack={true} paddingBottom={16}>
                 <View style={styles.periodRow}>
                     {PERIOD_TABS.map(tab => (
                         <TouchableOpacity
@@ -149,100 +276,126 @@ export default function AnalysesScreen() {
                         </TouchableOpacity>
                     ))}
                 </View>
-            </View>
+            </ScreenHeader>
 
-            {/* ── CONTENU ── */}
             <ScrollView
                 style={styles.scroll}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
+                        colors={[colors.primary]} tintColor={colors.primary} />
+                }
             >
                 {loading ? (
                     <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
-                ) : txData.length === 0 ? (
-                    <View style={styles.emptyCard}>
-                        <BarChart2 color={colors.slate300} size={36} />
-                        <Text style={styles.emptyText}>AUCUNE DONNÉE SUR CETTE PÉRIODE</Text>
-                    </View>
                 ) : (
                     <>
-                        {/* Résumé */}
-                        <View style={styles.summaryRow}>
-                            <View style={styles.summaryCard}>
-                                <Text style={styles.summaryValue}>{totalTx}</Text>
-                                <Text style={styles.summaryLabel}>Transactions</Text>
+                        {/* ── KPIs ── */}
+                        <View style={styles.kpiRow}>
+                            <View style={styles.kpiCard}>
+                                <Text style={styles.kpiValue}>{totalTxCount}</Text>
+                                <Text style={styles.kpiLabel}>Ventes réseau</Text>
                             </View>
-                            <View style={styles.summaryCard}>
-                                <Text style={styles.summaryValue}>
-                                    {totalRevenue.toLocaleString('fr-FR')}
+                            <View style={styles.kpiCard}>
+                                <Text style={styles.kpiValue}>
+                                    {totalTxRevenue >= 1000 ? `${Math.round(totalTxRevenue / 1000)}k` : totalTxRevenue.toLocaleString('fr-FR')}
                                 </Text>
-                                <Text style={styles.summaryLabel}>Revenus totaux (F)</Text>
+                                <Text style={styles.kpiLabel}>Revenus ventes (F)</Text>
+                            </View>
+                            <View style={[styles.kpiCard, { borderTopColor: '#2563eb' }]}>
+                                <Text style={[styles.kpiValue, { color: '#2563eb' }]}>{totalB2BCount}</Text>
+                                <Text style={styles.kpiLabel}>Commandes B2B</Text>
+                            </View>
+                            <View style={[styles.kpiCard, { borderTopColor: '#2563eb' }]}>
+                                <Text style={[styles.kpiValue, { color: '#2563eb' }]}>
+                                    {totalB2BRevenue >= 1000 ? `${Math.round(totalB2BRevenue / 1000)}k` : totalB2BRevenue.toLocaleString('fr-FR')}
+                                </Text>
+                                <Text style={styles.kpiLabel}>Volume B2B (F)</Text>
                             </View>
                         </View>
 
-                        {/* ── PRODUITS POPULAIRES (barres horizontales) ── */}
-                        <Text style={styles.sectionTitle}>PRODUITS POPULAIRES</Text>
+                        {/* ── TOP BOUTIQUES ── */}
+                        <Text style={styles.sectionTitle}>TOP BOUTIQUES — REVENUS VENTES</Text>
                         <View style={styles.chartCard}>
-                            {productStats.map((ps, idx) => {
-                                const widthPct = maxProductQty > 0
-                                    ? (ps.totalQty / maxProductQty) * 100
-                                    : 0;
-                                return (
-                                    <View key={ps.name} style={styles.hBarRow}>
-                                        <Text style={styles.hBarLabel} numberOfLines={1}>{ps.name}</Text>
-                                        <View style={styles.hBarTrack}>
-                                            <View
-                                                style={[
-                                                    styles.hBarFill,
-                                                    {
-                                                        width: `${widthPct}%` as any,
-                                                        backgroundColor: BAR_COLORS[idx % BAR_COLORS.length],
-                                                    },
-                                                ]}
-                                            />
-                                        </View>
-                                        <Text style={styles.hBarValue}>{ps.totalQty}</Text>
+                            {storeStats.length === 0 ? (
+                                <View style={styles.emptyInline}>
+                                    <BarChart2 color={colors.slate300} size={28} />
+                                    <Text style={styles.noDataText}>Aucune vente sur cette période</Text>
+                                </View>
+                            ) : storeStats.map((st, idx) => (
+                                <View key={st.storeId} style={styles.storeRow}>
+                                    <View style={styles.storeRank}>
+                                        <Text style={styles.storeRankText}>{idx + 1}</Text>
                                     </View>
-                                );
-                            })}
-                            {productStats.length === 0 && (
-                                <Text style={styles.noDataText}>Aucun produit vendu</Text>
-                            )}
+                                    <View style={styles.storeInfo}>
+                                        <View style={styles.hBarHeaderRow}>
+                                            <Text style={styles.storeName} numberOfLines={1}>{st.name}</Text>
+                                            <Text style={styles.storeMeta}>{st.txCount} vente{st.txCount > 1 ? 's' : ''}</Text>
+                                        </View>
+                                        <View style={styles.hBarTrack}>
+                                            <View style={[styles.hBarFill, {
+                                                width: `${(st.revenue / maxStoreRevenue) * 100}%` as any,
+                                                backgroundColor: BAR_COLORS[idx % BAR_COLORS.length],
+                                            }]} />
+                                        </View>
+                                    </View>
+                                    <Text style={styles.storeRevenue}>
+                                        {st.revenue >= 1000 ? `${Math.round(st.revenue / 1000)}k` : st.revenue.toLocaleString('fr-FR')}
+                                    </Text>
+                                </View>
+                            ))}
                         </View>
 
-                        {/* ── VENTES PAR JOUR (barres verticales) ── */}
-                        <Text style={styles.sectionTitle}>VENTES PAR JOUR (7 DERNIERS JOURS)</Text>
+                        {/* ── TOP PRODUCTEURS B2B ── */}
+                        <Text style={styles.sectionTitle}>TOP PRODUCTEURS — VENTES B2B</Text>
+                        <View style={styles.chartCard}>
+                            {producerStats.length === 0 ? (
+                                <View style={styles.emptyInline}>
+                                    <BarChart2 color={colors.slate300} size={28} />
+                                    <Text style={styles.noDataText}>Aucune livraison B2B sur cette période</Text>
+                                </View>
+                            ) : producerStats.map((pr, idx) => (
+                                <View key={pr.storeId} style={styles.storeRow}>
+                                    <View style={[styles.storeRank, { backgroundColor: '#dbeafe' }]}>
+                                        <Text style={[styles.storeRankText, { color: '#1e40af' }]}>{idx + 1}</Text>
+                                    </View>
+                                    <View style={styles.storeInfo}>
+                                        <View style={styles.hBarHeaderRow}>
+                                            <Text style={styles.storeName} numberOfLines={1}>{pr.name}</Text>
+                                            <Text style={styles.storeMeta}>{pr.orderCount} commande{pr.orderCount > 1 ? 's' : ''}</Text>
+                                        </View>
+                                        <View style={styles.hBarTrack}>
+                                            <View style={[styles.hBarFill, {
+                                                width: `${(pr.b2bRevenue / maxProducerRevenue) * 100}%` as any,
+                                                backgroundColor: '#2563eb',
+                                            }]} />
+                                        </View>
+                                    </View>
+                                    <Text style={[styles.storeRevenue, { color: '#2563eb' }]}>
+                                        {pr.b2bRevenue >= 1000 ? `${Math.round(pr.b2bRevenue / 1000)}k` : pr.b2bRevenue.toLocaleString('fr-FR')}
+                                    </Text>
+                                </View>
+                            ))}
+                        </View>
+
+                        {/* ── VENTES PAR JOUR ── */}
+                        <Text style={styles.sectionTitle}>VENTES RÉSEAU — 7 DERNIERS JOURS</Text>
                         <View style={styles.chartCard}>
                             <View style={styles.vBarsContainer}>
                                 {dailyStats.map((day, idx) => {
-                                    const heightPct = maxDayRevenue > 0
-                                        ? (day.revenue / maxDayRevenue) * 100
-                                        : 0;
+                                    const h = (day.revenue / maxDayRevenue) * 100;
                                     return (
                                         <View key={day.date} style={styles.vBarWrapper}>
-                                            {/* Valeur au-dessus */}
                                             <Text style={styles.vBarValueAbove} numberOfLines={1}>
-                                                {day.revenue > 0
-                                                    ? day.revenue >= 1000
-                                                        ? `${Math.round(day.revenue / 1000)}k`
-                                                        : String(day.revenue)
-                                                    : ''}
+                                                {day.revenue > 0 ? (day.revenue >= 1000 ? `${Math.round(day.revenue / 1000)}k` : String(day.revenue)) : ''}
                                             </Text>
-                                            {/* Zone barre */}
                                             <View style={styles.vBarZone}>
-                                                <View
-                                                    style={[
-                                                        styles.vBarFill,
-                                                        {
-                                                            height: `${Math.max(heightPct, 2)}%` as any,
-                                                            backgroundColor: day.revenue > 0
-                                                                ? BAR_COLORS[idx % BAR_COLORS.length]
-                                                                : colors.slate200,
-                                                        },
-                                                    ]}
-                                                />
+                                                <View style={[styles.vBarFill, {
+                                                    height: `${Math.max(h, 2)}%` as any,
+                                                    backgroundColor: day.revenue > 0 ? BAR_COLORS[idx % BAR_COLORS.length] : colors.slate200,
+                                                }]} />
                                             </View>
-                                            {/* Étiquette */}
                                             <Text style={styles.vBarLabel}>{day.label}</Text>
                                         </View>
                                     );
@@ -250,26 +403,19 @@ export default function AnalysesScreen() {
                             </View>
                         </View>
 
-                        {/* ── RÉPARTITION PAR RÔLE ── */}
-                        <Text style={styles.sectionTitle}>RÉPARTITION PAR RÔLE</Text>
+                        {/* ── RÉPARTITION MEMBRES ── */}
+                        <Text style={styles.sectionTitle}>RÉPARTITION DES MEMBRES</Text>
                         <View style={styles.chartCard}>
-                            {/* On affiche des blocs de pourcentage proportionnels */}
-                            {[
-                                { label: 'Marchands', color: '#2563eb', pct: 60 },
-                                { label: 'Producteurs', color: '#059669', pct: 30 },
-                                { label: 'Agents', color: '#7c3aed', pct: 10 },
-                            ].map(row => (
+                            {roleStats.length === 0 ? (
+                                <Text style={styles.noDataText}>Aucun membre enregistré</Text>
+                            ) : roleStats.map(row => (
                                 <View key={row.label} style={styles.pctRow}>
                                     <View style={[styles.pctDot, { backgroundColor: row.color }]} />
                                     <Text style={styles.pctLabel}>{row.label}</Text>
                                     <View style={styles.pctTrack}>
-                                        <View
-                                            style={[
-                                                styles.pctFill,
-                                                { width: `${row.pct}%` as any, backgroundColor: row.color },
-                                            ]}
-                                        />
+                                        <View style={[styles.pctFill, { width: `${row.pct}%` as any, backgroundColor: row.color }]} />
                                     </View>
+                                    <Text style={styles.pctCount}>{row.count}</Text>
                                     <Text style={styles.pctValue}>{row.pct}%</Text>
                                 </View>
                             ))}
@@ -277,7 +423,7 @@ export default function AnalysesScreen() {
                     </>
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -285,28 +431,9 @@ export default function AnalysesScreen() {
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
 
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop:   { flexDirection: 'row', alignItems: 'center' },
-    headerTitle: { fontSize: 18, fontWeight: '900', color: colors.white },
-    headerSub:   { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.6)', marginTop: 2, letterSpacing: 1 },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-
     periodRow: { flexDirection: 'row', gap: 8 },
     periodBtn: {
-        flex: 1, paddingVertical: 8,
-        borderRadius: 8, alignItems: 'center',
+        flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center',
         backgroundColor: 'rgba(255,255,255,0.15)',
     },
     periodBtnActive:     { backgroundColor: colors.white },
@@ -316,67 +443,50 @@ const styles = StyleSheet.create({
     scroll:        { flex: 1 },
     scrollContent: { paddingTop: 20, paddingHorizontal: 16, paddingBottom: 40, gap: 14 },
 
-    sectionTitle: { fontSize: 10, fontWeight: '900', color: colors.slate400, letterSpacing: 2 },
+    sectionTitle: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 2, marginBottom: -4 },
 
-    summaryRow: { flexDirection: 'row', gap: 10 },
-    summaryCard: {
-        flex: 1, backgroundColor: colors.white,
-        borderRadius: 10, padding: 16, alignItems: 'center',
-        borderWidth: 1, borderColor: colors.slate100,
+    kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    kpiCard: {
+        width: '47.5%', backgroundColor: colors.white, borderRadius: 10, padding: 14,
+        alignItems: 'center', borderWidth: 1, borderColor: colors.slate100,
+        borderTopWidth: 3, borderTopColor: colors.primary,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
     },
-    summaryValue: { fontSize: 22, fontWeight: '900', color: colors.primary },
-    summaryLabel: { fontSize: 10, fontWeight: '700', color: colors.slate400, marginTop: 4, textAlign: 'center' },
+    kpiValue: { fontSize: 20, fontWeight: '900', color: colors.primary },
+    kpiLabel: { fontSize: 11, fontWeight: '700', color: colors.slate400, marginTop: 4, textAlign: 'center' },
 
     chartCard: {
-        backgroundColor: colors.white,
-        borderRadius: 10, padding: 16,
-        borderWidth: 1, borderColor: colors.slate100,
-        gap: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 4,
-        elevation: 1,
+        backgroundColor: colors.white, borderRadius: 10, padding: 14,
+        borderWidth: 1, borderColor: colors.slate100, gap: 10,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
     },
-    noDataText: { fontSize: 11, color: colors.slate400, textAlign: 'center', paddingVertical: 8 },
 
-    // Barres horizontales
-    hBarRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    hBarLabel: { width: 90, fontSize: 11, fontWeight: '600', color: colors.slate700 },
-    hBarTrack: {
-        flex: 1, height: 14, borderRadius: 4,
-        backgroundColor: colors.slate100,
-        overflow: 'hidden',
-    },
-    hBarFill:  { height: '100%', borderRadius: 4 },
-    hBarValue: { width: 32, fontSize: 11, fontWeight: '700', color: colors.slate600, textAlign: 'right' },
+    storeRow:      { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    storeRank:     { width: 24, height: 24, borderRadius: 6, backgroundColor: '#ecfdf5', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    storeRankText: { fontSize: 11, fontWeight: '900', color: colors.primary },
+    storeInfo:     { flex: 1, gap: 4 },
+    hBarHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    storeName:     { flex: 1, fontSize: 12, fontWeight: '700', color: colors.slate800 },
+    storeMeta:     { fontSize: 11, fontWeight: '600', color: colors.slate400, flexShrink: 0, marginLeft: 4 },
+    hBarTrack:     { height: 10, borderRadius: 4, backgroundColor: colors.slate100, overflow: 'hidden' },
+    hBarFill:      { height: '100%', borderRadius: 4 },
+    storeRevenue:  { width: 40, fontSize: 12, fontWeight: '900', color: colors.primary, textAlign: 'right', flexShrink: 0 },
 
-    // Barres verticales
-    vBarsContainer: { flexDirection: 'row', alignItems: 'flex-end', height: 140, gap: 4 },
+    vBarsContainer: { flexDirection: 'row', alignItems: 'flex-end', height: 130, gap: 4 },
     vBarWrapper:    { flex: 1, alignItems: 'center' },
-    vBarValueAbove: { fontSize: 8, fontWeight: '700', color: colors.slate500, marginBottom: 2, textAlign: 'center' },
-    vBarZone: {
-        flex: 1, width: '100%', justifyContent: 'flex-end',
-        borderRadius: 4, overflow: 'hidden',
-    },
-    vBarFill:  { width: '100%', borderRadius: 4, minHeight: 3 },
-    vBarLabel: { fontSize: 9, fontWeight: '700', color: colors.slate400, marginTop: 4, textAlign: 'center' },
+    vBarValueAbove: { fontSize: 11, fontWeight: '700', color: colors.slate500, marginBottom: 2, textAlign: 'center' },
+    vBarZone:       { flex: 1, width: '100%', justifyContent: 'flex-end', borderRadius: 4, overflow: 'hidden' },
+    vBarFill:       { width: '100%', borderRadius: 4, minHeight: 3 },
+    vBarLabel:      { fontSize: 11, fontWeight: '700', color: colors.slate400, marginTop: 4, textAlign: 'center' },
 
-    // Répartition
-    pctRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    pctDot: { width: 10, height: 10, borderRadius: 3, flexShrink: 0 },
+    pctRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    pctDot:   { width: 10, height: 10, borderRadius: 3, flexShrink: 0 },
     pctLabel: { width: 80, fontSize: 12, fontWeight: '600', color: colors.slate700 },
-    pctTrack: {
-        flex: 1, height: 12, borderRadius: 4,
-        backgroundColor: colors.slate100, overflow: 'hidden',
-    },
+    pctTrack: { flex: 1, height: 12, borderRadius: 4, backgroundColor: colors.slate100, overflow: 'hidden' },
     pctFill:  { height: '100%', borderRadius: 4 },
+    pctCount: { width: 24, fontSize: 11, fontWeight: '700', color: colors.slate500, textAlign: 'right' },
     pctValue: { width: 36, fontSize: 12, fontWeight: '700', color: colors.slate600, textAlign: 'right' },
 
-    emptyCard: {
-        backgroundColor: colors.white, borderRadius: 10, padding: 40,
-        alignItems: 'center', borderWidth: 2, borderColor: colors.slate100,
-        borderStyle: 'dashed', gap: 12,
-    },
-    emptyText: { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+    emptyInline: { alignItems: 'center', paddingVertical: 12, gap: 8 },
+    noDataText:  { fontSize: 11, color: colors.slate400, textAlign: 'center' },
 });

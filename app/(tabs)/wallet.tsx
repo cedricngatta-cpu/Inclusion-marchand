@@ -1,12 +1,12 @@
 // Portefeuille Marchand — solde, historique financier, graphique semaine
 import React, { useState, useCallback, useMemo } from 'react';
 import {
-    View, Text, ScrollView, StyleSheet, TouchableOpacity,
+    View, Text, ScrollView, StyleSheet,
     ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, TrendingUp, TrendingDown, Wallet, ShoppingBag, ShoppingCart } from 'lucide-react-native';
+import { useFocusEffect } from 'expo-router';
+import { TrendingUp, TrendingDown, Wallet, ShoppingBag, ShoppingCart } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useProfileContext } from '@/src/context/ProfileContext';
@@ -46,7 +46,6 @@ function startOfMonth(date: Date): Date {
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function WalletScreen() {
-    const router = useRouter();
     const { activeProfile } = useProfileContext();
 
     const [loading, setLoading] = useState(true);
@@ -146,21 +145,13 @@ export default function WalletScreen() {
     const todayIdx   = today.getDay() === 0 ? 6 : today.getDay() - 1;
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>PORTEFEUILLE</Text>
-                        <Text style={styles.headerSub}>FINANCES DU MOIS</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
+        <View style={styles.safe}>
+            <ScreenHeader
+                title="Portefeuille"
+                subtitle="Finances du mois"
+                showBack={true}
+                paddingBottom={24}
+            >
                 {/* Solde net */}
                 <View style={styles.balanceBlock}>
                     <View style={styles.balanceLabelRow}>
@@ -201,7 +192,7 @@ export default function WalletScreen() {
                         </View>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ── CONTENU ── */}
             <ScrollView
@@ -275,7 +266,7 @@ export default function WalletScreen() {
                     )}
                 </View>
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -283,30 +274,10 @@ export default function WalletScreen() {
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
 
-    // ── Header ──
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle: { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSub:   { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3, marginTop: 2 },
-
     // Solde
     balanceBlock:     { alignItems: 'center' },
     balanceLabelRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-    balanceLabel:     { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3 },
+    balanceLabel:     { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 3 },
     balanceAmountRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
     balanceAmount:    { fontSize: 48, fontWeight: '900', color: colors.white, letterSpacing: -2, lineHeight: 56 },
     balanceNeg:       { color: '#fca5a5' },
@@ -325,7 +296,7 @@ const styles = StyleSheet.create({
     statIconIn:  { width: 28, height: 28, borderRadius: 8, backgroundColor: '#d1fae5', alignItems: 'center', justifyContent: 'center' },
     statIconOut: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#fee2e2', alignItems: 'center', justifyContent: 'center' },
     statValue:   { fontSize: 13, fontWeight: '900', color: colors.white, lineHeight: 18 },
-    statLabel:   { fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 1 },
+    statLabel:   { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 1 },
 
     // Scroll
     scroll:        { flex: 1 },
@@ -345,7 +316,7 @@ const styles = StyleSheet.create({
         elevation: 2,
     },
     cardTitle: {
-        fontSize: 10, fontWeight: '900',
+        fontSize: 11, fontWeight: '900',
         color: colors.slate900, letterSpacing: 2,
         marginBottom: 18,
     },
@@ -365,7 +336,7 @@ const styles = StyleSheet.create({
         gap: 4,
     },
     barValue: {
-        fontSize: 8, fontWeight: '700',
+        fontSize: 11, fontWeight: '700',
         color: colors.slate400,
         height: 12,
         textAlign: 'center',
@@ -387,7 +358,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#0d9488',
     },
     barLabel: {
-        fontSize: 9, fontWeight: '700',
+        fontSize: 11, fontWeight: '700',
         color: colors.slate400,
         textAlign: 'center',
     },
@@ -408,12 +379,12 @@ const styles = StyleSheet.create({
     entryIconOut: { backgroundColor: '#fee2e2' },
     entryInfo:    { flex: 1, minWidth: 0 },
     entryLabel:   { fontSize: 13, fontWeight: '700', color: colors.slate800 },
-    entryDate:    { fontSize: 10, color: colors.slate400, marginTop: 2 },
+    entryDate:    { fontSize: 11, color: colors.slate400, marginTop: 2 },
     entryAmount:  { fontSize: 13, fontWeight: '900', flexShrink: 0 },
     entryAmountIn:  { color: '#059669' },
     entryAmountOut: { color: '#e11d48' },
 
     // Empty
     empty: { alignItems: 'center', paddingVertical: 32, gap: 10 },
-    emptyText: { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
 });

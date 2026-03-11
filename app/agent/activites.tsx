@@ -4,9 +4,9 @@ import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, Activity } from 'lucide-react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { Activity } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useAuth } from '@/src/context/AuthContext';
@@ -14,26 +14,27 @@ import { useAuth } from '@/src/context/AuthContext';
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Enrollment {
     id: string;
-    full_name: string;
-    role: 'MERCHANT' | 'PRODUCER';
-    phone_number: string;
-    status: 'PENDING' | 'VALIDATED' | 'REJECTED';
-    created_at: string;
+    nom: string;
+    type: 'MERCHANT' | 'PRODUCER';
+    telephone: string;
+    statut: 'en_attente' | 'valide' | 'rejete';
+    date_demande: string;
     agent_id: string;
+    motif_rejet?: string | null;
 }
 
-type StatusFilter = 'ALL' | 'VALIDATED' | 'PENDING' | 'REJECTED';
+type StatusFilter = 'ALL' | 'valide' | 'en_attente' | 'rejete';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const STATUS_LABELS: Record<string, string> = {
-    PENDING:   'En attente',
-    VALIDATED: 'Validé',
-    REJECTED:  'Refusé',
+    en_attente: 'En attente',
+    valide:     'Validé',
+    rejete:     'Refusé',
 };
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-    PENDING:   { bg: '#fef3c7', text: '#92400e' },
-    VALIDATED: { bg: '#d1fae5', text: '#065f46' },
-    REJECTED:  { bg: '#fee2e2', text: '#991b1b' },
+    en_attente: { bg: '#fef3c7', text: '#92400e' },
+    valide:     { bg: '#d1fae5', text: '#065f46' },
+    rejete:     { bg: '#fee2e2', text: '#991b1b' },
 };
 const ROLE_LABELS: Record<string, string> = {
     MERCHANT: 'Marchand',
@@ -41,10 +42,10 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
-    { key: 'ALL',       label: 'Toutes' },
-    { key: 'VALIDATED', label: 'Validées' },
-    { key: 'PENDING',   label: 'En attente' },
-    { key: 'REJECTED',  label: 'Refusées' },
+    { key: 'ALL',        label: 'Toutes' },
+    { key: 'valide',     label: 'Validées' },
+    { key: 'en_attente', label: 'En attente' },
+    { key: 'rejete',     label: 'Refusées' },
 ];
 
 // ── Composant principal ────────────────────────────────────────────────────────
@@ -61,10 +62,10 @@ export default function Activites() {
         if (!user?.id) return;
         try {
             const { data, error } = await supabase
-                .from('enrollments')
+                .from('demandes_enrolement')
                 .select('*')
                 .eq('agent_id', user.id)
-                .order('created_at', { ascending: false });
+                .order('date_demande', { ascending: false });
 
             if (error) throw error;
             setEnrollments((data as Enrollment[]) || []);
@@ -89,31 +90,18 @@ export default function Activites() {
     // Recharge à chaque retour sur l'écran
     useFocusEffect(useCallback(() => { fetchActivities(); }, [fetchActivities]));
 
-    const validated = useMemo(() => enrollments.filter(e => e.status === 'VALIDATED').length, [enrollments]);
-    const pending   = useMemo(() => enrollments.filter(e => e.status === 'PENDING').length,   [enrollments]);
-    const rejected  = useMemo(() => enrollments.filter(e => e.status === 'REJECTED').length,  [enrollments]);
+    const validated = useMemo(() => enrollments.filter(e => e.statut === 'valide').length,     [enrollments]);
+    const pending   = useMemo(() => enrollments.filter(e => e.statut === 'en_attente').length, [enrollments]);
+    const rejected  = useMemo(() => enrollments.filter(e => e.statut === 'rejete').length,     [enrollments]);
 
     const filtered = useMemo(() => {
         if (statusFilter === 'ALL') return enrollments;
-        return enrollments.filter(e => e.status === statusFilter);
+        return enrollments.filter(e => e.statut === statusFilter);
     }, [enrollments, statusFilter]);
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>MES ACTIVITÉS</Text>
-                        <Text style={styles.headerSubtitle}>HISTORIQUE DES ENRÔLEMENTS</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-
-                {/* KPI 3 stats */}
+        <View style={styles.safe}>
+            <ScreenHeader title="Mes Activités" subtitle="Historique des enrôlements" showBack={true} paddingBottom={24}>
                 <View style={styles.kpiRow}>
                     <View style={styles.kpiCard}>
                         <Text style={[styles.kpiValue, { color: '#86efac' }]}>
@@ -136,7 +124,7 @@ export default function Activites() {
                         <Text style={styles.kpiLabel}>REFUSÉS</Text>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             <ScrollView
                 style={styles.scroll}
@@ -182,7 +170,7 @@ export default function Activites() {
                 ) : (
                     <View style={styles.timeline}>
                         {filtered.map((enroll, index) => {
-                            const sc = STATUS_COLORS[enroll.status] ?? STATUS_COLORS.PENDING;
+                            const sc = STATUS_COLORS[enroll.statut] ?? STATUS_COLORS.en_attente;
                             const isLast = index === filtered.length - 1;
                             return (
                                 <View key={enroll.id} style={styles.timelineItem}>
@@ -196,22 +184,41 @@ export default function Activites() {
                                     <View style={[styles.timelineCard, isLast && { marginBottom: 0 }]}>
                                         <View style={styles.timelineCardTop}>
                                             <Text style={styles.timelineName} numberOfLines={1}>
-                                                {enroll.full_name}
+                                                {enroll.nom}
                                             </Text>
                                             <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
                                                 <Text style={[styles.statusText, { color: sc.text }]}>
-                                                    {STATUS_LABELS[enroll.status] ?? enroll.status}
+                                                    {STATUS_LABELS[enroll.statut] ?? enroll.statut}
                                                 </Text>
                                             </View>
                                         </View>
                                         <Text style={styles.timelineRole}>
-                                            {ROLE_LABELS[enroll.role] ?? enroll.role}
+                                            {ROLE_LABELS[enroll.type] ?? enroll.type}
                                         </Text>
                                         <Text style={styles.timelineDate}>
-                                            {new Date(enroll.created_at).toLocaleDateString('fr-FR', {
+                                            {new Date(enroll.date_demande).toLocaleDateString('fr-FR', {
                                                 day: '2-digit', month: 'long', year: 'numeric',
                                             })}
                                         </Text>
+
+                                        {/* Motif du refus */}
+                                        {enroll.statut === 'rejete' && !!enroll.motif_rejet && (
+                                            <View style={styles.motifBlock}>
+                                                <Text style={styles.motifLabel}>MOTIF DU REFUS</Text>
+                                                <Text style={styles.motifText}>{enroll.motif_rejet}</Text>
+                                            </View>
+                                        )}
+
+                                        {/* Bouton corriger */}
+                                        {enroll.statut === 'rejete' && (
+                                            <TouchableOpacity
+                                                style={styles.corrigerBtn}
+                                                activeOpacity={0.82}
+                                                onPress={() => router.push(`/agent/enrolement?id=${enroll.id}` as any)}
+                                            >
+                                                <Text style={styles.corrigerBtnLabel}>CORRIGER ET RESOUMETTRE</Text>
+                                            </TouchableOpacity>
+                                        )}
                                     </View>
                                 </View>
                             );
@@ -219,33 +226,13 @@ export default function Activites() {
                     </View>
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
-
-    // Header
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    headerTop:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:      { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSubtitle:   { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 1, marginTop: 2 },
 
     // KPI
     kpiRow: {
@@ -257,7 +244,7 @@ const styles = StyleSheet.create({
     kpiCard:    { flex: 1, alignItems: 'center' },
     kpiDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 6 },
     kpiValue:   { fontSize: 28, fontWeight: '900', lineHeight: 32 },
-    kpiLabel:   { fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 4, textAlign: 'center' },
+    kpiLabel:   { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', letterSpacing: 1, marginTop: 4, textAlign: 'center' },
 
     // Scroll
     scroll:        { flex: 1 },
@@ -279,7 +266,7 @@ const styles = StyleSheet.create({
     timelineItem: { flexDirection: 'row', gap: 12 },
     timelineLeft: { alignItems: 'center', width: 16 },
     timelineDot: {
-        width: 12, height: 12, borderRadius: 6,
+        width: 12, height: 12, borderRadius: 4,
         marginTop: 14, flexShrink: 0,
     },
     timelineLine: {
@@ -308,9 +295,33 @@ const styles = StyleSheet.create({
     },
     timelineName:  { flex: 1, fontSize: 13, fontWeight: '700', color: colors.slate800 },
     timelineRole:  { fontSize: 11, fontWeight: '600', color: colors.slate500 },
-    timelineDate:  { fontSize: 10, color: colors.slate400, marginTop: 2 },
+    timelineDate:  { fontSize: 11, color: colors.slate400, marginTop: 2 },
     statusBadge:   { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexShrink: 0 },
-    statusText:    { fontSize: 9, fontWeight: '700' },
+    statusText:    { fontSize: 11, fontWeight: '700' },
+
+    // Motif refus
+    motifBlock: {
+        borderLeftWidth: 3,
+        borderLeftColor: '#DC2626',
+        backgroundColor: '#FEF2F2',
+        borderRadius: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        marginTop: 6,
+    },
+    motifLabel: { fontSize: 11, fontWeight: '900', color: '#DC2626', letterSpacing: 1, marginBottom: 2 },
+    motifText:  { fontSize: 11, fontWeight: '600', color: '#991B1B', lineHeight: 16 },
+
+    // Bouton corriger
+    corrigerBtn: {
+        marginTop: 10,
+        backgroundColor: '#F59E0B',
+        borderRadius: 8,
+        paddingVertical: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    corrigerBtnLabel: { fontSize: 11, fontWeight: '900', color: '#FFFFFF', letterSpacing: 1.5 },
 
     // Empty
     emptyCard: {
@@ -318,5 +329,5 @@ const styles = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: colors.slate100,
         borderStyle: 'dashed', gap: 12,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
 });

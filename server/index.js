@@ -5,14 +5,17 @@ const http    = require('http');
 const { Server } = require('socket.io');
 const cors    = require('cors');
 
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/;
+const EMIT_SECRET    = process.env.EMIT_SECRET    || 'inclusion-marchand-secret';
+
 const app = express();
-app.use(cors());
+app.use(cors({ origin: ALLOWED_ORIGIN }));
 app.use(express.json());
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: { origin: ALLOWED_ORIGIN, methods: ['GET', 'POST'] },
     pingTimeout: 30000,
     pingInterval: 10000,
 });
@@ -20,7 +23,23 @@ const io = new Server(server, {
 // Registre des clients : socketId → { userId, storeId, name, role }
 const clients = new Map();
 
-const log = (msg) => console.log(`[${new Date().toLocaleTimeString('fr-FR')}] ${msg}`);
+// Rate limiter : max 100 connexions/minute par IP
+const rateLimit = {};
+io.use((socket, next) => {
+    const ip = socket.handshake.address;
+    if (!rateLimit[ip]) rateLimit[ip] = { count: 0, lastReset: Date.now() };
+    if (Date.now() - rateLimit[ip].lastReset > 60000) {
+        rateLimit[ip] = { count: 0, lastReset: Date.now() };
+    }
+    rateLimit[ip].count++;
+    if (rateLimit[ip].count > 100) {
+        return next(new Error('Rate limit exceeded'));
+    }
+    next();
+});
+
+const isDev = process.env.NODE_ENV !== 'production';
+const log = (msg) => { if (isDev) console.log(`[${new Date().toLocaleTimeString('fr-FR')}] ${msg}`); };
 
 // ── Rooms par rôle ──
 const ROLE_ROOMS = {
@@ -33,6 +52,21 @@ const ROLE_ROOMS = {
 
 io.on('connection', (socket) => {
     log(`Nouveau client : ${socket.id}`);
+
+    // ── Rate limit par event : max 30 events/10s par type d'event ────────────
+    const eventLimits = {};
+    socket.use(([event, ...args], next) => {
+        const now = Date.now();
+        if (!eventLimits[event]) eventLimits[event] = { count: 0, reset: now + 10000 };
+        if (now > eventLimits[event].reset) {
+            eventLimits[event] = { count: 0, reset: now + 10000 };
+        }
+        eventLimits[event].count++;
+        if (eventLimits[event].count > 30) {
+            return next(new Error(`Rate limit dépassé : ${event}`));
+        }
+        next();
+    });
 
     // ── 1. Enregistrement utilisateur + rooms ──────────────────────────────────
     socket.on('user-connect', (data) => {
@@ -85,12 +119,13 @@ io.on('connection', (socket) => {
 
     // ── 5. Enrôlement demandé (Agent → Coopérative) ──────────────────────────
     socket.on('nouvel-enrolement', (data) => {
-        const { agentId, agentName, marchandId, marchandName, secteur } = data || {};
+        const { agentId, agentName, marchandId, marchandName, secteur, type, adresse, cooperativeId } = data || {};
         log(`👤 Enrôlement — Agent: ${agentName}, Marchand: ${marchandName} (${secteur})`);
-        // Notifier toute la coopérative
-        io.to('cooperative').emit('nouvel-enrolement', { agentId, agentName, marchandId, marchandName, secteur, timestamp: Date.now() });
-        // Notifier l'admin
-        io.to('admin').emit('nouvel-enrolement', { agentId, agentName, marchandId, marchandName, secteur, timestamp: Date.now() });
+        const payload = { agentId, agentName, marchandId, marchandName, secteur, type, adresse, cooperativeId, timestamp: Date.now() };
+        // Notifier la coopérative ciblée ou toutes les coopératives
+        if (cooperativeId) io.to(cooperativeId).emit('nouvel-enrolement', payload);
+        else               io.to('cooperative').emit('nouvel-enrolement', payload);
+        io.to('admin').emit('nouvel-enrolement', payload);
     });
 
     // ── 6. Enrôlement validé (Coopérative → Agent + Marchand) ────────────────
@@ -119,27 +154,31 @@ io.on('connection', (socket) => {
 
     // ── 9. Nouvelle commande (Marchand → Producteur) ──────────────────────────
     socket.on('nouvelle-commande', (data) => {
-        const { sellerStoreId, sellerId, buyerStoreId, buyerName, productName, quantity, totalPrice, orderId } = data || {};
+        const { sellerStoreId, sellerId, sellerName, buyerStoreId, buyerName, productName, quantity, totalPrice, orderId } = data || {};
         log(`🛒 Commande — ${buyerName} : ${quantity}× ${productName} → ${sellerStoreId}`);
-        if (sellerStoreId) io.to(sellerStoreId).emit('nouvelle-commande', { buyerStoreId, buyerName, productName, quantity, totalPrice, orderId, timestamp: Date.now() });
-        if (sellerId)      io.to(sellerId).emit('nouvelle-commande',      { buyerStoreId, buyerName, productName, quantity, totalPrice, orderId, timestamp: Date.now() });
-        io.to('admin').emit('nouvelle-commande', { sellerStoreId, buyerStoreId, buyerName, productName, quantity, totalPrice, orderId });
+        const cmdPayload = { buyerStoreId, buyerName, sellerName, productName, quantity, totalPrice, orderId, timestamp: Date.now() };
+        if (sellerStoreId) io.to(sellerStoreId).emit('nouvelle-commande', cmdPayload);
+        if (sellerId)      io.to(sellerId).emit('nouvelle-commande',      cmdPayload);
+        io.to('cooperative').emit('nouvelle-commande', cmdPayload);
+        io.to('admin').emit('nouvelle-commande', { sellerStoreId, ...cmdPayload });
     });
 
     // ── 10. Commande acceptée (Producteur → Marchand) ─────────────────────────
     socket.on('commande-acceptee', (data) => {
-        const { buyerStoreId, buyerId, productName, quantity, orderId, estimatedDelivery } = data || {};
+        const { buyerStoreId, buyerId, productName, quantity, orderId, estimatedDelivery, producerName } = data || {};
         log(`✅ Commande acceptée — ${productName} × ${quantity} → ${buyerStoreId}`);
-        if (buyerStoreId) io.to(buyerStoreId).emit('commande-acceptee', { productName, quantity, orderId, estimatedDelivery, timestamp: Date.now() });
-        if (buyerId)      io.to(buyerId).emit('commande-acceptee',      { productName, quantity, orderId, estimatedDelivery, timestamp: Date.now() });
+        const accPayload = { productName, quantity, orderId, estimatedDelivery, producerName, timestamp: Date.now() };
+        if (buyerStoreId) io.to(buyerStoreId).emit('commande-acceptee', accPayload);
+        if (buyerId)      io.to(buyerId).emit('commande-acceptee',      accPayload);
     });
 
     // ── 11. Commande refusée (Producteur → Marchand) ──────────────────────────
     socket.on('commande-refusee', (data) => {
-        const { buyerStoreId, buyerId, productName, quantity, orderId, reason } = data || {};
+        const { buyerStoreId, buyerId, productName, quantity, orderId, reason, producerName } = data || {};
         log(`❌ Commande refusée — ${productName} × ${quantity} → ${buyerStoreId}`);
-        if (buyerStoreId) io.to(buyerStoreId).emit('commande-refusee', { productName, quantity, orderId, reason, timestamp: Date.now() });
-        if (buyerId)      io.to(buyerId).emit('commande-refusee',      { productName, quantity, orderId, reason, timestamp: Date.now() });
+        const refPayload = { productName, quantity, orderId, reason, producerName, timestamp: Date.now() };
+        if (buyerStoreId) io.to(buyerStoreId).emit('commande-refusee', refPayload);
+        if (buyerId)      io.to(buyerId).emit('commande-refusee',      refPayload);
     });
 
     // ── 12. Livraison en cours (Producteur → Marchand) ────────────────────────
@@ -171,11 +210,45 @@ io.on('connection', (socket) => {
 
     // ── 15. Rejoindre achat groupé (Marchand → Créateur) ─────────────────────
     socket.on('achat-groupe-rejoint', (data) => {
-        const { groupId, joinerId, joinerName, productName, contribution, ownerId } = data || {};
+        const { groupId, joinerId, joinerName, productName, contribution, ownerId, producteurId, totalParticipants } = data || {};
         log(`➕ Achat groupé rejoint — ${joinerName} → groupe ${groupId}`);
-        if (ownerId) io.to(ownerId).emit('achat-groupe-rejoint', { groupId, joinerId, joinerName, productName, contribution, timestamp: Date.now() });
-        io.to('marchands').emit('achat-groupe-rejoint', { groupId, joinerName, productName, contribution, timestamp: Date.now() });
+        const joinPayload = { groupId, joinerId, joinerName, productName, contribution, totalParticipants, timestamp: Date.now() };
+        if (ownerId)      io.to(ownerId).emit('achat-groupe-rejoint',     joinPayload);
+        if (producteurId) io.to(producteurId).emit('achat-groupe-rejoint', joinPayload);
+        io.to('cooperative').emit('achat-groupe-rejoint', joinPayload);
         io.to('admin').emit('achat-groupe-rejoint', { groupId, joinerId, joinerName });
+    });
+
+    // ── 15b. Demande de prix groupé (Coopérative → Producteur) ───────────────
+    socket.on('demande-prix-groupe', (data) => {
+        const { achatGroupeId, producteurId, nomProduit, qtyCible, qtyMin, dateLimite, messageCoop, cooperativeNom, cooperativeId } = data || {};
+        log(`📋 Demande prix groupé — ${cooperativeNom} : ${nomProduit} × ${qtyCible}`);
+        if (producteurId) io.to(producteurId).emit('demande-prix-groupe', { achatGroupeId, nomProduit, qtyCible, qtyMin, dateLimite, messageCoop, cooperativeNom, cooperativeId, timestamp: Date.now() });
+        io.to('admin').emit('demande-prix-groupe', { achatGroupeId, nomProduit, qtyCible, cooperativeNom });
+    });
+
+    // ── 15c. Prix proposé par le producteur (Producteur → Coopérative) ────────
+    socket.on('prix-groupe-propose', (data) => {
+        const { achatGroupeId, cooperativeId, nomProduit, prixPropose, producteurNom } = data || {};
+        log(`💬 Prix groupé proposé — ${producteurNom} : ${nomProduit} à ${prixPropose} F`);
+        if (cooperativeId) io.to(cooperativeId).emit('prix-groupe-propose', { achatGroupeId, nomProduit, prixPropose, producteurNom, timestamp: Date.now() });
+        io.to('admin').emit('prix-groupe-propose', { achatGroupeId, nomProduit, prixPropose, producteurNom });
+    });
+
+    // ── 15d. Prix accepté par la coopérative (Coopérative → Producteur + Marchands) ──
+    socket.on('prix-groupe-accepte', (data) => {
+        const { achatGroupeId, producteurId, nomProduit, prixNegocie, cooperativeNom } = data || {};
+        log(`✅ Prix groupé accepté — ${nomProduit} à ${prixNegocie} F`);
+        if (producteurId) io.to(producteurId).emit('prix-groupe-accepte', { achatGroupeId, nomProduit, prixNegocie, cooperativeNom, timestamp: Date.now() });
+        io.to('marchands').emit('achat-groupe-cree', { achatGroupeId, nomProduit, prixNegocie, cooperativeNom, timestamp: Date.now() });
+        io.to('admin').emit('prix-groupe-accepte', { achatGroupeId, nomProduit, prixNegocie });
+    });
+
+    // ── 15e. Coopérative non listée (Agent → Admin) ───────────────────────────
+    socket.on('cooperative-inconnue', (data) => {
+        const { agentId, agentName, marchandName, cooperativeNomSaisi } = data || {};
+        log(`⚠️  Coopérative inconnue — Agent: ${agentName}, coopérative: "${cooperativeNomSaisi}"`);
+        io.to('admin').emit('cooperative-inconnue', { agentId, agentName, marchandName, cooperativeNomSaisi, timestamp: Date.now() });
     });
 
     // ── 16. Signalement de conformité (Agent → Coopérative + Admin) ──────────
@@ -193,13 +266,54 @@ io.on('connection', (socket) => {
         io.emit('stats-reseau-update', { totalMerchants, totalTransactions, totalRevenue, timestamp: Date.now() });
     });
 
-    // ── 18. Notification ciblée ───────────────────────────────────────────────
+    // ── 18. Log d'activité (tous rôles → Admin) ──────────────────────────────
+    socket.on('nouvelle-activite', (data) => {
+        const { user_name, action, type, created_at } = data || {};
+        if (!action) return;
+        const typeEmoji = {
+            vente:       '💰',
+            publication: '🌾',
+            enrolement:  '👤',
+            commande:    '🛒',
+            livraison:   '🚚',
+            signalement: '⚠️',
+            sanction:    '🚫',
+        }[type] ?? '📋';
+        log(`${typeEmoji} Activité [${type}] — ${user_name} : ${action}`);
+        io.to('admin').emit('nouvelle-activite', { user_name, action, type, created_at: created_at || new Date().toISOString() });
+        io.to('superviseurs').emit('nouvelle-activite', { user_name, action, type, created_at: created_at || new Date().toISOString() });
+    });
+
+    // ── 19. Notification ciblée ───────────────────────────────────────────────
     socket.on('nouvelle-notification', (data) => {
         const { targetId, notification } = data || {};
         if (!notification) return;
         log(`🔔 Notif → ${targetId} : "${notification.title}"`);
         if (targetId === 'ALL')    socket.broadcast.emit('nouvelle-notification', { notification });
         else if (targetId)         io.to(targetId).emit('nouvelle-notification', { notification });
+    });
+
+    // ── Monitoring erreurs temps réel (app → terminal) ────────────────────────
+    socket.on('app-error', (report) => {
+        const emoji = report.severity === 'critical' ? '🔴' : report.severity === 'major' ? '🟡' : '🟢';
+        const time  = new Date(report.timestamp).toLocaleTimeString('fr-FR');
+
+        console.log('\n════════════════════════════════════════');
+        console.log(`${emoji} ERREUR ${(report.severity || '?').toUpperCase()} — ${time}`);
+        console.log(`📱 ${report.platform || '?'} | 👤 ${report.role || '?'} | 📍 ${report.screen || '?'}`);
+        console.log(`💬 [${report.type}] ${report.message}`);
+        if (report.extra && Object.keys(report.extra).length > 0) {
+            console.log('📋 Détails:', JSON.stringify(report.extra, null, 2));
+        }
+        if (report.stack) {
+            console.log('📚 Stack:', report.stack.split('\n').slice(0, 5).join('\n'));
+        }
+        console.log('════════════════════════════════════════\n');
+
+        // Stocker dans error-log.txt
+        const fs = require('fs');
+        const logLine = `${time} | ${emoji} ${report.severity} | ${report.type} | ${report.screen || '-'} | ${report.message}\n`;
+        try { fs.appendFileSync('error-log.txt', logLine); } catch (_) { /* ignorer si dossier inaccessible */ }
     });
 
     // ── Déconnexion ───────────────────────────────────────────────────────────
@@ -228,7 +342,6 @@ app.get('/health', (req, res) => {
         connected: clients.size,
         byRole,
         uptime: Math.floor(process.uptime()) + 's',
-        clients: Array.from(clients.values()).map(c => ({ name: c.name || c.userId, role: c.role, storeId: c.storeId })),
     });
 });
 
@@ -256,6 +369,8 @@ app.post('/notify', (req, res) => {
 
 // ── Émettre un événement métier depuis l'extérieur ───────────────────────────
 app.post('/emit', (req, res) => {
+    const token = req.headers['x-emit-token'];
+    if (token !== EMIT_SECRET) return res.status(403).json({ error: 'Non autorisé' });
     const { event, room, data } = req.body;
     if (!event) return res.status(400).json({ error: 'event requis' });
 
@@ -268,21 +383,24 @@ app.post('/emit', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
-    console.log('\n╔══════════════════════════════════════╗');
-    console.log('║  Inclusion Marchand — Serveur Realtime ║');
-    console.log('╠══════════════════════════════════════╣');
-    console.log(`║  Port    : ${PORT}                         ║`);
-    console.log(`║  Health  : http://localhost:${PORT}/health  ║`);
-    console.log(`║  Notify  : POST /notify                ║`);
-    console.log(`║  Emit    : POST /emit                  ║`);
-    console.log('╚══════════════════════════════════════╝\n');
-    console.log('Événements supportés:');
-    console.log('  • nouvelle-vente, stock-update');
-    console.log('  • nouvel-enrolement, enrolement-valide/rejete');
-    console.log('  • nouveau-produit-marche');
-    console.log('  • nouvelle-commande, commande-acceptee/refusee');
-    console.log('  • livraison-en-cours, livraison-terminee');
-    console.log('  • achat-groupe-cree, achat-groupe-rejoint');
-    console.log('  • signalement-conformite, stats-reseau-update');
-    console.log('  • nouvelle-notification\n');
+    log('\n╔══════════════════════════════════════╗');
+    log('║  Inclusion Marchand — Serveur Realtime ║');
+    log('╠══════════════════════════════════════╣');
+    log(`║  Port    : ${PORT}                         ║`);
+    log(`║  Health  : http://localhost:${PORT}/health  ║`);
+    log(`║  Notify  : POST /notify                ║`);
+    log(`║  Emit    : POST /emit                  ║`);
+    log('╚══════════════════════════════════════╝\n');
+    log('Événements supportés:');
+    log('  • nouvelle-vente, stock-update');
+    log('  • nouvel-enrolement, enrolement-valide/rejete');
+    log('  • nouveau-produit-marche');
+    log('  • nouvelle-commande, commande-acceptee/refusee');
+    log('  • livraison-en-cours, livraison-terminee');
+    log('  • achat-groupe-cree, achat-groupe-rejoint');
+    log('  • demande-prix-groupe, prix-groupe-propose, prix-groupe-accepte');
+    log('  • signalement-conformite, stats-reseau-update');
+    log('  • nouvelle-activite → admin room (realtime feed)');
+    log('  • nouvelle-notification');
+    log('  • app-error → monitoring erreurs temps réel\n');
 });

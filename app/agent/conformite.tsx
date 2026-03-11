@@ -4,9 +4,9 @@ import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     TextInput, Alert, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, AlertTriangle } from 'lucide-react-native';
+import { AlertTriangle } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useAuth } from '@/src/context/AuthContext';
@@ -72,20 +72,8 @@ export default function Conformite() {
     };
 
     return (
-        <SafeAreaView style={styles.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={styles.header}>
-                <View style={styles.headerTop}>
-                    <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={styles.headerTitleBlock}>
-                        <Text style={styles.headerTitle}>SIGNALEMENT</Text>
-                        <Text style={styles.headerSubtitle}>SIGNALER UN PROBLÈME</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
-            </View>
+        <View style={styles.safe}>
+            <ScreenHeader title="Signalement" subtitle="Signaler un problème" showBack={true} />
 
             {/* ── CONTENU ── */}
             <ScrollView
@@ -170,32 +158,13 @@ export default function Conformite() {
                     )}
                 </TouchableOpacity>
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.bgSecondary },
-
-    // Header
-    header: {
-        backgroundColor: colors.primary,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 24,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-    },
-    headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:    { fontSize: 16, fontWeight: '900', color: colors.white, letterSpacing: 1 },
-    headerSubtitle: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 1, marginTop: 2 },
 
     // Scroll
     scroll:        { flex: 1 },
@@ -223,7 +192,7 @@ const styles = StyleSheet.create({
     // Fields
     fieldGroup: { gap: 6 },
     label: {
-        fontSize: 10, fontWeight: '900', color: colors.slate400, letterSpacing: 1.5,
+        fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 1.5,
     },
     input: {
         backgroundColor: colors.white,

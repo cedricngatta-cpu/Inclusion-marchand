@@ -3,21 +3,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator,
+    ActivityIndicator, BackHandler,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
-    Bell, User, Users, UserPlus, MapPin, Activity, ShieldCheck,
+    Users, UserPlus, MapPin, Activity, Shield,
     AlertCircle,
 } from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/context/AuthContext';
 import { onSocketEvent } from '@/src/lib/socket';
+import { colors } from '@/src/lib/colors';
 
 // ── Constantes de couleur propres à l'Agent ───────────────────────────────────
-const CYAN   = '#0891b2';
-const CYAN2  = '#06b6d4'; // cyan-400
+const CYAN   = '#059669';
+const CYAN2  = '#047857'; // cyan-400
 const CYANL  = 'rgba(255,255,255,0.15)';
 const CYANLT = 'rgba(255,255,255,0.7)';
 
@@ -40,7 +41,7 @@ const ACTIONS = [
     },
     {
         label: 'Conformité', sub: 'Alertes & Visites',
-        icon: ShieldCheck, bg: '#f59e0b',
+        icon: Shield, bg: '#f59e0b',
         path: '/agent/conformite',
     },
 ];
@@ -70,40 +71,40 @@ export default function AgentDashboard() {
             const [monthRes, totalRes, activeRes, critRes, recentRes] = await Promise.all([
                 // Enrôlements ce mois
                 supabase
-                    .from('enrollments')
+                    .from('demandes_enrolement')
                     .select('*', { count: 'exact', head: true })
                     .eq('agent_id', user.id)
-                    .gte('created_at', monthStart.toISOString()),
+                    .gte('date_demande', monthStart.toISOString()),
 
                 // Total validés (boutiques dans le secteur)
                 supabase
-                    .from('enrollments')
+                    .from('demandes_enrolement')
                     .select('*', { count: 'exact', head: true })
                     .eq('agent_id', user.id)
-                    .eq('status', 'VALIDATED'),
+                    .eq('statut', 'valide'),
 
                 // Actifs 7 jours (validés récents)
                 supabase
-                    .from('enrollments')
+                    .from('demandes_enrolement')
                     .select('*', { count: 'exact', head: true })
                     .eq('agent_id', user.id)
-                    .eq('status', 'VALIDATED')
-                    .gte('updated_at', sevenDaysAgo.toISOString()),
+                    .eq('statut', 'valide')
+                    .gte('date_traitement', sevenDaysAgo.toISOString()),
 
-                // Critiques : PENDING depuis plus de 7 jours
+                // Critiques : en_attente depuis plus de 7 jours
                 supabase
-                    .from('enrollments')
+                    .from('demandes_enrolement')
                     .select('*', { count: 'exact', head: true })
                     .eq('agent_id', user.id)
-                    .eq('status', 'PENDING')
-                    .lt('created_at', sevenDaysAgo.toISOString()),
+                    .eq('statut', 'en_attente')
+                    .lt('date_demande', sevenDaysAgo.toISOString()),
 
                 // Enrôlements récents
                 supabase
-                    .from('enrollments')
+                    .from('demandes_enrolement')
                     .select('*')
                     .eq('agent_id', user.id)
-                    .order('created_at', { ascending: false })
+                    .order('date_demande', { ascending: false })
                     .limit(4),
             ]);
 
@@ -132,29 +133,28 @@ export default function AgentDashboard() {
     // Recharge à chaque retour sur l'écran
     useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
 
+    // Bouton retour Android sur le dashboard → quitter l'app
+    useFocusEffect(useCallback(() => {
+        const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+            BackHandler.exitApp();
+            return true;
+        });
+        return () => backHandler.remove();
+    }, []));
+
     const prenom = user?.name?.split(' ')[0] ?? 'Agent';
 
     return (
-        <SafeAreaView style={s.safe} edges={['top']}>
+        <View style={s.safe}>
 
-            {/* ════════════════════════════════ HEADER ═══════════════════════════ */}
-            <View style={s.header}>
-                {/* Nav */}
-                <View style={s.nav}>
-                    <View style={{ flex: 1 }}>
-                        <Text style={s.headerGreet}>Bonjour,</Text>
-                        <Text style={s.headerName} numberOfLines={1}>{user?.name ?? 'Agent Terrain'}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                        <TouchableOpacity style={s.iconBtn} onPress={() => router.push('/(tabs)/notifications' as any)}>
-                            <Bell color="#fff" size={20} />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={s.iconBtn} onPress={() => router.push('/(tabs)/profil' as any)}>
-                            <User color="#fff" size={20} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-
+            <ScreenHeader
+                title={`Bonjour, ${prenom}`}
+                subtitle="Agent Terrain"
+                showBack={false}
+                showProfile={true}
+                showNotification={true}
+                paddingBottom={24}
+            >
                 {/* Hero : enrôlements ce mois */}
                 <View style={s.heroBlock}>
                     <View style={s.heroLabelRow}>
@@ -185,7 +185,7 @@ export default function AgentDashboard() {
                         <Text style={s.kpiLabel}>ALERTES{'\n'}CRITIQUES</Text>
                     </View>
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* ════════════════════════════════ CONTENU ══════════════════════════ */}
             <ScrollView
@@ -254,9 +254,9 @@ export default function AgentDashboard() {
                     </View>
                 ) : (
                     recentEnroll.map(enroll => {
-                        const statusColor = enroll.status === 'VALIDATED'
+                        const statusColor = enroll.statut === 'valide'
                             ? { bg: '#d1fae5', text: '#065f46', label: 'Validé' }
-                            : enroll.status === 'REJECTED'
+                            : enroll.statut === 'rejete'
                             ? { bg: '#fee2e2', text: '#991b1b', label: 'Refusé' }
                             : { bg: '#fef3c7', text: '#92400e', label: 'En attente' };
                         return (
@@ -268,13 +268,13 @@ export default function AgentDashboard() {
                             >
                                 <View style={s.enrollInfo}>
                                     <Text style={s.enrollName} numberOfLines={1}>
-                                        {enroll.full_name}
+                                        {enroll.nom}
                                     </Text>
                                     <Text style={s.enrollMeta}>
-                                        {enroll.role === 'PRODUCER' ? 'Producteur' : 'Marchand'} · {enroll.phone_number}
+                                        {enroll.type === 'PRODUCER' ? 'Producteur' : 'Marchand'} · {enroll.telephone}
                                     </Text>
                                     <Text style={s.enrollDate}>
-                                        {new Date(enroll.created_at).toLocaleDateString('fr-FR')}
+                                        {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
                                     </Text>
                                 </View>
                                 <View style={[s.statusBadge, { backgroundColor: statusColor.bg }]}>
@@ -287,7 +287,7 @@ export default function AgentDashboard() {
                     })
                 )}
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -295,31 +295,12 @@ export default function AgentDashboard() {
 const s = StyleSheet.create({
     safe:   { flex: 1, backgroundColor: '#f8fafc' },
 
-    // ── Header CYAN ──
-    header: {
-        backgroundColor: CYAN,
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 28,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 16,
-    },
-    nav:         { flexDirection: 'row', alignItems: 'center' },
-    iconBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerGreet: { fontSize: 12, fontWeight: '600', color: CYANLT },
-    headerName:  { fontSize: 18, fontWeight: '900', color: '#fff', marginTop: 2 },
-
     // Hero
     heroBlock:    { alignItems: 'center', gap: 6 },
     heroLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    heroLabel:    { fontSize: 10, fontWeight: '700', color: CYANLT, letterSpacing: 2 },
+    heroLabel:    { fontSize: 11, fontWeight: '700', color: CYANLT, letterSpacing: 2 },
     heroAmount:   { fontSize: 56, fontWeight: '900', color: '#fff', letterSpacing: -2, lineHeight: 62 },
-    heroSub:      { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase' },
+    heroSub:      { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.5)', letterSpacing: 1, textTransform: 'uppercase' },
 
     // KPI
     kpiRow: {
@@ -331,7 +312,7 @@ const s = StyleSheet.create({
     kpiCell:  { flex: 1, alignItems: 'center' },
     kpiSep:   { width: 1, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 8 },
     kpiValue: { fontSize: 32, fontWeight: '900', color: '#fff', lineHeight: 36 },
-    kpiLabel: { fontSize: 9, fontWeight: '700', color: CYANLT, letterSpacing: 1, marginTop: 4, textAlign: 'center' },
+    kpiLabel: { fontSize: 11, fontWeight: '700', color: CYANLT, letterSpacing: 1, marginTop: 4, textAlign: 'center' },
 
     // ── Scroll ──
     scroll:        { flex: 1 },
@@ -351,12 +332,12 @@ const s = StyleSheet.create({
         flexShrink: 0,
     },
     alertTitle: { fontSize: 12, fontWeight: '700', color: '#e11d48', textTransform: 'uppercase', letterSpacing: 0.5 },
-    alertSub:   { fontSize: 10, fontWeight: '700', color: '#fb7185', marginTop: 2 },
+    alertSub:   { fontSize: 11, fontWeight: '700', color: '#fb7185', marginTop: 2 },
 
     // Section
-    sectionTitle:  { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 2 },
+    sectionTitle:  { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 2 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    sectionLink:   { fontSize: 10, fontWeight: '900', color: CYAN, letterSpacing: 1 },
+    sectionLink:   { fontSize: 11, fontWeight: '900', color: CYAN, letterSpacing: 1 },
 
     // ── Grille actions pleines ──
     actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
@@ -375,7 +356,7 @@ const s = StyleSheet.create({
     },
     actionTextBlock: { alignItems: 'center' },
     actionLabel:     { fontSize: 11, fontWeight: '900', color: '#fff', letterSpacing: 1.5 },
-    actionSub:       { fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.7)', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
+    actionSub:       { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.7)', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
 
     // Enrôlements
     enrollCard: {
@@ -388,9 +369,9 @@ const s = StyleSheet.create({
     enrollInfo:  { flex: 1, minWidth: 0 },
     enrollName:  { fontSize: 13, fontWeight: '700', color: '#1e293b' },
     enrollMeta:  { fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 2 },
-    enrollDate:  { fontSize: 10, color: '#94a3b8', marginTop: 2 },
+    enrollDate:  { fontSize: 11, color: '#94a3b8', marginTop: 2 },
     statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexShrink: 0 },
-    statusText:  { fontSize: 9, fontWeight: '700' },
+    statusText:  { fontSize: 11, fontWeight: '700' },
 
     // Empty
     emptyCard: {
@@ -398,6 +379,6 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: '#f1f5f9',
         borderStyle: 'dashed', gap: 8,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
     emptySub:  { fontSize: 11, color: '#94a3b8', textAlign: 'center' },
 });

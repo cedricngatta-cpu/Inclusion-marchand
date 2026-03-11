@@ -1,24 +1,34 @@
-// Contexte notifications — migré depuis Next.js
-// localStorage → AsyncStorage, window.addEventListener → supprimé (pas de cross-tab sur mobile)
+// Contexte notifications — rôle-specific, Supabase persistant + AsyncStorage offline-first
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { storage } from '@/src/lib/storage';
+import { supabase } from '@/src/lib/supabase';
 import { useAuth } from './AuthContext';
 import { onSocketEvent } from '@/src/lib/socket';
 
+// ── Types ──────────────────────────────────────────────────────────────────────
 export interface Notification {
     id: string;
-    target_id: string;
-    title: string;
+    user_id: string | null;
+    titre: string;
     message: string;
-    type: 'INFO' | 'WARNING' | 'ALERT';
-    is_read: boolean;
-    created_at: number;
+    type: string;              // commande | livraison | enrolement | signalement | marche | achat_groupe | commande_refusee
+    route: string;             // où naviguer au clic
+    data: Record<string, any>; // détails bruts (nom produit, quantité, noms des personnes…)
+    lu: boolean;
+    created_at: number;        // timestamp ms
+}
+
+interface NotifPayload {
+    titre: string;
+    message: string;
+    type: string;
+    route: string;
+    data: Record<string, any>;
 }
 
 interface NotificationContextType {
     notifications: Notification[];
     unreadCount: number;
-    sendNotification: (notification: Omit<Notification, 'id' | 'created_at' | 'is_read'>) => Promise<void>;
     markAsRead: (id: string) => Promise<void>;
     deleteNotification: (id: string) => Promise<void>;
     refreshNotifications: () => Promise<void>;
@@ -30,151 +40,404 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const { user } = useAuth();
     const [notifications, setNotifications] = useState<Notification[]>([]);
 
+    // ── Chargement depuis Supabase (+ fallback AsyncStorage) ─────────────────
     const loadFromStorage = async () => {
+        try {
+            if (user?.id) {
+                const { data } = await supabase
+                    .from('notifications')
+                    .select('id, user_id, titre, message, type, data, lu, created_at')
+                    .or(`user_id.eq.${user.id},user_id.is.null`)
+                    .order('created_at', { ascending: false })
+                    .limit(50);
+
+                if (data?.length) {
+                    const mapped: Notification[] = data.map(n => ({
+                        id:         n.id,
+                        user_id:    n.user_id,
+                        titre:      n.titre ?? '',
+                        message:    n.message ?? '',
+                        type:       n.type ?? 'marche',
+                        route:      (n.data as any)?.route ?? '/',
+                        data:       (n.data as Record<string, any>) ?? {},
+                        lu:         n.lu ?? false,
+                        created_at: new Date(n.created_at).getTime(),
+                    }));
+                    setNotifications(mapped);
+                    await storage.setItem('app_notifications', JSON.stringify(mapped));
+                    return;
+                }
+            }
+        } catch { /* réseau indisponible */ }
+
         const saved = await storage.getItem('app_notifications');
-        if (saved) setNotifications(JSON.parse(saved));
+        if (saved) {
+            try { setNotifications(JSON.parse(saved)); } catch { /* ignore */ }
+        }
     };
 
-    useEffect(() => { loadFromStorage(); }, []);
+    useEffect(() => { loadFromStorage(); }, [user?.id]);
 
-    // Ajouter une notification locale depuis un événement socket
-    const addSocketNotif = (notif: Omit<Notification, 'id' | 'created_at' | 'is_read'>) => {
-        const newNotif: Notification = {
-            ...notif,
-            id: Math.random().toString(36).substr(2, 9),
-            is_read: false,
-            created_at: Date.now(),
-        };
-        setNotifications(prev => {
-            const updated = [newNotif, ...prev];
-            storage.setItem('app_notifications', JSON.stringify(updated));
-            return updated;
-        });
-    };
-
-    // Écouter les notifications socket en temps réel
+    // ── Handlers socket par rôle ──────────────────────────────────────────────
     useEffect(() => {
-        const unsubs = [
-            onSocketEvent('nouvelle-notification', ({ notification }) => {
-                if (!notification) return;
-                setNotifications(prev => {
-                    if (prev.some(n => n.id === notification.id)) return prev;
-                    const updated = [notification, ...prev];
-                    storage.setItem('app_notifications', JSON.stringify(updated));
-                    return updated;
-                });
-            }),
-            onSocketEvent('nouveau-produit-marche', (data) => {
-                addSocketNotif({
-                    target_id: 'ALL',
-                    title: 'Nouveau produit disponible',
-                    message: `${data.producerName} vient de publier "${data.productName}" — ${data.price?.toLocaleString('fr-FR')} F`,
-                    type: 'INFO',
-                });
-            }),
-            onSocketEvent('commande-acceptee', (data) => {
-                addSocketNotif({
-                    target_id: user?.id ?? 'ALL',
-                    title: 'Commande acceptée !',
-                    message: `Votre commande de ${data.quantity}× ${data.productName} a été acceptée.`,
-                    type: 'INFO',
-                });
-            }),
-            onSocketEvent('commande-refusee', (data) => {
-                addSocketNotif({
-                    target_id: user?.id ?? 'ALL',
-                    title: 'Commande refusée',
-                    message: `Votre commande de ${data.quantity}× ${data.productName} a été refusée.`,
-                    type: 'WARNING',
-                });
-            }),
-            onSocketEvent('livraison-en-cours', (data) => {
-                addSocketNotif({
-                    target_id: user?.id ?? 'ALL',
-                    title: 'Livraison en cours',
-                    message: `Votre commande de ${data.productName} est en route !`,
-                    type: 'INFO',
-                });
-            }),
-            onSocketEvent('livraison-terminee', (data) => {
-                addSocketNotif({
-                    target_id: user?.id ?? 'ALL',
-                    title: 'Livraison effectuée',
-                    message: `${data.productName} × ${data.quantity} livré avec succès.`,
-                    type: 'INFO',
-                });
-            }),
-            onSocketEvent('enrolement-valide', (data) => {
-                addSocketNotif({
-                    target_id: user?.id ?? 'ALL',
-                    title: 'Enrôlement validé',
-                    message: `${data.marchandName} a été validé par ${data.cooperativeName ?? 'la coopérative'}.`,
-                    type: 'INFO',
-                });
-            }),
-            onSocketEvent('enrolement-rejete', (data) => {
-                addSocketNotif({
-                    target_id: user?.id ?? 'ALL',
-                    title: 'Enrôlement rejeté',
-                    message: `Le dossier de ${data.marchandName} a été rejeté.`,
-                    type: 'WARNING',
-                });
-            }),
-            onSocketEvent('signalement-conformite', (data) => {
-                addSocketNotif({
-                    target_id: user?.id ?? 'ALL',
-                    title: 'Nouveau signalement',
-                    message: `Agent ${data.agentName} : ${data.type} signalé sur ${data.marchandName}.`,
-                    type: 'ALERT',
-                });
-            }),
-            onSocketEvent('achat-groupe-cree', (data) => {
-                addSocketNotif({
-                    target_id: 'ALL',
-                    title: 'Achat groupé ouvert',
-                    message: `${data.creatorName} lance un achat groupé pour "${data.productName}".`,
-                    type: 'INFO',
-                });
-            }),
-        ];
-        return () => unsubs.forEach(fn => fn());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [user?.id]);
+        if (!user) return;
 
+        // Crée une notification locale + INSERT Supabase
+        const addNotif = async (payload: NotifPayload) => {
+            const newNotif: Notification = {
+                ...payload,
+                id:         Math.random().toString(36).substr(2, 9),
+                user_id:    user.id,
+                lu:         false,
+                created_at: Date.now(),
+            };
+
+            try {
+                const { data } = await supabase
+                    .from('notifications')
+                    .insert([{
+                        user_id: user.id,
+                        titre:   payload.titre,
+                        message: payload.message,
+                        type:    payload.type,
+                        data:    { ...payload.data, route: payload.route },
+                        lu:      false,
+                    }])
+                    .select('id, created_at')
+                    .single();
+                if (data?.id) {
+                    newNotif.id = data.id;
+                    newNotif.created_at = new Date(data.created_at).getTime();
+                }
+            } catch { /* offline — ID local conservé */ }
+
+            setNotifications(prev => {
+                const updated = [newNotif, ...prev];
+                storage.setItem('app_notifications', JSON.stringify(updated));
+                return updated;
+            });
+        };
+
+        const role       = user.role;
+        const isMerchant = role === 'MERCHANT';
+        const isProducer = role === 'PRODUCER';
+        const isAgent    = role === 'FIELD_AGENT';
+        const isCoop     = role === 'COOPERATIVE';
+        const isAdmin    = role === 'SUPERVISOR';
+
+        const unsubs: (() => void)[] = [];
+
+        // ── MARCHAND ─────────────────────────────────────────────────────────
+        if (isMerchant) {
+            // Commande acceptée par le producteur
+            unsubs.push(onSocketEvent('commande-acceptee', (d: any) => {
+                const producteur = d.producerName ?? 'Le producteur';
+                const delai = d.estimatedDelivery ? ` sous ${d.estimatedDelivery}` : '';
+                addNotif({
+                    titre:   `${producteur} a accepté votre commande`,
+                    message: `${d.quantity ?? ''} ${d.productName ?? 'produit'}${delai ? ' seront livrés' + delai : ''}.`,
+                    type:    'commande',
+                    route:   '/(tabs)/marche',
+                    data:    { produit_nom: d.productName, quantite: d.quantity, producteur, delai: d.estimatedDelivery, commande_id: d.orderId },
+                });
+            }));
+
+            // Commande refusée par le producteur
+            unsubs.push(onSocketEvent('commande-refusee', (d: any) => {
+                const producteur = d.producerName ?? 'Le producteur';
+                const raison = d.reason ? `. Raison : ${d.reason}` : '';
+                addNotif({
+                    titre:   'Commande refusée',
+                    message: `${producteur} a refusé votre commande de ${d.productName ?? 'produit'}${raison}.`,
+                    type:    'commande_refusee',
+                    route:   '/(tabs)/marche',
+                    data:    { produit_nom: d.productName, quantite: d.quantity, producteur, raison: d.reason, commande_id: d.orderId },
+                });
+            }));
+
+            // Livraison en route
+            unsubs.push(onSocketEvent('livraison-en-cours', (d: any) => {
+                addNotif({
+                    titre:   'Livraison en route',
+                    message: `Votre commande de ${d.quantity ?? ''} ${d.productName ?? 'produit'} est en route${d.driverName ? ` avec ${d.driverName}` : ''}.`,
+                    type:    'livraison',
+                    route:   '/(tabs)/marche',
+                    data:    { produit_nom: d.productName, quantite: d.quantity, livreur: d.driverName, commande_id: d.orderId },
+                });
+            }));
+
+            // Livraison terminée → stock mis à jour
+            unsubs.push(onSocketEvent('livraison-terminee', (d: any) => {
+                addNotif({
+                    titre:   'Livraison reçue ✓',
+                    message: `${d.quantity ?? ''} ${d.productName ?? 'produit'} ajoutés à votre stock.`,
+                    type:    'livraison',
+                    route:   '/(tabs)/stock',
+                    data:    { produit_nom: d.productName, quantite: d.quantity, commande_id: d.orderId },
+                });
+            }));
+
+            // Nouveau produit sur le marché
+            unsubs.push(onSocketEvent('nouveau-produit-marche', (d: any) => {
+                const prix = (d.price ?? 0).toLocaleString('fr-FR');
+                addNotif({
+                    titre:   'Nouveau produit disponible',
+                    message: `${d.producerName ?? 'Un producteur'} vend ${d.productName ?? 'un produit'} à ${prix} F.`,
+                    type:    'marche',
+                    route:   '/(tabs)/marche',
+                    data:    { produit_nom: d.productName, prix: d.price, producteur: d.producerName },
+                });
+            }));
+
+            // Achat groupé ouvert (après acceptation du prix par la coop)
+            unsubs.push(onSocketEvent('achat-groupe-cree', (d: any) => {
+                const prix = (d.prixNegocie ?? d.pricePerUnit ?? 0).toLocaleString('fr-FR');
+                const date = d.deadline ? ` avant le ${new Date(d.deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}` : '';
+                addNotif({
+                    titre:   'Achat groupé ouvert',
+                    message: `${d.nomProduit ?? d.productName ?? 'Produit'} à ${prix} F — rejoignez${date}.`,
+                    type:    'achat_groupe',
+                    route:   '/(tabs)/marche',
+                    data:    { produit_nom: d.nomProduit ?? d.productName, prix: d.prixNegocie ?? d.pricePerUnit, date_limite: d.deadline },
+                });
+            }));
+        }
+
+        // ── PRODUCTEUR ───────────────────────────────────────────────────────
+        if (isProducer) {
+            // Nouvelle commande d'un marchand
+            unsubs.push(onSocketEvent('nouvelle-commande', (d: any) => {
+                const total = (d.totalPrice ?? 0).toLocaleString('fr-FR');
+                addNotif({
+                    titre:   'Nouvelle commande',
+                    message: `${d.buyerName ?? 'Un marchand'} veut ${d.quantity ?? ''} ${d.productName ?? 'produit'} pour ${total} F.`,
+                    type:    'commande',
+                    route:   '/producteur/commandes',
+                    data:    { produit_nom: d.productName, quantite: d.quantity, prix: d.totalPrice, marchand: d.buyerName, commande_id: d.orderId },
+                });
+            }));
+
+            // Demande de prix groupé de la coopérative
+            unsubs.push(onSocketEvent('demande-prix-groupe', (d: any) => {
+                addNotif({
+                    titre:   'Demande de prix groupé',
+                    message: `La coopérative ${d.cooperativeNom ?? ''} demande un prix pour ${d.qtyCible ?? ''} ${d.nomProduit ?? 'produit'}.`,
+                    type:    'achat_groupe',
+                    route:   '/producteur/commandes',
+                    data:    { produit_nom: d.nomProduit, quantite: d.qtyCible, cooperative: d.cooperativeNom, message_coop: d.messageCoop, achat_groupe_id: d.achatGroupeId },
+                });
+            }));
+
+            // Prix groupé accepté par la coopérative
+            unsubs.push(onSocketEvent('prix-groupe-accepte', (d: any) => {
+                const prix = (d.prixNegocie ?? 0).toLocaleString('fr-FR');
+                addNotif({
+                    titre:   'Prix groupé accepté ✓',
+                    message: `Votre prix de ${prix} F pour ${d.nomProduit ?? 'produit'} a été accepté. Les marchands peuvent commander.`,
+                    type:    'achat_groupe',
+                    route:   '/producteur/commandes',
+                    data:    { produit_nom: d.nomProduit, prix: d.prixNegocie, cooperative: d.cooperativeNom, achat_groupe_id: d.achatGroupeId },
+                });
+            }));
+
+            // Nouveau participant à l'achat groupé
+            unsubs.push(onSocketEvent('achat-groupe-rejoint', (d: any) => {
+                const nb = d.totalParticipants ? `. Total : ${d.totalParticipants} participants` : '';
+                addNotif({
+                    titre:   'Nouveau participant',
+                    message: `${d.joinerName ?? 'Un marchand'} a rejoint l'achat groupé de ${d.productName ?? 'produit'}${nb}.`,
+                    type:    'achat_groupe',
+                    route:   '/producteur/commandes',
+                    data:    { produit_nom: d.productName, marchand: d.joinerName, quantite: d.contribution, total_participants: d.totalParticipants },
+                });
+            }));
+        }
+
+        // ── AGENT ─────────────────────────────────────────────────────────────
+        if (isAgent) {
+            // Enrôlement validé par la coopérative
+            unsubs.push(onSocketEvent('enrolement-valide', (d: any) => {
+                const type = d.type === 'MERCHANT' ? 'Marchand' : d.type === 'PRODUCER' ? 'Producteur' : d.type ?? '';
+                const coop = d.cooperativeName ? ` par la coopérative ${d.cooperativeName}` : '';
+                addNotif({
+                    titre:   'Inscription validée ✓',
+                    message: `${d.marchandName ?? 'Votre membre'}${type ? ` (${type})` : ''} a été validé${coop}.`,
+                    type:    'enrolement',
+                    route:   '/agent/activites',
+                    data:    { nom: d.marchandName, type: d.type, cooperative: d.cooperativeName },
+                });
+            }));
+
+            // Enrôlement rejeté
+            unsubs.push(onSocketEvent('enrolement-rejete', (d: any) => {
+                const motif = d.reason ? `. Motif : ${d.reason}` : '';
+                addNotif({
+                    titre:   'Inscription refusée',
+                    message: `${d.marchandName ?? 'Votre membre'} a été refusé${motif}. Veuillez corriger et soumettre à nouveau.`,
+                    type:    'signalement',
+                    route:   '/agent/activites',
+                    data:    { nom: d.marchandName, motif: d.reason },
+                });
+            }));
+        }
+
+        // ── COOPÉRATIVE ───────────────────────────────────────────────────────
+        if (isCoop) {
+            // Nouvelle demande d'inscription de l'agent
+            unsubs.push(onSocketEvent('nouvel-enrolement', (d: any) => {
+                const typeLabel = d.type === 'MERCHANT' ? 'Marchand' : d.type === 'PRODUCER' ? 'Producteur' : d.type ?? '';
+                const adresse = d.adresse ? ` depuis ${d.adresse}` : '';
+                addNotif({
+                    titre:   "Nouvelle demande d'inscription",
+                    message: `Agent ${d.agentName ?? ''} a inscrit ${d.marchandName ?? 'un membre'}${typeLabel ? ` (${typeLabel})` : ''}${adresse}.`,
+                    type:    'enrolement',
+                    route:   '/cooperative/demandes',
+                    data:    { nom: d.marchandName, agent: d.agentName, type: d.type, adresse: d.adresse },
+                });
+            }));
+
+            // Commande B2B dans le réseau
+            unsubs.push(onSocketEvent('nouvelle-commande', (d: any) => {
+                const total = (d.totalPrice ?? 0).toLocaleString('fr-FR');
+                addNotif({
+                    titre:   'Commande B2B dans le réseau',
+                    message: `${d.buyerName ?? 'Marchand'} → ${d.sellerName ?? 'Producteur'} : ${d.quantity ?? ''} ${d.productName ?? 'produit'} pour ${total} F.`,
+                    type:    'commande',
+                    route:   '/cooperative/achats',
+                    data:    { produit_nom: d.productName, quantite: d.quantity, prix: d.totalPrice, marchand: d.buyerName, producteur: d.sellerName, commande_id: d.orderId },
+                });
+            }));
+
+            // Prix groupé proposé par le producteur
+            unsubs.push(onSocketEvent('prix-groupe-propose', (d: any) => {
+                const prix = (d.prixPropose ?? 0).toLocaleString('fr-FR');
+                addNotif({
+                    titre:   'Prix groupé reçu',
+                    message: `${d.producteurNom ?? 'Le producteur'} propose ${prix} F pour ${d.nomProduit ?? 'produit'}. Accepter ou renégocier ?`,
+                    type:    'achat_groupe',
+                    route:   '/cooperative/achats',
+                    data:    { produit_nom: d.nomProduit, prix: d.prixPropose, producteur: d.producteurNom, achat_groupe_id: d.achatGroupeId },
+                });
+            }));
+
+            // Signalement de conformité
+            unsubs.push(onSocketEvent('signalement-conformite', (d: any) => {
+                addNotif({
+                    titre:   'Nouveau signalement',
+                    message: `Agent ${d.agentName ?? ''} signale ${d.marchandName ?? 'un membre'} : ${d.description ?? d.type ?? ''}.`,
+                    type:    'signalement',
+                    route:   '/cooperative/membres',
+                    data:    { agent: d.agentName, membre: d.marchandName, motif: d.description ?? d.type },
+                });
+            }));
+
+            // Nouveau participant achat groupé
+            unsubs.push(onSocketEvent('achat-groupe-rejoint', (d: any) => {
+                const nb = d.totalParticipants ? `${d.totalParticipants}/${d.contribution ?? '?'}` : '';
+                addNotif({
+                    titre:   'Participation achat groupé',
+                    message: `${d.joinerName ?? 'Un marchand'} a rejoint l'achat groupé de ${d.productName ?? 'produit'}${nb ? `. ${nb} participants` : ''}.`,
+                    type:    'achat_groupe',
+                    route:   '/cooperative/achats',
+                    data:    { produit_nom: d.productName, marchand: d.joinerName, total_participants: d.totalParticipants },
+                });
+            }));
+        }
+
+        // ── ADMIN (SUPERVISOR) ────────────────────────────────────────────────
+        if (isAdmin) {
+            // Vente enregistrée
+            unsubs.push(onSocketEvent('nouvelle-vente', (d: any) => {
+                const total = (d.transaction?.price ?? 0).toLocaleString('fr-FR');
+                addNotif({
+                    titre:   'Vente enregistrée',
+                    message: `${d.storeName ?? 'Un marchand'} a vendu pour ${total} F.`,
+                    type:    'vente',
+                    route:   '/admin/transactions',
+                    data:    { marchand: d.storeName, produit_nom: d.transaction?.productName, prix: d.transaction?.price },
+                });
+            }));
+
+            // Nouvel enrôlement
+            unsubs.push(onSocketEvent('nouvel-enrolement', (d: any) => {
+                const typeLabel = d.type === 'MERCHANT' ? 'Marchand' : d.type === 'PRODUCER' ? 'Producteur' : d.type ?? '';
+                addNotif({
+                    titre:   "Nouvelle demande d'inscription",
+                    message: `Agent ${d.agentName ?? ''} a inscrit ${d.marchandName ?? 'un membre'}${typeLabel ? ` (${typeLabel})` : ''}.`,
+                    type:    'enrolement',
+                    route:   '/admin/utilisateurs',
+                    data:    { nom: d.marchandName, agent: d.agentName, type: d.type },
+                });
+            }));
+
+            // Commande B2B
+            unsubs.push(onSocketEvent('nouvelle-commande', (d: any) => {
+                const total = (d.totalPrice ?? 0).toLocaleString('fr-FR');
+                addNotif({
+                    titre:   'Commande B2B dans le réseau',
+                    message: `${d.buyerName ?? 'Marchand'} → ${d.sellerName ?? 'Producteur'} : ${d.quantity ?? ''} ${d.productName ?? 'produit'} pour ${total} F.`,
+                    type:    'commande',
+                    route:   '/admin/commandes',
+                    data:    { produit_nom: d.productName, quantite: d.quantity, prix: d.totalPrice, marchand: d.buyerName, producteur: d.sellerName, commande_id: d.orderId },
+                });
+            }));
+
+            // Signalement
+            unsubs.push(onSocketEvent('signalement-conformite', (d: any) => {
+                addNotif({
+                    titre:   'Nouveau signalement',
+                    message: `Agent ${d.agentName ?? ''} signale ${d.marchandName ?? 'un membre'} : ${d.description ?? d.type ?? ''}.`,
+                    type:    'signalement',
+                    route:   '/admin/signalements',
+                    data:    { agent: d.agentName, membre: d.marchandName, motif: d.description ?? d.type },
+                });
+            }));
+
+            // Coopérative non listée
+            unsubs.push(onSocketEvent('cooperative-inconnue', (d: any) => {
+                addNotif({
+                    titre:   'Coopérative non listée',
+                    message: `Agent ${d.agentName ?? ''} a inscrit ${d.marchandName ?? 'un membre'} avec une coopérative inconnue : ${d.cooperativeNomSaisi ?? ''}. À traiter.`,
+                    type:    'signalement',
+                    route:   '/admin/utilisateurs',
+                    data:    { agent: d.agentName, membre: d.marchandName, cooperative_saisie: d.cooperativeNomSaisi },
+                });
+            }));
+        }
+
+        return () => unsubs.forEach(fn => fn());
+    }, [user?.id, user?.role]);
+
+    // ── Actions ───────────────────────────────────────────────────────────────
     const saveNotifications = async (newItems: Notification[]) => {
         setNotifications(newItems);
         await storage.setItem('app_notifications', JSON.stringify(newItems));
     };
 
-    const sendNotification = async (data: Omit<Notification, 'id' | 'created_at' | 'is_read'>) => {
-        const newNotif: Notification = {
-            ...data,
-            id: Math.random().toString(36).substr(2, 9),
-            is_read: false,
-            created_at: Date.now(),
-        };
-        await saveNotifications([newNotif, ...notifications]);
-    };
-
     const markAsRead = async (id: string) => {
-        await saveNotifications(notifications.map(n => n.id === id ? { ...n, is_read: true } : n));
+        await saveNotifications(notifications.map(n => n.id === id ? { ...n, lu: true } : n));
+        try {
+            await supabase.from('notifications').update({ lu: true }).eq('id', id);
+        } catch (err) {
+            console.error('[Notifications] markAsRead sync error:', err);
+        }
     };
 
     const deleteNotification = async (id: string) => {
         await saveNotifications(notifications.filter(n => n.id !== id));
+        try {
+            await supabase.from('notifications').delete().eq('id', id);
+        } catch (err) {
+            console.error('[Notifications] deleteNotification sync error:', err);
+        }
     };
 
-    const relevantNotifications = user?.role === 'SUPERVISOR'
-        ? notifications
-        : notifications.filter(n => n.target_id === 'ALL' || n.target_id === user?.id);
-
-    const unreadCount = relevantNotifications.filter(n => !n.is_read).length;
+    const unreadCount = notifications.filter(n => !n.lu).length;
 
     return (
         <NotificationContext.Provider value={{
-            notifications: relevantNotifications,
+            notifications,
             unreadCount,
-            sendNotification,
             markAsRead,
             deleteNotification,
             refreshNotifications: loadFromStorage,

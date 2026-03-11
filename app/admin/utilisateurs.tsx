@@ -1,16 +1,18 @@
-// Utilisateurs — Admin : liste, recherche, gestion des profils
+// Utilisateurs — Admin : liste complète, gestion des profils avec stats
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, ActivityIndicator, TextInput,
     Alert, RefreshControl, Modal,
 } from 'react-native';
-import { TouchableOpacity } from 'react-native-gesture-handler';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { ChevronLeft, ChevronRight, X, User } from 'lucide-react-native';
+import { TouchableOpacity, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFocusEffect } from 'expo-router';
+import {
+    ChevronRight, X, User, ShoppingBag, Package, TrendingUp,
+} from 'lucide-react-native';
+import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
-import { useAuth } from '@/src/context/AuthContext';
+import { onSocketEvent } from '@/src/lib/socket';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Profile {
@@ -18,41 +20,55 @@ interface Profile {
     full_name: string;
     phone_number: string;
     role: string;
+    boutique_name: string | null;
+    address: string | null;
     created_at: string;
+    cooperative_id: string | null;
+    cooperative_nom?: string;
 }
 
-type RoleFilter = 'tous' | 'merchant' | 'producer' | 'field_agent' | 'cooperative' | 'supervisor';
+interface UserStats {
+    storeName: string | null;
+    storeType: string | null;
+    salesCount: number;
+    salesTotal: number;
+    ordersCount: number;
+}
+
+type RoleFilter = 'tous' | 'MERCHANT' | 'PRODUCER' | 'FIELD_AGENT' | 'COOPERATIVE' | 'SUPERVISOR';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const ROLE_COLORS: Record<string, { bg: string; text: string; label: string; avatarBg: string }> = {
-    merchant:    { bg: '#dcfce7', text: '#065f46', label: 'Marchand',    avatarBg: '#059669' },
-    producer:    { bg: '#dbeafe', text: '#1e40af', label: 'Producteur',  avatarBg: '#2563eb' },
-    field_agent: { bg: '#fef3c7', text: '#92400e', label: 'Agent',       avatarBg: '#d97706' },
-    cooperative: { bg: '#ede9fe', text: '#5b21b6', label: 'Coopérative', avatarBg: '#7c3aed' },
-    supervisor:  { bg: '#fee2e2', text: '#991b1b', label: 'Admin',       avatarBg: '#dc2626' },
+    MERCHANT:    { bg: '#dcfce7', text: '#065f46', label: 'Marchand',    avatarBg: '#059669' },
+    PRODUCER:    { bg: '#dbeafe', text: '#1e40af', label: 'Producteur',  avatarBg: '#2563eb' },
+    FIELD_AGENT: { bg: '#fef3c7', text: '#92400e', label: 'Agent',       avatarBg: '#d97706' },
+    COOPERATIVE: { bg: '#ede9fe', text: '#5b21b6', label: 'Coopérative', avatarBg: '#7c3aed' },
+    SUPERVISOR:  { bg: '#fee2e2', text: '#991b1b', label: 'Admin',       avatarBg: '#dc2626' },
 };
 
 function getRoleInfo(role: string) {
+    const upper = role?.toUpperCase() ?? '';
     for (const key of Object.keys(ROLE_COLORS)) {
-        if (role?.toLowerCase().includes(key.toLowerCase())) return ROLE_COLORS[key];
+        if (upper.includes(key)) return ROLE_COLORS[key];
     }
     return { bg: '#f1f5f9', text: '#475569', label: role ?? 'Inconnu', avatarBg: '#64748b' };
 }
 
 const ROLE_FILTERS: { key: RoleFilter; label: string }[] = [
-    { key: 'tous',       label: 'Tous' },
-    { key: 'merchant',   label: 'Marchands' },
-    { key: 'producer',   label: 'Producteurs' },
-    { key: 'field_agent',label: 'Agents' },
-    { key: 'cooperative',label: 'Coopératives' },
-    { key: 'supervisor', label: 'Admins' },
+    { key: 'tous',        label: 'Tous' },
+    { key: 'MERCHANT',    label: 'Marchands' },
+    { key: 'PRODUCER',    label: 'Producteurs' },
+    { key: 'FIELD_AGENT', label: 'Agents' },
+    { key: 'COOPERATIVE', label: 'Coopératives' },
+    { key: 'SUPERVISOR',  label: 'Admins' },
 ];
+
+function fmt(n: number): string {
+    return n.toLocaleString('fr-FR');
+}
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function Utilisateurs() {
-    const router = useRouter();
-    const { user } = useAuth();
-
     const [profiles, setProfiles]         = useState<Profile[]>([]);
     const [loading, setLoading]           = useState(true);
     const [refreshing, setRefreshing]     = useState(false);
@@ -60,17 +76,51 @@ export default function Utilisateurs() {
     const [roleFilter, setRoleFilter]     = useState<RoleFilter>('tous');
     const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
     const [modalVisible, setModalVisible] = useState(false);
+    const [userStats, setUserStats]       = useState<UserStats | null>(null);
+    const [statsLoading, setStatsLoading] = useState(false);
 
+    // ── Chargement liste ──────────────────────────────────────────────────────
     const fetchUsers = useCallback(async () => {
         try {
-            const { data, error } = await supabase
+            // Tentative avec cooperative_id (colonne optionnelle via migration)
+            let { data, error } = await supabase
                 .from('profiles')
-                .select('id, full_name, phone_number, role, created_at')
+                .select('id, full_name, phone_number, role, boutique_name, address, created_at, cooperative_id')
                 .order('created_at', { ascending: false });
-            if (error) throw error;
-            setProfiles((data as Profile[]) ?? []);
+
+            // Si la colonne cooperative_id n'existe pas encore → retenter sans elle
+            if (error) {
+                console.log('⚠️ [Utilisateurs] fetch avec cooperative_id échoué:', error.message, '— retente sans');
+                const fallback = await supabase
+                    .from('profiles')
+                    .select('id, full_name, phone_number, role, boutique_name, address, created_at')
+                    .order('created_at', { ascending: false });
+                if (fallback.error) {
+                    console.log('❌ [Utilisateurs] fetch profiles:', fallback.error.message);
+                    return;
+                }
+                data = fallback.data;
+            }
+
+            const rows = (data as Profile[]) ?? [];
+            console.log('[Utilisateurs] profils chargés:', rows.length);
+
+            // Enrichir avec les noms de coopératives (si la colonne existe)
+            const coopIds = [...new Set(rows.map(r => r.cooperative_id).filter(Boolean))] as string[];
+            const { data: coopData } = coopIds.length > 0
+                ? await supabase.from('profiles').select('id, full_name').in('id', coopIds)
+                : { data: [] };
+            const coopMap: Record<string, string> = {};
+            for (const c of (coopData ?? []) as { id: string; full_name: string | null }[]) {
+                coopMap[c.id] = c.full_name ?? 'Coopérative';
+            }
+
+            setProfiles(rows.map(r => ({
+                ...r,
+                cooperative_nom: r.cooperative_id ? coopMap[r.cooperative_id] : undefined,
+            })));
         } catch (err) {
-            console.error('[Utilisateurs] fetch error:', err);
+            console.log('❌ [Utilisateurs] exception:', err);
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -78,16 +128,77 @@ export default function Utilisateurs() {
     }, []);
 
     useEffect(() => { setLoading(true); fetchUsers(); }, [fetchUsers]);
-
     const onRefresh = useCallback(() => { setRefreshing(true); fetchUsers(); }, [fetchUsers]);
-
     useFocusEffect(useCallback(() => { fetchUsers(); }, [fetchUsers]));
+
+    // Socket.io — rafraîchir quand un nouveau membre est enrôlé/validé
+    useEffect(() => {
+        const unsubs = [
+            onSocketEvent('enrolement-valide',  () => fetchUsers()),
+            onSocketEvent('nouvel-enrolement',  () => fetchUsers()),
+        ];
+        return () => unsubs.forEach(fn => fn());
+    }, [fetchUsers]);
+
+    // ── Stats modal ───────────────────────────────────────────────────────────
+    const fetchUserStats = useCallback(async (u: Profile) => {
+        setStatsLoading(true);
+        setUserStats(null);
+        try {
+            // 1. Boutique/store
+            const { data: storeData } = await supabase
+                .from('stores')
+                .select('id, name, store_type')
+                .eq('owner_id', u.id)
+                .limit(1)
+                .maybeSingle();
+
+            const stats: UserStats = {
+                storeName:  storeData?.name   ?? null,
+                storeType:  storeData?.store_type ?? null,
+                salesCount: 0,
+                salesTotal: 0,
+                ordersCount: 0,
+            };
+
+            if (storeData?.id) {
+                const [txRes, ordRes] = await Promise.all([
+                    supabase
+                        .from('transactions')
+                        .select('price', { count: 'exact' })
+                        .eq('store_id', storeData.id)
+                        .eq('type', 'VENTE'),
+                    supabase
+                        .from('orders')
+                        .select('id', { count: 'exact' })
+                        .eq('buyer_store_id', storeData.id),
+                ]);
+
+                stats.salesCount  = txRes.count ?? 0;
+                stats.salesTotal  = (txRes.data ?? []).reduce((s: number, t: any) => s + (t.price ?? 0), 0);
+                stats.ordersCount = ordRes.count ?? 0;
+            }
+
+            setUserStats(stats);
+        } catch (err) {
+            console.log('❌ [UserStats] fetch error:', err);
+        } finally {
+            setStatsLoading(false);
+        }
+    }, []);
+
+    const openModal = useCallback((u: Profile) => {
+        setSelectedUser(u);
+        setUserStats(null);
+        setModalVisible(true);
+        fetchUserStats(u);
+    }, [fetchUserStats]);
 
     // ── Filtrage ───────────────────────────────────────────────────────────────
     const filtered = useMemo(() => {
         let list = profiles;
         if (roleFilter !== 'tous') {
-            list = list.filter(p => p.role?.toLowerCase().includes(roleFilter.toLowerCase()));
+            list = list.filter(p => p.role?.toUpperCase() === roleFilter);
         }
         if (search.trim()) {
             const q = search.toLowerCase();
@@ -101,98 +212,96 @@ export default function Utilisateurs() {
 
     // ── Actions ────────────────────────────────────────────────────────────────
     const handleResetPin = async (u: Profile) => {
-        try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ pin: '0000' })
-                .eq('id', u.id);
-            if (error) throw error;
-            Alert.alert('Succès', 'PIN réinitialisé à 0000');
-        } catch {
-            Alert.alert('Erreur', 'Impossible de réinitialiser le PIN');
-        }
-    };
-
-    const handleChangeRole = (u: Profile) => {
         Alert.alert(
-            'Changer le rôle',
-            `Choisir le nouveau rôle pour ${u.full_name} :`,
-            [
-                { text: 'Marchand',    onPress: () => updateRole(u.id, 'merchant') },
-                { text: 'Producteur',  onPress: () => updateRole(u.id, 'producer') },
-                { text: 'Agent',       onPress: () => updateRole(u.id, 'field_agent') },
-                { text: 'Coopérative', onPress: () => updateRole(u.id, 'cooperative') },
-                { text: 'Annuler',     style: 'cancel' },
-            ]
-        );
-    };
-
-    const updateRole = async (userId: string, newRole: string) => {
-        try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ role: newRole })
-                .eq('id', userId);
-            if (error) throw error;
-            await fetchUsers();
-            Alert.alert('Succès', 'Rôle mis à jour');
-            setModalVisible(false);
-        } catch {
-            Alert.alert('Erreur', 'Impossible de changer le rôle');
-        }
-    };
-
-    const handleDisable = (u: Profile) => {
-        Alert.alert(
-            'Désactiver le compte',
-            `Voulez-vous désactiver le compte de ${u.full_name} ?`,
+            'Réinitialiser le PIN',
+            `Réinitialiser le PIN de ${u.full_name} à 0000 ?`,
             [
                 {
-                    text: 'Désactiver', style: 'destructive',
-                    onPress: () => Alert.alert('Information', 'Fonctionnalité en cours de déploiement'),
+                    text: 'Confirmer', style: 'destructive',
+                    onPress: async () => {
+                        const { error } = await supabase
+                            .from('profiles').update({ pin: '0000' }).eq('id', u.id);
+                        if (error) Alert.alert('Erreur', 'Impossible de réinitialiser le PIN');
+                        else Alert.alert('Succès', `PIN de ${u.full_name} réinitialisé à 0000`);
+                    },
                 },
                 { text: 'Annuler', style: 'cancel' },
             ]
         );
     };
 
-    const openModal = (u: Profile) => {
-        setSelectedUser(u);
-        setModalVisible(true);
+    const handleChangeRole = (u: Profile) => {
+        Alert.alert(
+            'Changer le rôle',
+            `Nouveau rôle pour ${u.full_name} :`,
+            [
+                { text: 'Marchand',    onPress: () => updateRole(u, 'MERCHANT') },
+                { text: 'Producteur',  onPress: () => updateRole(u, 'PRODUCER') },
+                { text: 'Agent',       onPress: () => updateRole(u, 'FIELD_AGENT') },
+                { text: 'Coopérative', onPress: () => updateRole(u, 'COOPERATIVE') },
+                { text: 'Annuler',     style: 'cancel' },
+            ]
+        );
     };
 
-    return (
-        <SafeAreaView style={s.safe} edges={['top']}>
-            {/* ── HEADER ── */}
-            <View style={s.header}>
-                <View style={s.headerTop}>
-                    <TouchableOpacity style={s.backBtn} onPress={() => router.back()}>
-                        <ChevronLeft color={colors.white} size={20} />
-                    </TouchableOpacity>
-                    <View style={s.headerTitleBlock}>
-                        <Text style={s.headerTitle}>UTILISATEURS</Text>
-                        <Text style={s.headerSubtitle}>{profiles.length} MEMBRES</Text>
-                    </View>
-                    <View style={{ width: 40 }} />
-                </View>
+    const updateRole = async (u: Profile, newRole: string) => {
+        const { error } = await supabase
+            .from('profiles').update({ role: newRole }).eq('id', u.id);
+        if (error) { Alert.alert('Erreur', 'Impossible de changer le rôle'); return; }
+        await fetchUsers();
+        setModalVisible(false);
+        Alert.alert('Succès', `Rôle mis à jour → ${getRoleInfo(newRole).label}`);
+    };
 
-                {/* Barre de recherche */}
+    const handleDisable = (u: Profile) => {
+        Alert.alert(
+            'Désactiver le compte',
+            `Désactiver le compte de ${u.full_name} ? Cette action empêchera la connexion.`,
+            [
+                {
+                    text: 'Désactiver', style: 'destructive',
+                    onPress: async () => {
+                        // Blocage via PIN invalide — en attendant colonne `active`
+                        const { error } = await supabase
+                            .from('profiles').update({ pin: 'DISABLED' }).eq('id', u.id);
+                        if (error) Alert.alert('Erreur', 'Impossible de désactiver');
+                        else {
+                            setModalVisible(false);
+                            await fetchUsers();
+                            Alert.alert('Compte désactivé', `${u.full_name} ne peut plus se connecter.`);
+                        }
+                    },
+                },
+                { text: 'Annuler', style: 'cancel' },
+            ]
+        );
+    };
+
+    // ── Rendu ──────────────────────────────────────────────────────────────────
+    return (
+        <View style={s.safe}>
+            <ScreenHeader
+                title="Utilisateurs"
+                subtitle={`${profiles.length} membres`}
+                showBack={true}
+                paddingBottom={16}
+            >
                 <View style={s.searchBar}>
-                    <User color="#94a3b8" size={16} />
+                    <User color="rgba(255,255,255,0.6)" size={16} />
                     <TextInput
                         style={s.searchInput}
                         placeholder="Rechercher par nom ou téléphone..."
-                        placeholderTextColor="#94a3b8"
+                        placeholderTextColor="rgba(255,255,255,0.5)"
                         value={search}
                         onChangeText={setSearch}
                     />
                     {search.length > 0 && (
                         <TouchableOpacity onPress={() => setSearch('')}>
-                            <X color="#94a3b8" size={16} />
+                            <X color="rgba(255,255,255,0.6)" size={16} />
                         </TouchableOpacity>
                     )}
                 </View>
-            </View>
+            </ScreenHeader>
 
             {/* Filtres rôle */}
             <ScrollView
@@ -220,6 +329,7 @@ export default function Utilisateurs() {
                 style={s.scroll}
                 contentContainerStyle={s.scrollContent}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
                 }
@@ -233,8 +343,10 @@ export default function Utilisateurs() {
                     </View>
                 ) : (
                     filtered.map(u => {
-                        const ri = getRoleInfo(u.role);
+                        const ri      = getRoleInfo(u.role);
                         const initial = (u.full_name ?? 'U')[0].toUpperCase();
+                        const isPending = !u.cooperative_id &&
+                            (u.role === 'MERCHANT' || u.role === 'PRODUCER');
                         return (
                             <TouchableOpacity
                                 key={u.id}
@@ -246,14 +358,29 @@ export default function Utilisateurs() {
                                 <View style={[s.avatar, { backgroundColor: ri.avatarBg }]}>
                                     <Text style={s.avatarText}>{initial}</Text>
                                 </View>
+
                                 {/* Infos */}
                                 <View style={s.userInfo}>
                                     <Text style={s.userName} numberOfLines={1}>{u.full_name}</Text>
                                     <Text style={s.userPhone}>{u.phone_number}</Text>
+                                    {u.boutique_name && (
+                                        <Text style={s.userBoutique} numberOfLines={1}>
+                                            🏪 {u.boutique_name}
+                                        </Text>
+                                    )}
+                                    {u.cooperative_nom && (
+                                        <Text style={s.userCoop} numberOfLines={1}>
+                                            🤝 {u.cooperative_nom}
+                                        </Text>
+                                    )}
+                                    {isPending && (
+                                        <Text style={s.userNoCoopBadge}>À affecter</Text>
+                                    )}
                                     <Text style={s.userDate}>
                                         {new Date(u.created_at).toLocaleDateString('fr-FR')}
                                     </Text>
                                 </View>
+
                                 {/* Badge rôle */}
                                 <View style={[s.roleBadge, { backgroundColor: ri.bg }]}>
                                     <Text style={[s.roleBadgeText, { color: ri.text }]}>{ri.label}</Text>
@@ -272,9 +399,11 @@ export default function Utilisateurs() {
                 transparent
                 onRequestClose={() => setModalVisible(false)}
             >
+                {/* GestureHandlerRootView requis : Modal isole le contexte gestuel */}
+                <GestureHandlerRootView style={{ flex: 1 }}>
                 <View style={s.modalOverlay}>
                     <View style={s.modalSheet}>
-                        {/* Fermer */}
+                        {/* Header modal */}
                         <View style={s.modalHeader}>
                             <Text style={s.modalTitle}>GESTION UTILISATEUR</Text>
                             <TouchableOpacity
@@ -286,10 +415,10 @@ export default function Utilisateurs() {
                         </View>
 
                         {selectedUser && (() => {
-                            const ri = getRoleInfo(selectedUser.role);
+                            const ri      = getRoleInfo(selectedUser.role);
                             const initial = (selectedUser.full_name ?? 'U')[0].toUpperCase();
                             return (
-                                <>
+                                <ScrollView showsVerticalScrollIndicator={false}>
                                     {/* Profil */}
                                     <View style={s.modalUserBlock}>
                                         <View style={[s.modalAvatar, { backgroundColor: ri.avatarBg }]}>
@@ -301,7 +430,7 @@ export default function Utilisateurs() {
                                         </View>
                                     </View>
 
-                                    {/* Infos */}
+                                    {/* Infos profil */}
                                     <View style={s.modalInfoBlock}>
                                         <View style={s.modalInfoRow}>
                                             <Text style={s.modalInfoLabel}>Téléphone</Text>
@@ -315,9 +444,82 @@ export default function Utilisateurs() {
                                                 })}
                                             </Text>
                                         </View>
+                                        {selectedUser.boutique_name && (
+                                            <View style={s.modalInfoRow}>
+                                                <Text style={s.modalInfoLabel}>Boutique</Text>
+                                                <Text style={s.modalInfoValue}>{selectedUser.boutique_name}</Text>
+                                            </View>
+                                        )}
+                                        {selectedUser.address && (
+                                            <View style={s.modalInfoRow}>
+                                                <Text style={s.modalInfoLabel}>Adresse</Text>
+                                                <Text style={[s.modalInfoValue, { flex: 1, textAlign: 'right' }]} numberOfLines={2}>
+                                                    {selectedUser.address}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        {selectedUser.cooperative_nom && (
+                                            <View style={s.modalInfoRow}>
+                                                <Text style={s.modalInfoLabel}>Coopérative</Text>
+                                                <Text style={[s.modalInfoValue, { color: '#7c3aed' }]}>
+                                                    {selectedUser.cooperative_nom}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        {!selectedUser.cooperative_id &&
+                                            (selectedUser.role === 'MERCHANT' || selectedUser.role === 'PRODUCER') && (
+                                            <View style={s.modalInfoRow}>
+                                                <Text style={s.modalInfoLabel}>Coopérative</Text>
+                                                <Text style={[s.modalInfoValue, { color: '#dc2626' }]}>Non affecté</Text>
+                                            </View>
+                                        )}
                                     </View>
 
+                                    {/* Stats */}
+                                    <Text style={s.sectionLabel}>ACTIVITÉ</Text>
+                                    {statsLoading ? (
+                                        <ActivityIndicator color={colors.primary} style={{ marginVertical: 12 }} />
+                                    ) : userStats ? (
+                                        <>
+                                            {userStats.storeName && (
+                                                <View style={s.storeTag}>
+                                                    <Package color={colors.primary} size={14} />
+                                                    <Text style={s.storeTagText}>
+                                                        {userStats.storeName}
+                                                        {userStats.storeType ? ` · ${userStats.storeType}` : ''}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                            <View style={s.statsRow}>
+                                                <View style={[s.statBox, { backgroundColor: '#ecfdf5' }]}>
+                                                    <ShoppingBag color="#059669" size={18} />
+                                                    <Text style={[s.statVal, { color: '#059669' }]}>
+                                                        {userStats.salesCount}
+                                                    </Text>
+                                                    <Text style={s.statLbl}>Ventes</Text>
+                                                </View>
+                                                <View style={[s.statBox, { backgroundColor: '#eff6ff' }]}>
+                                                    <TrendingUp color="#2563eb" size={18} />
+                                                    <Text style={[s.statVal, { color: '#2563eb' }]}>
+                                                        {fmt(userStats.salesTotal)} F
+                                                    </Text>
+                                                    <Text style={s.statLbl}>Chiffre d'affaires</Text>
+                                                </View>
+                                                <View style={[s.statBox, { backgroundColor: '#fef3c7' }]}>
+                                                    <Package color="#d97706" size={18} />
+                                                    <Text style={[s.statVal, { color: '#d97706' }]}>
+                                                        {userStats.ordersCount}
+                                                    </Text>
+                                                    <Text style={s.statLbl}>Commandes</Text>
+                                                </View>
+                                            </View>
+                                        </>
+                                    ) : (
+                                        <Text style={s.noStats}>Aucune activité enregistrée</Text>
+                                    )}
+
                                     {/* Actions */}
+                                    <Text style={s.sectionLabel}>ACTIONS</Text>
                                     <View style={s.modalActions}>
                                         <TouchableOpacity
                                             style={[s.actionBtn, { backgroundColor: '#dbeafe' }]}
@@ -345,17 +547,18 @@ export default function Utilisateurs() {
                                             onPress={() => handleDisable(selectedUser)}
                                         >
                                             <Text style={[s.actionBtnText, { color: '#991b1b' }]}>
-                                                DÉSACTIVER
+                                                DÉSACTIVER LE COMPTE
                                             </Text>
                                         </TouchableOpacity>
                                     </View>
-                                </>
+                                </ScrollView>
                             );
                         })()}
                     </View>
                 </View>
+                </GestureHandlerRootView>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }
 
@@ -363,32 +566,13 @@ export default function Utilisateurs() {
 const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f8fafc' },
 
-    // Header
-    header: {
-        backgroundColor: '#059669',
-        paddingHorizontal: 16,
-        paddingTop: 8,
-        paddingBottom: 20,
-        borderBottomLeftRadius: 32,
-        borderBottomRightRadius: 32,
-        gap: 12,
-    },
-    headerTop:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    backBtn: {
-        width: 40, height: 40, borderRadius: 10,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignItems: 'center', justifyContent: 'center',
-    },
-    headerTitleBlock: { alignItems: 'center' },
-    headerTitle:      { fontSize: 16, fontWeight: '900', color: '#fff', letterSpacing: 1 },
-    headerSubtitle:   { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.65)', letterSpacing: 1, marginTop: 2 },
-
+    // Barre de recherche (dans le header)
     searchBar: {
         flexDirection: 'row', alignItems: 'center', gap: 10,
-        backgroundColor: '#fff', borderRadius: 10,
+        backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 10,
         paddingHorizontal: 12, paddingVertical: 10,
     },
-    searchInput: { flex: 1, fontSize: 13, color: '#1e293b', paddingVertical: 0 },
+    searchInput: { flex: 1, fontSize: 13, color: '#fff', paddingVertical: 0 },
 
     // Filtres
     filterScroll: { flexGrow: 0, maxHeight: 52 },
@@ -418,13 +602,16 @@ const s = StyleSheet.create({
         width: 44, height: 44, borderRadius: 10,
         alignItems: 'center', justifyContent: 'center', flexShrink: 0,
     },
-    avatarText: { fontSize: 18, fontWeight: '900', color: '#fff' },
-    userInfo:   { flex: 1, minWidth: 0, gap: 2 },
-    userName:   { fontSize: 13, fontWeight: '700', color: '#1e293b' },
-    userPhone:  { fontSize: 11, color: '#64748b' },
-    userDate:   { fontSize: 10, color: '#94a3b8' },
-    roleBadge:  { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexShrink: 0 },
-    roleBadgeText: { fontSize: 9, fontWeight: '700' },
+    avatarText:  { fontSize: 18, fontWeight: '900', color: '#fff' },
+    userInfo:    { flex: 1, minWidth: 0, gap: 2 },
+    userName:    { fontSize: 13, fontWeight: '700', color: '#1e293b' },
+    userPhone:   { fontSize: 11, color: '#64748b' },
+    userBoutique:    { fontSize: 11, color: '#059669', fontWeight: '600' },
+    userDate:        { fontSize: 11, color: '#94a3b8' },
+    userCoop:        { fontSize: 11, color: '#7c3aed', fontWeight: '600' },
+    userNoCoopBadge: { fontSize: 11, fontWeight: '700', color: '#dc2626' },
+    roleBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexShrink: 0 },
+    roleBadgeText: { fontSize: 11, fontWeight: '700' },
 
     // Empty
     emptyCard: {
@@ -432,7 +619,7 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: '#f1f5f9',
         borderStyle: 'dashed', gap: 12,
     },
-    emptyText: { fontSize: 10, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+    emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
 
     // Modal
     modalOverlay: {
@@ -441,20 +628,20 @@ const s = StyleSheet.create({
     },
     modalSheet: {
         backgroundColor: '#fff',
-        borderTopLeftRadius: 20, borderTopRightRadius: 20,
+        borderTopLeftRadius: 12, borderTopRightRadius: 12,
         paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40,
-        gap: 16,
+        maxHeight: '88%', gap: 16,
     },
     modalHeader: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     },
     modalTitle:    { fontSize: 12, fontWeight: '900', color: '#94a3b8', letterSpacing: 2 },
     modalCloseBtn: {
-        width: 36, height: 36, borderRadius: 10,
+        width: 44, height: 44, borderRadius: 10,
         backgroundColor: '#f1f5f9',
         alignItems: 'center', justifyContent: 'center',
     },
-    modalUserBlock: { alignItems: 'center', gap: 8 },
+    modalUserBlock: { alignItems: 'center', gap: 8, paddingVertical: 4 },
     modalAvatar: {
         width: 60, height: 60, borderRadius: 12,
         alignItems: 'center', justifyContent: 'center',
@@ -466,11 +653,31 @@ const s = StyleSheet.create({
         backgroundColor: '#f8fafc', borderRadius: 10,
         padding: 14, gap: 10,
     },
-    modalInfoRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    modalInfoRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
     modalInfoLabel: { fontSize: 12, fontWeight: '700', color: '#94a3b8' },
     modalInfoValue: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
 
-    modalActions: { gap: 10 },
+    sectionLabel: {
+        fontSize: 11, fontWeight: '900', color: '#94a3b8',
+        letterSpacing: 1.5, marginTop: 8, marginBottom: 4,
+    },
+    storeTag: {
+        flexDirection: 'row', alignItems: 'center', gap: 6,
+        backgroundColor: '#ecfdf5', borderRadius: 8,
+        paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8,
+    },
+    storeTagText: { fontSize: 13, fontWeight: '700', color: '#059669' },
+
+    statsRow:  { flexDirection: 'row', gap: 8, marginBottom: 8 },
+    statBox:   {
+        flex: 1, borderRadius: 10, padding: 12,
+        alignItems: 'center', gap: 4,
+    },
+    statVal:   { fontSize: 14, fontWeight: '900' },
+    statLbl:   { fontSize: 11, color: '#64748b', textAlign: 'center' },
+    noStats:   { fontSize: 13, color: '#94a3b8', textAlign: 'center', paddingVertical: 12 },
+
+    modalActions: { gap: 10, paddingBottom: 8 },
     actionBtn: {
         borderRadius: 10, paddingVertical: 14,
         alignItems: 'center',

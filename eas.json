@@ -1,18 +1,30 @@
 {
   "cli": {
-    "version": ">= 10.0.0"
+    "version": ">= 3.0.0"
   },
   "build": {
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://dinocjmwktrxqupyjsqn.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "VOTRE_SUPABASE_ANON_KEY",
+        "EXPO_PUBLIC_SOCKET_URL": "http://192.168.1.235:3001",
+        "EXPO_PUBLIC_GROQ_API_KEY": "VOTRE_GROQ_API_KEY"
       }
     },
     "production": {
-      "android": {
-        "buildType": "apk"
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://dinocjmwktrxqupyjsqn.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "VOTRE_SUPABASE_ANON_KEY",
+        "EXPO_PUBLIC_SOCKET_URL": "http://192.168.1.235:3001",
+        "EXPO_PUBLIC_GROQ_API_KEY": "VOTRE_GROQ_API_KEY"
       }
     }
+  },
+  "submit": {
+    "production": {}
   }
 }
