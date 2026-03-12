@@ -1,5 +1,5 @@
 // Header vert unifié — utilisé sur TOUS les écrans secondaires
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Bell, Eye, EyeOff, User } from 'lucide-react-native';
@@ -47,7 +47,17 @@ export function ScreenHeader({
     // Sur desktop web, la sidebar remplace le header
     if (Platform.OS === 'web' && width > 768) return null;
 
+    // Sur web : bloquer le bouton retour 250ms pour éviter la propagation du clic de navigation
+    const [backReady, setBackReady] = useState(Platform.OS !== 'web');
+    useEffect(() => {
+        if (Platform.OS === 'web') {
+            const t = setTimeout(() => setBackReady(true), 250);
+            return () => clearTimeout(t);
+        }
+    }, []);
+
     const handleBack = () => {
+        if (!backReady) return; // protection supplémentaire : ignorer si pas encore prêt (web click propagation)
         if (navigation.canGoBack()) {
             router.back();
         }
@@ -64,7 +74,7 @@ export function ScreenHeader({
                             <User color={colors.white} size={22} strokeWidth={2} />
                         </TouchableOpacity>
                     ) : showBack ? (
-                        <TouchableOpacity style={styles.iconBtn} onPress={handleBack} activeOpacity={0.8}>
+                        <TouchableOpacity style={styles.iconBtn} onPress={handleBack} activeOpacity={0.8} disabled={!backReady}>
                             <ChevronLeft color={colors.white} size={22} strokeWidth={2.5} />
                         </TouchableOpacity>
                     ) : leftIcon ? (
