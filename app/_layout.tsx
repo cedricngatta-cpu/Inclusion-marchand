@@ -133,6 +133,13 @@ function WebSidebar() {
 
     if (!user) return null;
 
+    const handleLogout = async () => {
+        await logout();
+        if (Platform.OS === 'web') {
+            router.replace('/(auth)/login');
+        }
+    };
+
     const items = getMenuItems(user.role);
     const ACTIVE = '#059669';
 
@@ -178,7 +185,7 @@ function WebSidebar() {
             <View style={sidebarSt.footer}>
                 <Text style={sidebarSt.footerName} numberOfLines={1}>{user.name}</Text>
                 <Text style={sidebarSt.footerPhone} numberOfLines={1}>{user.phoneNumber}</Text>
-                <TouchableOpacity style={sidebarSt.logoutBtn} onPress={logout} activeOpacity={0.8}>
+                <TouchableOpacity style={sidebarSt.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
                     <LogOut size={15} color="#DC2626" />
                     <Text style={sidebarSt.logoutText}>Déconnexion</Text>
                 </TouchableOpacity>

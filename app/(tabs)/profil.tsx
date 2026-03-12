@@ -1,6 +1,6 @@
 // Écran Profil — migré depuis Next.js /profil/page.tsx
 import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Platform } from 'react-native';
 import { User, LogOut, Store, Shield, Phone, ChevronRight } from 'lucide-react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
@@ -41,6 +41,12 @@ export default function ProfilScreen() {
     }, []));
 
     const handleLogout = () => {
+        if (Platform.OS === 'web') {
+            // Sur web, window.confirm() à la place d'Alert.alert natif
+            if (!(window as any).confirm('Voulez-vous vraiment vous déconnecter ?')) return;
+            logout().then(() => router.replace('/(auth)/login' as any));
+            return;
+        }
         Alert.alert(
             'Déconnexion',
             'Voulez-vous vraiment vous déconnecter ?',
