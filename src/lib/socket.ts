@@ -2,7 +2,7 @@
 // Singleton : une seule connexion partagée dans toute l'app
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'http://192.168.100.133:3001';
+const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://inclusion-marchand.onrender.com';
 
 // ── Registre d'événements (remplace EventEmitter pour compatibilité RN) ──────
 type EventCallback = (data: any) => void;

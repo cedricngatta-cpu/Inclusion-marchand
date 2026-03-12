@@ -13,6 +13,8 @@ export interface PendingTransaction {
     price: number;
     client_name?: string;
     status: string;
+    operator?: string | null;
+    client_phone?: string | null;
     created_at: string;
 }
 

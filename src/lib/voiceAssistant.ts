@@ -9,6 +9,12 @@ import { reportApiError } from './errorReporter';
 
 const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
+const generateUUID = (): string =>
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+
 export type AssistantState =
     | 'idle'
     | 'welcome'
@@ -421,16 +427,21 @@ export async function executeVoiceAction(
                 const total = (prod.price ?? 0) * qte;
                 const client = String(d.client ?? d.client_nom ?? '').trim() || null;
                 const paiement = String(d.paiement ?? 'especes').trim();
+                const statusVal = paiement === 'dette' ? 'DETTE' : paiement === 'momo' ? 'MOMO' : 'PAYÉ';
+                const txId  = generateUUID();
+                const now   = new Date().toISOString();
 
                 const { error } = await supabase.from('transactions').insert([{
-                    store_id:    storeId,
-                    product_id:  prod.id,
+                    id:           txId,
+                    store_id:     storeId,
+                    product_id:   prod.id,
                     product_name: prod.name,
-                    type:        'VENTE',
-                    quantity:    qte,
-                    price:       total,
-                    client_name: client,
-                    status:      paiement === 'dette' ? 'DETTE' : paiement === 'momo' ? 'MOMO' : 'PAYÉ',
+                    type:         'VENTE',
+                    quantity:     qte,
+                    price:        total,
+                    client_name:  client,
+                    status:       statusVal,
+                    created_at:   now,
                 }]);
                 if (error) throw error;
 
@@ -438,13 +449,24 @@ export async function executeVoiceAction(
                 const { data: st } = await supabase.from('stock')
                     .select('product_id, quantity')
                     .eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
+                const newQty = st ? Math.max(0, (st.quantity ?? 0) - qte) : 0;
                 if (st) {
                     await supabase.from('stock')
-                        .update({ quantity: Math.max(0, (st.quantity ?? 0) - qte), updated_at: new Date().toISOString() })
+                        .update({ quantity: newQty, updated_at: new Date().toISOString() })
                         .eq('store_id', storeId).eq('product_id', prod.id);
                 }
 
-                emitEvent('nouvelle-vente', { storeId, productName: prod.name, quantity: qte, total });
+                // Émettre avec transaction complète → HistoryContext met à jour l'état local
+                emitEvent('nouvelle-vente', {
+                    storeId,
+                    transaction: {
+                        id: txId, type: 'VENTE', productId: prod.id, productName: prod.name,
+                        quantity: qte, price: total, timestamp: new Date(now).getTime(),
+                        clientName: client ?? undefined, status: statusVal,
+                    },
+                });
+                // Émettre stock-update → StockContext met à jour l'état local
+                emitEvent('stock-update', { storeId, productId: prod.id, newQty });
                 return `Vente enregistrée ! ${qte} ${prod.name} → ${total.toLocaleString('fr-FR')} F${client ? ` (${client})` : ''}.`;
             }
 
@@ -459,6 +481,10 @@ export async function executeVoiceAction(
                 const resultats: string[] = [];
                 let totalGeneral = 0;
 
+                const statusVal = paiement === 'dette' ? 'DETTE' : paiement === 'momo' ? 'MOMO' : 'PAYÉ';
+                const transactions: any[] = [];
+                const stockUpdates: Array<{ productId: string; newQty: number }> = [];
+
                 for (const item of produits) {
                     const prod = await findProductInStore(String(item.nom), storeId, 'id, name, price');
                     if (!prod) { resultats.push(`"${item.nom}" non trouvé`); continue; }
@@ -466,25 +492,38 @@ export async function executeVoiceAction(
                     const qte   = Math.max(1, parseInt(String(item.quantite ?? 1), 10));
                     const total = (prod.price ?? 0) * qte;
                     totalGeneral += total;
+                    const txId = generateUUID();
+                    const now  = new Date().toISOString();
 
                     await supabase.from('transactions').insert([{
-                        store_id: storeId, product_id: prod.id, product_name: prod.name,
+                        id: txId, store_id: storeId, product_id: prod.id, product_name: prod.name,
                         type: 'VENTE', quantity: qte, price: total,
-                        client_name: client,
-                        status: paiement === 'dette' ? 'DETTE' : paiement === 'momo' ? 'MOMO' : 'PAYÉ',
+                        client_name: client, status: statusVal, created_at: now,
                     }]);
 
                     const { data: st } = await supabase.from('stock')
                         .select('quantity').eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
+                    const newQty = st ? Math.max(0, (st.quantity ?? 0) - qte) : 0;
                     if (st) {
                         await supabase.from('stock')
-                            .update({ quantity: Math.max(0, (st.quantity ?? 0) - qte), updated_at: new Date().toISOString() })
+                            .update({ quantity: newQty, updated_at: new Date().toISOString() })
                             .eq('store_id', storeId).eq('product_id', prod.id);
                     }
+                    transactions.push({
+                        id: txId, type: 'VENTE', productId: prod.id, productName: prod.name,
+                        quantity: qte, price: total, timestamp: new Date(now).getTime(),
+                        clientName: client ?? undefined, status: statusVal,
+                    });
+                    stockUpdates.push({ productId: prod.id, newQty });
                     resultats.push(`${qte} ${prod.name}`);
                 }
 
-                emitEvent('nouvelle-vente', { storeId, multiple: true, total: totalGeneral });
+                // Émettre la dernière transaction pour que HistoryContext rafraîchisse
+                if (transactions.length > 0) {
+                    emitEvent('nouvelle-vente', { storeId, transaction: transactions[transactions.length - 1] });
+                }
+                // Émettre les mises à jour stock
+                stockUpdates.forEach(u => emitEvent('stock-update', { storeId, productId: u.productId, newQty: u.newQty }));
                 return `Vente enregistrée ! ${resultats.join(', ')} → Total : ${totalGeneral.toLocaleString('fr-FR')} F.`;
             }
 

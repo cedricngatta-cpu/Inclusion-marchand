@@ -10,6 +10,8 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/context/AuthContext';
 import { useProfileContext } from '@/src/context/ProfileContext';
 import { colors } from '@/src/lib/colors';
+import { isWeb } from '@/src/lib/platform';
+import { startWebSpeechRecognition } from '@/src/lib/webSpeech';
 import {
     startRecording, stopRecording, cancelRecording,
     stopSpeaking, speakText, initConversation,
@@ -82,8 +84,9 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const [mode,          setMode]         = useState<'local' | 'ai' | 'offline'>('local');
     const [error,         setError]        = useState('');
 
-    const scrollRef  = useRef<ScrollView>(null);
-    const timerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const scrollRef          = useRef<ScrollView>(null);
+    const timerRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const webSpeechStopRef   = useRef<(() => void) | null>(null);
 
     // ── Helpers ────────────────────────────────────────────────────────────
     const role     = (user?.role as string) ?? 'MERCHANT';
@@ -186,52 +189,9 @@ export default function VoiceModal({ visible, onClose }: Props) {
         }
     }, [role, userId, userName, storeId]);
 
-    // ── Enregistrement ─────────────────────────────────────────────────────
-    const handleStartListening = useCallback(async () => {
-        try {
-            setError('');
-            setState('listening');
-            await startRecording();
-
-            timerRef.current = setTimeout(async () => {
-                await handleStopListening();
-            }, 10_000);
-        } catch (err: any) {
-            console.log('ERREUR startRecording:', err?.message ?? err);
-            const msg = err?.message?.includes('refusée')
-                ? 'Permission microphone refusée. Activez-la dans Réglages > Confidentialité.'
-                : `Erreur micro : ${err?.message ?? 'inconnue'}`;
-            setError(msg);
-            setState('error');
-        }
-    }, []);
-
-    const handleStopListening = useCallback(async () => {
-        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-        setState('processing');
-
-        const uri = await stopRecording();
-        if (!uri) {
-            setError("Impossible d'accéder au micro.");
-            setState('error');
-            return;
-        }
-
-        let transcript = '';
-        try {
-            transcript = await transcribeAudio(uri);
-        } catch (err: any) {
-            console.log('ERREUR WHISPER dans VoiceModal:', err?.message ?? err);
-            const msg = err?.message?.includes('réseau')
-                ? 'Erreur de connexion. Vérifiez votre internet.'
-                : err?.message?.includes('401') || err?.message?.includes('403')
-                    ? 'Clé API invalide. Contactez le support.'
-                    : `Erreur de transcription : ${err?.message ?? 'inconnue'}`;
-            setError(msg);
-            setState('error');
-            return;
-        }
-
+    // ── Traitement commun après obtention du transcript ───────────────────
+    // Appelé aussi bien depuis le chemin mobile (Whisper) que web (Web Speech)
+    const processTranscript = useCallback(async (transcript: string) => {
         if (!transcript.trim()) {
             setState('idle');
             return;
@@ -263,15 +223,13 @@ export default function VoiceModal({ visible, onClose }: Props) {
                 return;
             }
 
-            const route       = getLocalRoute(transcript, role);
+            const route        = getLocalRoute(transcript, role);
             const confirmation = getLocalConfirmation(transcript, role) ?? 'Compris.';
             addAssistantMessage(confirmation);
             setMode('ai');
 
-            // Naviguer immédiatement (le modal reste ouvert pour le débrief)
             if (route) router.push(route as any);
 
-            // Parler l'intro, puis enchaîner avec le débrief de la page
             speakText(confirmation, async () => {
                 if (!route) { setState('idle'); return; }
                 setState('processing');
@@ -279,12 +237,9 @@ export default function VoiceModal({ visible, onClose }: Props) {
                     const debrief = await fetchScreenDebrief(route, role, userId, storeId);
                     if (!debrief) { setState('idle'); return; }
 
-                    // Petite pause avant de parler pour laisser l'écran se charger
                     await new Promise(r => setTimeout(r, 700));
-
                     addAssistantMessage(debrief);
 
-                    // Mémoriser dans l'historique Groq pour les questions suivantes
                     groqHistoryRef.current = [
                         ...groqHistoryRef.current,
                         { role: 'user',      content: transcript },
@@ -317,12 +272,10 @@ export default function VoiceModal({ visible, onClose }: Props) {
                 { role: 'user', content: transcript },
             ];
 
-            // chatWithHistory a déjà un timeout de 15s interne
             const rawReply = await chatWithHistory(newHistory);
             const { text, action } = parseAction(rawReply);
             const replyText = text || rawReply;
 
-            // Mettre à jour l'historique Groq
             groqHistoryRef.current = [...newHistory, { role: 'assistant', content: rawReply }];
 
             addAssistantMessage(replyText);
@@ -343,6 +296,85 @@ export default function VoiceModal({ visible, onClose }: Props) {
             speakText(errTxt, () => setState('idle'));
         }
     }, [pendingAction, role, userId, userName, storeId]);
+
+    // ── Enregistrement ─────────────────────────────────────────────────────
+    const handleStartListening = useCallback(async () => {
+        try {
+            setError('');
+            setState('listening');
+
+            // ── Chemin WEB : Web Speech API ───────────────────────────────
+            if (isWeb) {
+                webSpeechStopRef.current = startWebSpeechRecognition(
+                    (text) => {
+                        webSpeechStopRef.current = null;
+                        setState('processing');
+                        processTranscript(text);
+                    },
+                    (err) => {
+                        webSpeechStopRef.current = null;
+                        setError(err);
+                        setState('error');
+                    },
+                    'fr-FR',
+                );
+                return;
+            }
+
+            // ── Chemin MOBILE : expo-av (inchangé) ────────────────────────
+            await startRecording();
+            timerRef.current = setTimeout(async () => {
+                await handleStopListening();
+            }, 10_000);
+        } catch (err: any) {
+            console.log('ERREUR startRecording:', err?.message ?? err);
+            const msg = err?.message?.includes('refusée')
+                ? 'Permission microphone refusée. Activez-la dans Réglages > Confidentialité.'
+                : `Erreur micro : ${err?.message ?? 'inconnue'}`;
+            setError(msg);
+            setState('error');
+        }
+    }, [processTranscript]);
+
+    const handleStopListening = useCallback(async () => {
+        // ── Chemin WEB : arrêt Web Speech ────────────────────────────────
+        if (isWeb) {
+            if (webSpeechStopRef.current) {
+                webSpeechStopRef.current();
+                webSpeechStopRef.current = null;
+            }
+            setState('idle');
+            return;
+        }
+
+        // ── Chemin MOBILE : expo-av + Whisper (inchangé) ──────────────────
+        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+        setState('processing');
+
+        const uri = await stopRecording();
+        if (!uri) {
+            setError("Impossible d'accéder au micro.");
+            setState('error');
+            return;
+        }
+
+        let transcript = '';
+        try {
+            transcript = await transcribeAudio(uri);
+        } catch (err: any) {
+            console.log('ERREUR WHISPER dans VoiceModal:', err?.message ?? err);
+            const msg = err?.message?.includes('réseau')
+                ? 'Erreur de connexion. Vérifiez votre internet.'
+                : err?.message?.includes('401') || err?.message?.includes('403')
+                    ? 'Clé API invalide. Contactez le support.'
+                    : `Erreur de transcription : ${err?.message ?? 'inconnue'}`;
+            setError(msg);
+            setState('error');
+            return;
+        }
+
+        await processTranscript(transcript);
+    }, [processTranscript]);
 
     const handleMicPress = useCallback(async () => {
         Speech.stop();

@@ -53,10 +53,22 @@ const MONTH_LABELS = [
 ];
 
 // ── Composant principal ────────────────────────────────────────────────────────
+const ROLE_ROUTES: Record<string, string> = {
+    MERCHANT: '/(tabs)/commercant', PRODUCER: '/producteur',
+    COOPERATIVE: '/cooperative', FIELD_AGENT: '/agent', SUPERVISOR: '/admin',
+};
+
 export default function ProducteurDashboard() {
     const router = useRouter();
     const { activeProfile } = useProfileContext();
     const { user } = useAuth();
+
+    // Garde de route — redirige si pas PRODUCER
+    useEffect(() => {
+        if (user && user.role !== 'PRODUCER') {
+            router.replace((ROLE_ROUTES[user.role] ?? '/(tabs)/commercant') as any);
+        }
+    }, [user?.role]);
 
     const [revenuMois,     setRevenuMois]     = useState(0);
     const [stockUnits,     setStockUnits]     = useState(0);
@@ -133,7 +145,8 @@ export default function ProducteurDashboard() {
         } finally {
             setLoading(false);
         }
-    }, [activeProfile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeProfile?.id]);
 
     useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
 
@@ -143,10 +156,12 @@ export default function ProducteurDashboard() {
             onSocketEvent('livraison-terminee', () => fetchDashboard()),
         ];
         return () => unsubs.forEach(fn => fn());
-    }, [fetchDashboard]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Recharge à chaque retour sur l'écran (ex: après avoir publié un produit)
-    useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useFocusEffect(useCallback(() => { fetchDashboard(); }, []));
 
     // Bouton retour Android sur le dashboard → quitter l'app
     useFocusEffect(useCallback(() => {

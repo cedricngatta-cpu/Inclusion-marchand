@@ -194,6 +194,7 @@ export default function Produits() {
                 style={s.scroll}
                 contentContainerStyle={s.scrollContent}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
                 }

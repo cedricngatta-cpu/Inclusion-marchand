@@ -47,9 +47,21 @@ const ACTIONS = [
 ];
 
 // ── Composant principal ────────────────────────────────────────────────────────
+const ROLE_ROUTES: Record<string, string> = {
+    MERCHANT: '/(tabs)/commercant', PRODUCER: '/producteur',
+    COOPERATIVE: '/cooperative', FIELD_AGENT: '/agent', SUPERVISOR: '/admin',
+};
+
 export default function AgentDashboard() {
     const router = useRouter();
     const { user } = useAuth();
+
+    // Garde de route — redirige si pas FIELD_AGENT
+    useEffect(() => {
+        if (user && user.role !== 'FIELD_AGENT') {
+            router.replace((ROLE_ROUTES[user.role] ?? '/(tabs)/commercant') as any);
+        }
+    }, [user?.role]);
 
     const [enrolledThisMonth, setEnrolledThisMonth] = useState(0);
     const [totalStores,       setTotalStores]       = useState(0);

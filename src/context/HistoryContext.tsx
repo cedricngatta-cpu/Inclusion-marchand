@@ -21,6 +21,8 @@ export interface Transaction {
     timestamp: number;
     clientName?: string;
     status?: 'PAYÉ' | 'DETTE' | 'MOMO';
+    operator?: 'ORANGE' | 'MTN' | 'WAVE' | 'MOOV';
+    clientPhone?: string;
 }
 
 interface HistoryContextType {
@@ -80,6 +82,8 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     timestamp: new Date(t.created_at).getTime(),
                     clientName: t.client_name,
                     status: t.status,
+                    operator: t.operator,
+                    clientPhone: t.client_phone,
                 }));
                 setHistory(mapped);
                 await AsyncStorage.setItem(cacheKey, JSON.stringify(mapped));
@@ -179,6 +183,8 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 price:        newTx.price,
                 client_name:  newTx.clientName,
                 status:       newTx.status || 'PAYÉ',
+                operator:     newTx.operator ?? null,
+                client_phone: newTx.clientPhone ?? null,
                 created_at:   new Date(newTx.timestamp).toISOString(),
             };
             console.log('[HistoryContext] INSERT transactions payload:', insertPayload);
@@ -207,6 +213,8 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 price:        newTx.price,
                 client_name:  newTx.clientName,
                 status:       newTx.status || 'PAYÉ',
+                operator:     newTx.operator ?? null,
+                client_phone: newTx.clientPhone ?? null,
                 created_at:   new Date(newTx.timestamp).toISOString(),
             });
         }

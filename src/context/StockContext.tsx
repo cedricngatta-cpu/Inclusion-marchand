@@ -6,7 +6,7 @@ import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/src/lib/supabase';
 import { useProfileContext } from './ProfileContext';
-import { emitEvent } from '@/src/lib/socket';
+import { emitEvent, onSocketEvent } from '@/src/lib/socket';
 import { useNetwork } from './NetworkContext';
 import { offlineQueue } from '@/src/lib/offlineQueue';
 
@@ -166,6 +166,20 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
         log('[StockContext] emitEvent stock-update envoyé — productId:', productId, 'newQty:', newQty);
     }, [activeProfile, stock]);
+
+    // Listener Socket.io : mises à jour stock depuis l'assistant vocal ou un autre appareil
+    useEffect(() => {
+        if (!activeProfile) return;
+        const unsubscribe = onSocketEvent('stock-update', ({ storeId, productId, newQty }) => {
+            if (storeId !== activeProfile.id || !productId || newQty === undefined) return;
+            setStock(prev => {
+                const updated = { ...prev, [productId]: newQty };
+                AsyncStorage.setItem(`stock_${activeProfile.id}`, JSON.stringify(updated)).catch(console.error);
+                return updated;
+            });
+        });
+        return unsubscribe;
+    }, [activeProfile?.id]);
 
     const getStockLevel = useCallback((productId: string) => stock[productId] || 0, [stock]);
 

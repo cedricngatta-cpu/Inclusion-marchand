@@ -28,7 +28,6 @@ interface OrderRow {
 }
 
 interface RoleStat   { label: string; color: string; count: number; pct: number; }
-interface StoreStat  { storeId: string; name: string; revenue: number; txCount: number; }
 interface ProducerStat { storeId: string; name: string; b2bRevenue: number; orderCount: number; }
 interface DayStat    { label: string; date: string; revenue: number; }
 
@@ -51,11 +50,9 @@ function getPeriodStart(key: string): string {
 function toDateStr(iso: string) { return iso.slice(0, 10); }
 
 const ROLE_MAP: Record<string, { key: string; label: string; color: string }> = {
-    merchant:    { key: 'merchant', label: 'Marchands',    color: '#2563eb' },
-    producer:    { key: 'producer', label: 'Producteurs',  color: '#059669' },
-    cooperative: { key: 'coop',     label: 'Coopératives', color: '#d97706' },
+    producer: { key: 'producer', label: 'Producteurs', color: '#059669' },
 };
-const EXCLUDED_ROLES = ['field_agent', 'agent', 'agent_terrain', 'supervisor', 'admin'];
+const EXCLUDED_ROLES = ['field_agent', 'agent', 'agent_terrain', 'supervisor', 'admin', 'cooperative', 'merchant'];
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function AnalysesScreen() {
@@ -214,17 +211,6 @@ export default function AnalysesScreen() {
     }, [doLoad]);
 
     // ── Calculs dérivés ───────────────────────────────────────────────────────
-    const storeStats = useMemo<StoreStat[]>(() => {
-        const map: Record<string, StoreStat> = {};
-        for (const tx of txRows) {
-            if (!tx.store_id) continue;
-            if (!map[tx.store_id]) map[tx.store_id] = { storeId: tx.store_id, name: tx.storeName, revenue: 0, txCount: 0 };
-            map[tx.store_id].revenue += tx.price ?? 0;
-            map[tx.store_id].txCount += 1;
-        }
-        return Object.values(map).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
-    }, [txRows]);
-
     const producerStats = useMemo<ProducerStat[]>(() => {
         const map: Record<string, ProducerStat> = {};
         for (const o of orderRows) {
@@ -255,7 +241,6 @@ export default function AnalysesScreen() {
     const totalTxCount    = txRows.length;
     const totalB2BRevenue = orderRows.reduce((s, o) => s + (o.total_amount ?? 0), 0);
     const totalB2BCount   = orderRows.length;
-    const maxStoreRevenue    = storeStats[0]?.revenue      ?? 1;
     const maxProducerRevenue = producerStats[0]?.b2bRevenue ?? 1;
     const maxDayRevenue      = Math.max(...dailyStats.map(d => d.revenue), 1);
 
@@ -315,39 +300,7 @@ export default function AnalysesScreen() {
                             </View>
                         </View>
 
-                        {/* ── TOP BOUTIQUES ── */}
-                        <Text style={styles.sectionTitle}>TOP BOUTIQUES — REVENUS VENTES</Text>
-                        <View style={styles.chartCard}>
-                            {storeStats.length === 0 ? (
-                                <View style={styles.emptyInline}>
-                                    <BarChart2 color={colors.slate300} size={28} />
-                                    <Text style={styles.noDataText}>Aucune vente sur cette période</Text>
-                                </View>
-                            ) : storeStats.map((st, idx) => (
-                                <View key={st.storeId} style={styles.storeRow}>
-                                    <View style={styles.storeRank}>
-                                        <Text style={styles.storeRankText}>{idx + 1}</Text>
-                                    </View>
-                                    <View style={styles.storeInfo}>
-                                        <View style={styles.hBarHeaderRow}>
-                                            <Text style={styles.storeName} numberOfLines={1}>{st.name}</Text>
-                                            <Text style={styles.storeMeta}>{st.txCount} vente{st.txCount > 1 ? 's' : ''}</Text>
-                                        </View>
-                                        <View style={styles.hBarTrack}>
-                                            <View style={[styles.hBarFill, {
-                                                width: `${(st.revenue / maxStoreRevenue) * 100}%` as any,
-                                                backgroundColor: BAR_COLORS[idx % BAR_COLORS.length],
-                                            }]} />
-                                        </View>
-                                    </View>
-                                    <Text style={styles.storeRevenue}>
-                                        {st.revenue >= 1000 ? `${Math.round(st.revenue / 1000)}k` : st.revenue.toLocaleString('fr-FR')}
-                                    </Text>
-                                </View>
-                            ))}
-                        </View>
-
-                        {/* ── TOP PRODUCTEURS B2B ── */}
+                                        {/* ── TOP PRODUCTEURS B2B ── */}
                         <Text style={styles.sectionTitle}>TOP PRODUCTEURS — VENTES B2B</Text>
                         <View style={styles.chartCard}>
                             {producerStats.length === 0 ? (

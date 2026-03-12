@@ -1,6 +1,6 @@
 // Header vert unifié — utilisé sur TOUS les écrans secondaires
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Bell, Eye, EyeOff, User } from 'lucide-react-native';
 import { useRouter, useNavigation } from 'expo-router';
@@ -42,6 +42,10 @@ export function ScreenHeader({
     const router = useRouter();
     const navigation = useNavigation();
     const { unreadCount } = useNotifications();
+    const { width } = useWindowDimensions();
+
+    // Sur desktop web, la sidebar remplace le header
+    if (Platform.OS === 'web' && width > 768) return null;
 
     const handleBack = () => {
         if (navigation.canGoBack()) {

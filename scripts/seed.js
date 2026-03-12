@@ -399,7 +399,13 @@ async function main() {
         'Fofana Moussa', 'Soro Drissa', 'Touré Ibrahim', 'Pélagie N.',
         null, null, null,
     ];
-    const txStatuses = ['PAYÉ','PAYÉ','PAYÉ','PAYÉ','MOMO','MOMO','DETTE'];
+    const txStatuses = ['PAYÉ','PAYÉ','PAYÉ','PAYÉ','PAYÉ','PAYÉ','MOMO','MOMO','MOMO','DETTE'];
+    const momoOperators = ['ORANGE','ORANGE','ORANGE','MTN','WAVE'];
+    function pickTx() {
+        const status = pick(txStatuses);
+        const operator = status === 'MOMO' ? pick(momoOperators) : null;
+        return { status, operator };
+    }
     const transactions = [];
 
     const marchStores = [
@@ -425,7 +431,7 @@ async function main() {
                 quantity:     qty,
                 price:        prod.price * qty,
                 client_name:  pick(clients),
-                status:       pick(txStatuses),
+                ...pickTx(),
                 created_at:   daysAgo(30, 2),
             });
         }
@@ -451,7 +457,7 @@ async function main() {
                 quantity:     qty,
                 price:        prod.price * qty,
                 client_name:  pick(clients),
-                status:       pick(['PAYÉ','PAYÉ','MOMO']),
+                ...(() => { const s = pick(['PAYÉ','PAYÉ','MOMO']); return { status: s, operator: s === 'MOMO' ? pick(momoOperators) : null }; })(),
                 created_at:   today(h++),
             });
         }
@@ -490,7 +496,7 @@ async function main() {
             product_id: PP.sp1[0], product_name: 'Riz local brisé 50kg',
             quantity: 3, unit_price: 15000, total_amount: 45000,
             notes: 'Livraison urgente pour réapprovisionnement',
-            created_at: daysAgo(25, 20),
+            created_at: daysAgo(9, 6),
         },
         {
             id: uid(), status: 'DELIVERED',
@@ -498,7 +504,7 @@ async function main() {
             product_id: PP.sp2[0], product_name: 'Tomates fraîches 10kg',
             quantity: 5, unit_price: 4500, total_amount: 22500,
             notes: 'Pour la semaine, merci de livrer le matin',
-            created_at: daysAgo(18, 14),
+            created_at: daysAgo(7, 4),
         },
         {
             id: uid(), status: 'DELIVERED',
@@ -506,7 +512,7 @@ async function main() {
             product_id: PP.sp3[0], product_name: 'Igname belé 10kg',
             quantity: 2, unit_price: 5000, total_amount: 10000,
             notes: null,
-            created_at: daysAgo(14, 10),
+            created_at: daysAgo(5, 2),
         },
         {
             id: uid(), status: 'SHIPPED',
@@ -569,7 +575,7 @@ async function main() {
             quantite_minimum: 10,
             quantite_totale:  30,
             quantite_actuelle: 7,
-            statut:           'OUVERT',
+            statut:           'OPEN',
             date_limite:      daysFromNow(5),
             description:      'Achat groupé de riz brisé Ferme Coulibaly. Prix négocié : -20%. Rejoignez avant la date limite !',
             created_at:       daysAgo(4),
@@ -585,7 +591,7 @@ async function main() {
             quantite_minimum: 20,
             quantite_totale:  50,
             quantite_actuelle: 8,
-            statut:           'OUVERT',
+            statut:           'OPEN',
             date_limite:      daysFromNow(3),
             description:      'Tomates fraîches Exploitation Koffi, récolte de la semaine. Livraison Abidjan sous 24h.',
             created_at:       daysAgo(2),
@@ -601,7 +607,7 @@ async function main() {
             quantite_minimum: 15,
             quantite_totale:  18,
             quantite_actuelle: 18,
-            statut:           'FERME',
+            statut:           'COMPLETED',
             date_limite:      daysAgoDate(2),
             description:      'Igname belé Ferme Diabaté — objectif atteint ! Commandes créées pour tous les participants.',
             created_at:       daysAgo(12),
@@ -617,7 +623,7 @@ async function main() {
             quantite_minimum: 20,
             quantite_totale:  5,
             quantite_actuelle: 5,
-            statut:           'ANNULE',
+            statut:           'CANCELLED',
             date_limite:      daysAgoDate(8),
             description:      'Maïs sec Ferme Coulibaly — annulé (objectif non atteint dans les délais).',
             created_at:       daysAgo(20),
@@ -753,7 +759,7 @@ async function main() {
     console.log(`  • ~130 transactions      (30 derniers jours + aujourd\'hui)`);
     console.log('  • 8 commandes            (PENDING × 2, ACCEPTED, SHIPPED, DELIVERED × 3, CANCELLED)');
     console.log('  • 7 enrôlements          (VALIDATED × 4, PENDING × 2, REJECTED × 1)');
-    console.log('  • 4 achats groupés       (OUVERT × 2, FERME × 1, ANNULE × 1)');
+    console.log('  • 4 achats groupés       (OPEN × 2, COMPLETED × 1, CANCELLED × 1)');
     console.log('  • 9 participants         (ag1 : 3 marchands, ag2 : 2, ag3 finalisé : 4)');
     console.log('  • 24 logs d\'activité     (dont 4 achat groupé)');
     console.log('\n');

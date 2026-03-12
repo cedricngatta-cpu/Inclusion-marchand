@@ -28,6 +28,11 @@ const APPROVED_COLORS = new Set([
   '#e11d48','#ca8a04','#4338ca','#16a34a','#475569',
   '#a21caf','#b45309','#7c3aed',
   // Transparences (rgba) — non testées directement
+  // Opérateurs Mobile Money (autorisés explicitement)
+  '#FF6600','#FFCC00','#1DC4E9','#0066CC','#996600','#0A8FA8',
+  '#ff6600','#ffcc00','#1dc4e9','#0066cc','#996600','#0a8fa8',
+  // Couleurs de statut (autorisées explicitement)
+  '#065f46','#991b1b','#92400e','#1e40af','#5b21b6','#166534',
 ]);
 
 // ─── UTILITAIRES ──────────────────────────────────────────────────────────────
@@ -352,7 +357,8 @@ function auditHeaders(file, lines) {
   if (isLayout) return;
 
   // Les écrans doivent utiliser ScreenHeader
-  if (!isAuthFile) {
+  const isComponentOrContext = file.includes('src/components') || file.includes('src/context');
+  if (!isAuthFile && !isComponentOrContext) {
     const usesScreenHeader = /ScreenHeader/.test(content);
     if (!usesScreenHeader) {
       addIssue(file, 'HEADERS', 'warning', 0,
@@ -419,7 +425,9 @@ function auditSpacing(file, lines) {
     const hPad = line.match(/padding(?:Horizontal|Left|Right)\s*:\s*(\d+)/);
     if (hPad) {
       const val = parseInt(hPad[1], 10);
-      if (val < 12 && val > 0) {
+      // Badges et puces : paddingHorizontal 6-10 autorisé par design (éléments compacts)
+      const isBadge = /badge|Badge|chip|Chip|tag|Tag|operator|Operator|pill|Pill|status|Status/i.test(line);
+      if (val < 12 && val > 0 && !isBadge) {
         addIssue(file, 'ESPACEMENT', 'warning', i + 1,
           `${hPad[0].trim()} — padding horizontal < 12px → ${line.trim().slice(0, 80)}`);
       }
@@ -537,7 +545,8 @@ function auditButtonVisibility(file, lines) {
   // Vérifier que le bouton micro (VoiceButton) est présent
   const isScreen = !file.includes('_layout') && !file.includes('(auth)');
   const isMainScreen = file.includes('app/');
-  if (isMainScreen && isScreen) {
+  const isNotComponentOrContext = !file.includes('src/components') && !file.includes('src/context');
+  if (isMainScreen && isScreen && isNotComponentOrContext) {
     const hasVoiceButton = /VoiceButton/.test(content);
     if (!hasVoiceButton && !file.includes('_layout')) {
       addIssue(file, 'VISIBILITÉ', 'warning', 0,

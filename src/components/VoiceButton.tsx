@@ -1,11 +1,13 @@
 // Bouton micro flottant — présent sur tous les écrans
 // Masqué automatiquement pendant la vente manuelle (scanner, panier, clavier)
 import React, { useState, useRef, useEffect } from 'react';
-import { TouchableOpacity, StyleSheet, Animated, Keyboard } from 'react-native';
+import { TouchableOpacity, StyleSheet, Animated, Keyboard, Platform } from 'react-native';
 import { Mic } from 'lucide-react-native';
 import { colors } from '@/src/lib/colors';
 import { useVoiceButton } from '@/src/context/VoiceButtonContext';
 import { useAuth } from '@/src/context/AuthContext';
+import { isWeb } from '@/src/lib/platform';
+import { isWebSpeechSupported } from '@/src/lib/webSpeech';
 import VoiceModal from './VoiceModal';
 
 export default function VoiceButton() {
@@ -21,6 +23,9 @@ export default function VoiceButton() {
         const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
         return () => { showSub.remove(); hideSub.remove(); };
     }, []);
+
+    // Sur web : afficher uniquement si Web Speech API est supportée par le navigateur
+    if (isWeb && !isWebSpeechSupported()) return null;
 
     // Garde défensive : ne rien afficher si pas authentifié
     if (!user) return null;

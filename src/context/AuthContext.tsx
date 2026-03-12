@@ -1,7 +1,7 @@
 // Contexte d'authentification — migré depuis Next.js
 // Utilise AsyncStorage au lieu de localStorage + AppState au lieu de visibilityChange
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { router } from 'expo-router';
@@ -22,12 +22,14 @@ interface AuthContextType {
     isLoading: boolean;
     isAuthenticated: boolean;
     isLocked: boolean;
+    mustChangePin: boolean;
     sessionKey: number;
     login: (phoneNumber: string, pin: string) => Promise<boolean>;
     signup: (name: string, phoneNumber: string, pin: string, role: User['role']) => Promise<boolean>;
     unlock: (pin: string) => Promise<boolean>;
     logout: () => void;
     setLocked: (locked: boolean) => void;
+    setMustChangePin: (v: boolean) => void;
     updatePin: (newPin: string) => Promise<boolean>;
 }
 
@@ -64,6 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLoading, setIsLoading]     = useState<boolean>(true);
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
     const [isLocked, setIsLocked]       = useState<boolean>(false);
+    const [mustChangePin, setMustChangePin] = useState<boolean>(false);
     const [sessionKey, setSessionKey]   = useState<number>(0);
 
     // Restaurer la session au démarrage
@@ -111,8 +114,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         checkUser();
     }, []);
 
-    // Verrouillage automatique après 60s en arrière-plan (AppState remplace visibilitychange)
+    // Verrouillage automatique après 60s en arrière-plan (Android/iOS uniquement — AppState non dispo sur web)
     useEffect(() => {
+        if (Platform.OS === 'web') return;
         let lockTimeout: ReturnType<typeof setTimeout> | null = null;
 
         const handleAppStateChange = (nextState: AppStateStatus) => {
@@ -161,6 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             };
 
             setProfile(data);
+            if (data.pin === '0101') setMustChangePin(true);
             await handleAuthSuccess(userData);
             await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline
             return true;
@@ -294,12 +299,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isLoading,
             isAuthenticated,
             isLocked,
+            mustChangePin,
             sessionKey,
             login,
             signup,
             unlock,
             logout,
             setLocked: setIsLocked,
+            setMustChangePin,
             updatePin,
         }}>
             {children}

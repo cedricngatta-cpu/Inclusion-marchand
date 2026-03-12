@@ -47,7 +47,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 const { data } = await supabase
                     .from('notifications')
                     .select('id, user_id, titre, message, type, data, lu, created_at')
-                    .or(`user_id.eq.${user.id},user_id.is.null`)
+                    .eq('user_id', user.id)
                     .order('created_at', { ascending: false })
                     .limit(50);
 
@@ -131,6 +131,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (isMerchant) {
             // Commande acceptée par le producteur
             unsubs.push(onSocketEvent('commande-acceptee', (d: any) => {
+                if (d.buyerUserId && d.buyerUserId !== user.id) return;
                 const producteur = d.producerName ?? 'Le producteur';
                 const delai = d.estimatedDelivery ? ` sous ${d.estimatedDelivery}` : '';
                 addNotif({
@@ -144,6 +145,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             // Commande refusée par le producteur
             unsubs.push(onSocketEvent('commande-refusee', (d: any) => {
+                if (d.buyerUserId && d.buyerUserId !== user.id) return;
                 const producteur = d.producerName ?? 'Le producteur';
                 const raison = d.reason ? `. Raison : ${d.reason}` : '';
                 addNotif({
@@ -157,6 +159,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             // Livraison en route
             unsubs.push(onSocketEvent('livraison-en-cours', (d: any) => {
+                if (d.buyerUserId && d.buyerUserId !== user.id) return;
                 addNotif({
                     titre:   'Livraison en route',
                     message: `Votre commande de ${d.quantity ?? ''} ${d.productName ?? 'produit'} est en route${d.driverName ? ` avec ${d.driverName}` : ''}.`,
@@ -168,6 +171,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             // Livraison terminée → stock mis à jour
             unsubs.push(onSocketEvent('livraison-terminee', (d: any) => {
+                if (d.buyerUserId && d.buyerUserId !== user.id) return;
                 addNotif({
                     titre:   'Livraison reçue ✓',
                     message: `${d.quantity ?? ''} ${d.productName ?? 'produit'} ajoutés à votre stock.`,
@@ -207,6 +211,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (isProducer) {
             // Nouvelle commande d'un marchand
             unsubs.push(onSocketEvent('nouvelle-commande', (d: any) => {
+                if (d.sellerUserId && d.sellerUserId !== user.id) return;
                 const total = (d.totalPrice ?? 0).toLocaleString('fr-FR');
                 addNotif({
                     titre:   'Nouvelle commande',
@@ -219,6 +224,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             // Demande de prix groupé de la coopérative
             unsubs.push(onSocketEvent('demande-prix-groupe', (d: any) => {
+                if (d.producteurId && d.producteurId !== user.id) return;
                 addNotif({
                     titre:   'Demande de prix groupé',
                     message: `La coopérative ${d.cooperativeNom ?? ''} demande un prix pour ${d.qtyCible ?? ''} ${d.nomProduit ?? 'produit'}.`,
@@ -230,6 +236,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             // Prix groupé accepté par la coopérative
             unsubs.push(onSocketEvent('prix-groupe-accepte', (d: any) => {
+                if (d.producteurId && d.producteurId !== user.id) return;
                 const prix = (d.prixNegocie ?? 0).toLocaleString('fr-FR');
                 addNotif({
                     titre:   'Prix groupé accepté ✓',
@@ -257,6 +264,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         if (isAgent) {
             // Enrôlement validé par la coopérative
             unsubs.push(onSocketEvent('enrolement-valide', (d: any) => {
+                if (d.agentId && d.agentId !== user.id) return;
                 const type = d.type === 'MERCHANT' ? 'Marchand' : d.type === 'PRODUCER' ? 'Producteur' : d.type ?? '';
                 const coop = d.cooperativeName ? ` par la coopérative ${d.cooperativeName}` : '';
                 addNotif({
@@ -270,6 +278,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             // Enrôlement rejeté
             unsubs.push(onSocketEvent('enrolement-rejete', (d: any) => {
+                if (d.agentId && d.agentId !== user.id) return;
                 const motif = d.reason ? `. Motif : ${d.reason}` : '';
                 addNotif({
                     titre:   'Inscription refusée',
@@ -283,13 +292,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
         // ── COOPÉRATIVE ───────────────────────────────────────────────────────
         if (isCoop) {
-            // Nouvelle demande d'inscription de l'agent
+            // Nouveau membre à vérifier — l'agent a inscrit quelqu'un
             unsubs.push(onSocketEvent('nouvel-enrolement', (d: any) => {
+                if (d.cooperativeId && d.cooperativeId !== user.id) return;
                 const typeLabel = d.type === 'MERCHANT' ? 'Marchand' : d.type === 'PRODUCER' ? 'Producteur' : d.type ?? '';
-                const adresse = d.adresse ? ` depuis ${d.adresse}` : '';
                 addNotif({
-                    titre:   "Nouvelle demande d'inscription",
-                    message: `Agent ${d.agentName ?? ''} a inscrit ${d.marchandName ?? 'un membre'}${typeLabel ? ` (${typeLabel})` : ''}${adresse}.`,
+                    titre:   'Nouveau membre à vérifier',
+                    message: `L'agent ${d.agentName ?? ''} a inscrit ${d.marchandName ?? 'un membre'}${typeLabel ? ` (${typeLabel})` : ''}. Vérifiez que cette personne est bien un de vos membres.`,
                     type:    'enrolement',
                     route:   '/cooperative/demandes',
                     data:    { nom: d.marchandName, agent: d.agentName, type: d.type, adresse: d.adresse },
@@ -310,6 +319,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             // Prix groupé proposé par le producteur
             unsubs.push(onSocketEvent('prix-groupe-propose', (d: any) => {
+                if (d.cooperativeId && d.cooperativeId !== user.id) return;
                 const prix = (d.prixPropose ?? 0).toLocaleString('fr-FR');
                 addNotif({
                     titre:   'Prix groupé reçu',

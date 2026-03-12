@@ -1,7 +1,7 @@
 // Écran Bilan — migré depuis Next.js /bilan/page.tsx
 import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { Wallet, TrendingUp, RotateCcw, ShoppingBag, Package } from 'lucide-react-native';
+import { Wallet, TrendingUp, RotateCcw, ShoppingBag, Package, Smartphone } from 'lucide-react-native';
 import { useHistoryContext } from '@/src/context/HistoryContext';
 import { useProductContext } from '@/src/context/ProductContext';
 import { useStockContext } from '@/src/context/StockContext';
@@ -21,7 +21,8 @@ export default function BilanScreen() {
         refreshHistory();
         refreshProducts();
         refreshStock();
-    }, [refreshHistory, refreshProducts, refreshStock]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []));
     const { user } = useAuth();
     const [showBalance, setShowBalance] = useState(true);
 
@@ -30,6 +31,17 @@ export default function BilanScreen() {
     const todaySales = todayTx.filter(t => t.type === 'VENTE' && t.status !== 'DETTE').reduce((acc, t) => acc + t.price, 0);
     const todayDebts = todayTx.filter(t => t.status === 'DETTE').reduce((acc, t) => acc + t.price, 0);
     const stockValue = products.reduce((acc, p) => acc + p.price * (stock[p.id] || 0), 0);
+
+    // Répartition Mobile Money
+    const momoTx = history.filter(t => t.status === 'MOMO');
+    const momoTotal = momoTx.reduce((acc, t) => acc + t.price, 0);
+    const momoByOp = {
+        ORANGE: momoTx.filter(t => t.operator === 'ORANGE').reduce((a, t) => a + t.price, 0),
+        MTN:    momoTx.filter(t => t.operator === 'MTN').reduce((a, t) => a + t.price, 0),
+        WAVE:   momoTx.filter(t => t.operator === 'WAVE').reduce((a, t) => a + t.price, 0),
+        MOOV:   momoTx.filter(t => t.operator === 'MOOV').reduce((a, t) => a + t.price, 0),
+    };
+    const cashTotal = history.filter(t => t.status === 'PAYÉ').reduce((acc, t) => acc + t.price, 0);
 
     const handleReset = () => {
         Alert.alert(
@@ -47,6 +59,8 @@ export default function BilanScreen() {
         { label: 'DETTES EN COURS', value: todayDebts, color: '#f97316', icon: ShoppingBag, bg: '#fff7ed' },
         { label: 'VALEUR STOCK', value: stockValue, color: '#2563eb', icon: Package, bg: '#eff6ff' },
         { label: 'CAISSE TOTALE', value: balance, color: colors.primary, icon: Wallet, bg: '#ecfdf5' },
+        { label: 'MOBILE MONEY', value: momoTotal, color: '#0891b2', icon: Smartphone, bg: '#e0f2fe' },
+        { label: 'ESPÈCES', value: cashTotal, color: '#059669', icon: Wallet, bg: '#ecfdf5' },
     ];
 
     return (
@@ -85,6 +99,34 @@ export default function BilanScreen() {
                     ))}
                 </View>
 
+                {/* Répartition Mobile Money */}
+                {momoTotal > 0 && (
+                    <View style={styles.momoCard}>
+                        <Text style={styles.momoTitle}>RÉPARTITION MOBILE MONEY</Text>
+                        {([
+                            { key: 'ORANGE', label: 'Orange Money', color: '#FF6600', bg: '#FFF3E6' },
+                            { key: 'MTN',    label: 'MTN MoMo',    color: '#996600', bg: '#FFFDE6' },
+                            { key: 'WAVE',   label: 'Wave',         color: '#0A8FA8', bg: '#E6F9FC' },
+                            { key: 'MOOV',   label: 'Moov Money',  color: '#0066CC', bg: '#E6F0FF' },
+                        ] as const).map(op => {
+                            const val = momoByOp[op.key];
+                            if (val === 0) return null;
+                            const pct = momoTotal > 0 ? Math.round((val / momoTotal) * 100) : 0;
+                            return (
+                                <View key={op.key} style={styles.momoRow}>
+                                    <View style={[styles.momoOpBadge, { backgroundColor: op.bg }]}>
+                                        <Text style={[styles.momoOpText, { color: op.color }]}>{op.label}</Text>
+                                    </View>
+                                    <View style={styles.momoBar}>
+                                        <View style={[styles.momoBarFill, { width: `${pct}%` as any, backgroundColor: op.color }]} />
+                                    </View>
+                                    <Text style={[styles.momoVal, { color: op.color }]}>{val.toLocaleString()} F</Text>
+                                </View>
+                            );
+                        })}
+                    </View>
+                )}
+
                 {/* Historique */}
                 <View style={styles.historyCard}>
                     <View style={styles.historyHeader}>
@@ -103,9 +145,14 @@ export default function BilanScreen() {
                                     {t.clientName ? ` • ${t.clientName}` : ''}
                                 </Text>
                             </View>
-                            <Text style={[styles.txAmount, t.status === 'DETTE' && styles.txDebt]}>
-                                {t.type === 'VENTE' && t.status !== 'DETTE' ? '+' : ''}{t.price.toLocaleString()}F
-                            </Text>
+                            <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                                <Text style={[styles.txAmount, t.status === 'DETTE' && styles.txDebt, t.status === 'MOMO' && styles.txMomo]}>
+                                    {t.type === 'VENTE' && t.status !== 'DETTE' ? '+' : ''}{t.price.toLocaleString()}F
+                                </Text>
+                                {t.status === 'MOMO' && t.operator && (
+                                    <Text style={styles.txOperatorBadge}>{t.operator}</Text>
+                                )}
+                            </View>
                         </View>
                     ))}
                     {history.length === 0 && (
@@ -154,6 +201,19 @@ const styles = StyleSheet.create({
     txDate: { fontSize: 11, color: colors.slate400, marginTop: 1 },
     txAmount: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
     txDebt: { color: '#f97316' },
+    txMomo: { color: '#0891b2' },
+    txOperatorBadge: { fontSize: 11, fontWeight: '800', color: '#0891b2', backgroundColor: '#e0f2fe', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+
+    // Section Mobile Money
+    momoCard: { backgroundColor: colors.white, borderRadius: 10, padding: 16, borderWidth: 1, borderColor: colors.slate100, gap: 10 },
+    momoTitle: { fontSize: 11, fontWeight: '900', color: colors.slate900, letterSpacing: 1.5, marginBottom: 4 },
+    momoRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    momoOpBadge: { width: 110, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+    momoOpText: { fontSize: 11, fontWeight: '800' },
+    momoBar:  { flex: 1, height: 6, backgroundColor: colors.slate100, borderRadius: 3, overflow: 'hidden' },
+    momoBarFill: { height: '100%', borderRadius: 3 },
+    momoVal:  { fontSize: 12, fontWeight: '900', minWidth: 70, textAlign: 'right' },
+
     empty: { alignItems: 'center', paddingVertical: 24 },
     emptyText: { fontSize: 11, fontWeight: '700', color: colors.slate400, letterSpacing: 2 },
 

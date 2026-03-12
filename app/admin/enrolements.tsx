@@ -4,6 +4,7 @@ import React, { useState, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, Alert, TextInput, Modal, Dimensions,
+    KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Phone, MapPin, Store, User, Check, X, ChevronDown } from 'lucide-react-native';
@@ -126,12 +127,13 @@ export default function AdminEnrolements() {
                 });
             }
 
-            await supabase.from('activity_logs').insert([{
+            const { error: logErr1 } = await supabase.from('activity_logs').insert([{
                 user_id:   null,
                 user_name: 'Admin',
                 action:    `Enrôlement validé : ${demande.nom} (${TYPE_LABEL[demande.type] ?? demande.type})`,
                 type:      'enrolement',
-            }]).catch(() => {});
+            }]);
+            if (logErr1) console.warn('[Enrolements] activity_log insert:', logErr1.message);
 
             fetchDemandes();
             Alert.alert('Validé', `L'enrôlement de ${demande.nom} a été validé. L'agent a été notifié.`);
@@ -182,12 +184,13 @@ export default function AdminEnrolements() {
                 });
             }
 
-            await supabase.from('activity_logs').insert([{
+            const { error: logErr2 } = await supabase.from('activity_logs').insert([{
                 user_id:   null,
                 user_name: 'Admin',
                 action:    `Enrôlement refusé : ${demande.nom} — ${motif.trim()}`,
                 type:      'enrolement',
-            }]).catch(() => {});
+            }]);
+            if (logErr2) console.warn('[Enrolements] activity_log insert:', logErr2.message);
 
             setMotif('');
             fetchDemandes();
@@ -232,6 +235,7 @@ export default function AdminEnrolements() {
 
             <ScrollView
                 style={s.scroll}
+                keyboardShouldPersistTaps="handled"
                 contentContainerStyle={s.scrollContent}
                 showsVerticalScrollIndicator={false}
             >
@@ -261,6 +265,10 @@ export default function AdminEnrolements() {
                 animationType="fade"
                 onRequestClose={() => setRefusModal(null)}
             >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
                 <View style={s.overlay}>
                     <View style={s.modalBox}>
                         <Text style={s.modalTitle}>Motif du refus</Text>
@@ -306,6 +314,7 @@ export default function AdminEnrolements() {
                         </View>
                     </View>
                 </View>
+                </KeyboardAvoidingView>
             </Modal>
         </View>
     );

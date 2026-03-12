@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, Modal, TextInput, Alert, RefreshControl,
+    KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -659,6 +660,10 @@ export default function AchatsGroupesScreen() {
 
             {/* ── MODAL CRÉATION ── */}
             <Modal visible={createVisible} animationType="slide" transparent onRequestClose={() => setCreateVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
                 <View style={m.overlay}>
                     <View style={m.sheet}>
                         <View style={m.sheetHeader}>
@@ -771,6 +776,7 @@ export default function AchatsGroupesScreen() {
                         </ScrollView>
                     </View>
                 </View>
+                </KeyboardAvoidingView>
             </Modal>
 
             {/* ── MODAL PARTICIPANTS ── */}
@@ -935,7 +941,7 @@ const s = StyleSheet.create({
     emptySubText: { fontSize: 12, color: colors.slate400, textAlign: 'center', lineHeight: 18 },
 
     fab: {
-        position: 'absolute', right: 20, bottom: 30,
+        position: 'absolute', right: 20, bottom: 100,
         width: 56, height: 56, borderRadius: 10,
         backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center',
         shadowColor: colors.primary, shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,

@@ -28,15 +28,15 @@ interface Enrollment {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const FILTER_TABS = [
     { key: 'ALL',        label: 'Toutes' },
-    { key: 'en_attente', label: 'En attente' },
-    { key: 'valide',     label: 'Validées' },
-    { key: 'rejete',     label: 'Refusées' },
+    { key: 'en_attente', label: 'À vérifier' },
+    { key: 'valide',     label: 'Confirmés' },
+    { key: 'rejete',     label: 'Rejetés' },
 ];
 
 const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-    en_attente: { bg: '#fef3c7', text: '#92400e', label: 'En attente' },
-    valide:     { bg: '#d1fae5', text: '#065f46', label: 'Validée' },
-    rejete:     { bg: '#fee2e2', text: '#991b1b', label: 'Refusée' },
+    en_attente: { bg: '#fef3c7', text: '#92400e', label: 'À vérifier' },
+    valide:     { bg: '#d1fae5', text: '#065f46', label: 'Confirmé' },
+    rejete:     { bg: '#fee2e2', text: '#991b1b', label: 'Rejeté' },
 };
 
 const ROLE_CONFIG: Record<string, { bg: string; text: string }> = {
@@ -185,8 +185,8 @@ export default function DemandesScreen() {
     return (
         <View style={styles.safe}>
             <ScreenHeader
-                title="Demandes"
-                subtitle="Enrôlements en attente"
+                title="Validations"
+                subtitle="Membres à vérifier"
                 showBack={true}
                 paddingBottom={12}
                 rightIcon={pendingCount > 0 ? (
@@ -285,13 +285,13 @@ export default function DemandesScreen() {
                                             style={styles.validateBtn}
                                             onPress={() => handleUpdateStatus(enroll, 'valide')}
                                         >
-                                            <Text style={styles.validateBtnText}>VALIDER</Text>
+                                            <Text style={styles.validateBtnText}>CONFIRMER CE MEMBRE</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={styles.rejectBtn}
                                             onPress={() => handleUpdateStatus(enroll, 'rejete')}
                                         >
-                                            <Text style={styles.rejectBtnText}>REJETER</Text>
+                                            <Text style={styles.rejectBtnText}>CE N'EST PAS UN DE NOS MEMBRES</Text>
                                         </TouchableOpacity>
                                     </View>
                                 )}
@@ -360,21 +360,21 @@ const styles = StyleSheet.create({
     detailText:   { fontSize: 12, color: colors.slate600, flex: 1 },
     dateText:     { fontSize: 11, color: colors.slate400, marginTop: 2 },
 
-    actionRow: { flexDirection: 'row', gap: 10 },
+    actionRow: { flexDirection: 'column', gap: 8 },
     validateBtn: {
-        flex: 1, backgroundColor: colors.primary,
-        borderRadius: 8, paddingVertical: 10,
+        backgroundColor: colors.primary,
+        borderRadius: 8, paddingVertical: 12,
         alignItems: 'center',
     },
     validateBtnText: { fontSize: 12, fontWeight: '900', color: colors.white, letterSpacing: 1 },
     rejectBtn: {
-        flex: 1, borderWidth: 1.5,
+        borderWidth: 1.5,
         borderColor: colors.error,
-        borderRadius: 8, paddingVertical: 10,
+        borderRadius: 8, paddingVertical: 12,
         alignItems: 'center',
         backgroundColor: 'transparent',
     },
-    rejectBtnText: { fontSize: 12, fontWeight: '900', color: colors.error, letterSpacing: 1 },
+    rejectBtnText: { fontSize: 11, fontWeight: '900', color: colors.error, letterSpacing: 0.5 },
 
     emptyCard: {
         backgroundColor: colors.white, borderRadius: 10, padding: 40,

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, FlatList, StyleSheet, ActivityIndicator, RefreshControl,
+    Platform, useWindowDimensions,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { useFocusEffect } from 'expo-router';
@@ -19,6 +20,7 @@ interface Transaction {
     client_name: string | null;
     type: string;
     status: string;
+    operator: string | null;
     created_at: string;
     product_id: string | null;
     store_id: string | null;
@@ -26,7 +28,7 @@ interface Transaction {
     storeName?: string;
 }
 
-type TxFilter = 'toutes' | 'ventes' | 'dettes';
+type TxFilter = 'toutes' | 'ventes' | 'dettes' | 'momo';
 
 const PAGE_SIZE = 20;
 
@@ -36,6 +38,13 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
     VENTE: { bg: '#d1fae5', text: '#065f46' },
     DETTE: { bg: '#fee2e2', text: '#991b1b' },
     MOMO:  { bg: '#dbeafe', text: '#1e40af' },
+};
+
+const OPERATOR_COLORS: Record<string, { bg: string; text: string }> = {
+    ORANGE: { bg: '#FFF3E6', text: '#FF6600' },
+    MTN:    { bg: '#FFFDE6', text: '#996600' },
+    WAVE:   { bg: '#E6F9FC', text: '#0A8FA8' },
+    MOOV:   { bg: '#E6F0FF', text: '#0066CC' },
 };
 
 function getTxColor(tx: Transaction): { bg: string; icon: string } {
@@ -48,12 +57,46 @@ const TX_FILTERS: { key: TxFilter; label: string }[] = [
     { key: 'toutes', label: 'Toutes' },
     { key: 'ventes', label: 'Ventes' },
     { key: 'dettes', label: 'Dettes' },
+    { key: 'momo',   label: 'Mobile Money' },
 ];
 
 // ── Carte transaction (mémoïsée) ──────────────────────────────────────────────
-const TxCard = React.memo(({ tx }: { tx: Transaction }) => {
+const TxCard = React.memo(({ tx, isDesktop }: { tx: Transaction; isDesktop?: boolean }) => {
     const tc = getTxColor(tx);
     const sc = STATUS_COLORS[tx.status] ?? STATUS_COLORS[tx.type] ?? { bg: '#f1f5f9', text: '#475569' };
+    const opColor = tx.operator ? OPERATOR_COLORS[tx.operator] : null;
+
+    if (isDesktop) {
+        return (
+            <View style={[s.txCard, dtT.tableRow]}>
+                <View style={[s.txIcon, { backgroundColor: tc.bg }, dtT.colIcon]}>
+                    <ShoppingBag color={tc.icon} size={16} />
+                </View>
+                <Text style={[s.txProduct, dtT.colProduct]} numberOfLines={1}>{tx.productName}</Text>
+                <Text style={[s.txClient, dtT.colStore]} numberOfLines={1}>{tx.storeName}</Text>
+                <Text style={[s.txClient, dtT.colClient]} numberOfLines={1}>
+                    {tx.client_name ?? '—'}
+                </Text>
+                <Text style={[s.txDate, dtT.colDate]} numberOfLines={1}>
+                    {new Date(tx.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </Text>
+                <Text style={[s.txAmount, dtT.colAmount]} numberOfLines={1}>
+                    {(tx.price ?? 0).toLocaleString('fr-FR')} F
+                </Text>
+                <View style={dtT.colBadges}>
+                    <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
+                        <Text style={[s.statusText, { color: sc.text }]}>{tx.status ?? tx.type ?? '–'}</Text>
+                    </View>
+                    {opColor && (
+                        <View style={[s.statusBadge, { backgroundColor: opColor.bg }]}>
+                            <Text style={[s.statusText, { color: opColor.text }]}>{tx.operator}</Text>
+                        </View>
+                    )}
+                </View>
+            </View>
+        );
+    }
+
     return (
         <View style={s.txCard}>
             <View style={[s.txIcon, { backgroundColor: tc.bg }]}>
@@ -77,6 +120,11 @@ const TxCard = React.memo(({ tx }: { tx: Transaction }) => {
                         {tx.status ?? tx.type ?? '–'}
                     </Text>
                 </View>
+                {opColor && (
+                    <View style={[s.statusBadge, { backgroundColor: opColor.bg }]}>
+                        <Text style={[s.statusText, { color: opColor.text }]}>{tx.operator}</Text>
+                    </View>
+                )}
             </View>
         </View>
     );
@@ -92,6 +140,9 @@ export default function Transactions() {
     const [page, setPage]                 = useState(0);
     const [txFilter, setTxFilter]         = useState<TxFilter>('toutes');
 
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
     const fetchTransactions = useCallback(async (pageNum = 0, append = false) => {
         if (pageNum === 0 && !append) setLoading(true);
         else setLoadingMore(true);
@@ -101,7 +152,7 @@ export default function Transactions() {
 
             const { data, error } = await supabase
                 .from('transactions')
-                .select('id, price, quantity, client_name, type, status, created_at, product_id, store_id')
+                .select('id, price, quantity, client_name, type, status, operator, created_at, product_id, store_id')
                 .order('created_at', { ascending: false })
                 .range(from, to);
             if (error) throw error;
@@ -167,6 +218,7 @@ export default function Transactions() {
     const filtered = useMemo(() => {
         if (txFilter === 'ventes') return transactions.filter(t => t.status !== 'DETTE' && t.type !== 'DETTE');
         if (txFilter === 'dettes') return transactions.filter(t => t.status === 'DETTE' || t.type === 'DETTE');
+        if (txFilter === 'momo')   return transactions.filter(t => t.status === 'MOMO'  || t.type === 'MOMO');
         return transactions;
     }, [transactions, txFilter]);
 
@@ -220,6 +272,19 @@ export default function Transactions() {
                             ))}
                         </ScrollView>
 
+                        {/* ── En-tête tableau (desktop) ── */}
+                        {isDesktop && !loading && (
+                            <View style={dtT.tableHeader}>
+                                <View style={dtT.colIcon} />
+                                <Text style={[dtT.thText, dtT.colProduct]}>PRODUIT</Text>
+                                <Text style={[dtT.thText, dtT.colStore]}>BOUTIQUE</Text>
+                                <Text style={[dtT.thText, dtT.colClient]}>CLIENT</Text>
+                                <Text style={[dtT.thText, dtT.colDate]}>DATE</Text>
+                                <Text style={[dtT.thText, dtT.colAmount]}>MONTANT</Text>
+                                <Text style={[dtT.thText, dtT.colBadges]}>STATUT</Text>
+                            </View>
+                        )}
+
                         {loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />}
                     </>
                 }
@@ -234,7 +299,7 @@ export default function Transactions() {
                 ListFooterComponent={loadingMore ? (
                     <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
                 ) : null}
-                renderItem={({ item: tx }) => <TxCard tx={tx} />}
+                renderItem={({ item: tx }) => <TxCard tx={tx} isDesktop={isDesktop} />}
             />
         </View>
     );
@@ -245,7 +310,7 @@ const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: '#f8fafc' },
 
     scroll:        { flex: 1 },
-    scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 12 },
+    scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 8 },
 
     // KPI
     kpiCard: {
@@ -301,4 +366,24 @@ const s = StyleSheet.create({
         borderStyle: 'dashed', gap: 12,
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+});
+
+// ── Desktop table styles ────────────────────────────────────────────────────────
+const dtT = StyleSheet.create({
+    tableHeader: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 12, paddingVertical: 8,
+        backgroundColor: '#f1f5f9', borderRadius: 10,
+        marginBottom: 4,
+    },
+    tableRow: { paddingVertical: 10 },
+    thText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+    // Colonnes
+    colIcon:    { width: 36, height: 36, marginRight: 12, borderRadius: 8, flexShrink: 0 },
+    colProduct: { flex: 2, fontSize: 13, fontWeight: '700', color: '#1e293b', paddingRight: 8 },
+    colStore:   { flex: 1.5, fontSize: 11, color: '#64748b', paddingRight: 8 },
+    colClient:  { flex: 1.5, fontSize: 11, color: '#64748b', paddingRight: 8 },
+    colDate:    { flex: 1, fontSize: 11, color: '#94a3b8', paddingRight: 8 },
+    colAmount:  { width: 110, fontSize: 13, fontWeight: '900', color: '#1e293b', textAlign: 'right', paddingRight: 12 },
+    colBadges:  { width: 120, flexDirection: 'row', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' },
 });

@@ -122,7 +122,7 @@ export const reportRenderError = (component: string, error: { message?: string; 
 // Capture les erreurs JS non catchées + promesses rejetées
 export const setupGlobalErrorHandler = (): void => {
   const originalHandler = ErrorUtils.getGlobalHandler();
-  ErrorUtils.setGlobalHandler((error: Error, isFatal: boolean) => {
+  ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
     reportError('crash', error.message, {
       severity: 'critical',
       stack: error.stack,

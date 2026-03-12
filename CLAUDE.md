@@ -34,7 +34,10 @@ Pré-requis : lancer le seed (`node scripts/seed.js`) avant la simulation.
 - Suivre ses revenus
 
 ### Coopérative (tour de contrôle)
-- Valider/rejeter les enrôlements (gardien du réseau)
+- **CONFIRMER/REJETER les membres inscrits par les agents** (vérification d'identité, pas acceptation de candidature)
+  - Écran "Validations" (ex "Demandes") — onglets : "À vérifier" / "Confirmés" / "Rejetés"
+  - Boutons : "CONFIRMER CE MEMBRE" / "CE N'EST PAS UN DE NOS MEMBRES"
+  - Notification reçue : "Nouveau membre à vérifier" avec message "L'agent [nom] a inscrit [membre] ([type]). Vérifiez que cette personne est bien un de vos membres."
 - Superviser les performances de tous les membres
 - Créer et gérer les achats groupés (prix négocié, seuil minimum, deadline)
 - Finaliser les achats groupés → crée les commandes individuelles pour chaque marchand participant
@@ -63,12 +66,12 @@ Pré-requis : lancer le seed (`node scripts/seed.js`) avant la simulation.
 ## FLUX MÉTIER COMPLET
 
 1. Agent enrôle un marchand/producteur sur le terrain en choisissant sa coopérative (select / pas de coop / autre non listée)
-2. Coopérative valide l'inscription → compte créé avec `cooperative_id` lié
+2. Coopérative **confirme que la personne est bien un de ses membres** (vérification d'identité) → compte créé avec `cooperative_id` lié. Si la coopérative clique "CE N'EST PAS UN DE NOS MEMBRES", la demande est rejetée.
 3. Producteur publie une récolte sur le Marché Virtuel (avec photo, prix, prix livraison, livreur)
 4. Marchand voit le produit, consulte les infos producteur/livreur, passe commande
 5. Producteur accepte la commande
-6. Producteur marque la livraison (en préparation → en livraison → livrée)
-7. Marchand suit en temps réel, stock mis à jour automatiquement à la livraison
+6. Producteur marque la livraison (ACCEPTED → SHIPPED). Il ne peut PAS marquer "Livrée".
+7. **Le MARCHAND confirme la réception** (SHIPPED → DELIVERED) depuis son écran "Mes Commandes" — c'est lui qui dit "j'ai reçu". Stock mis à jour automatiquement à la confirmation.
 8. Marchand vend au client final (scanner ou vocal)
 9. Tout est supervisé par la Coopérative et l'Admin en temps réel
 
@@ -243,9 +246,26 @@ Chaque notification va UNIQUEMENT au user_id concerné. Pas de broadcast inutile
 ## PAIEMENTS
 
 ### Modes
-- Espèces
-- Mobile Money (Wave, Orange Money, MTN MoMo) — prévu pour le futur
-- Crédit client (carnet de dettes)
+- Espèces (status = 'PAYÉ')
+- Mobile Money (status = 'MOMO' + colonne `operator`) — **IMPLÉMENTÉ**
+- Crédit client / Dette (status = 'DETTE')
+
+### Opérateurs Mobile Money
+- Orange Money (#FF6600), MTN MoMo (#FFCC00 / texte #996600), Wave (#1DC4E9 / texte #0A8FA8), Moov Money (#0066CC)
+- Colonne `operator` dans transactions : 'ORANGE' | 'MTN' | 'WAVE' | 'MOOV' (null si pas MOMO)
+- Colonne `client_phone` dans transactions : numéro optionnel du client
+
+### Flux paiement Mobile Money
+Les paiements se font en Espèces ou Mobile Money (Orange Money, MTN MoMo, Wave, Moov Money).
+Chaque transaction enregistre le mode de paiement (status) et l'opérateur (operator).
+1. Vente au client final : sélection opérateur inline dans le panier de vendre.tsx
+2. Commande B2B : sélection opérateur dans le modal de confirmation de marche.tsx
+3. Bilan : répartition MOMO par opérateur avec barres de progression
+4. Finance : section Mobile Money avec total du jour + breakdown opérateurs
+5. Admin : filtre "Mobile Money" dans transactions + badge opérateur coloré + stat MOMO dashboard
+
+### Migration SQL requise (exécuter dans Supabase)
+- `scripts/migration_mobile_money.sql` : ADD COLUMN operator TEXT à transactions et orders, ADD COLUMN client_phone TEXT à transactions
 
 ---
 

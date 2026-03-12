@@ -54,12 +54,25 @@ export default function MembresScreen() {
     const fetchMembers = useCallback(async () => {
         setLoading(true);
         try {
-            const { data } = await supabase
+            // Essai 1 : filtré par cooperative_id
+            let { data, error } = await supabase
                 .from('profiles')
                 .select('id, full_name, phone_number, role, address, boutique_name, created_at')
                 .eq('role', 'PRODUCER')
-                .eq('cooperative_id', user?.id)
+                .eq('cooperative_id', user?.id ?? '')
                 .order('created_at', { ascending: false });
+
+            // Fallback : si cooperative_id n'existe pas ou aucun résultat → tous les PRODUCER
+            if (error || !data?.length) {
+                console.log('[Membres] fallback sans cooperative_id — raison:', error?.message ?? 'aucun résultat filtré');
+                const fallback = await supabase
+                    .from('profiles')
+                    .select('id, full_name, phone_number, role, address, boutique_name, created_at')
+                    .eq('role', 'PRODUCER')
+                    .order('created_at', { ascending: false });
+                data = fallback.data;
+            }
+
             setMembers((data as Member[]) || []);
         } catch (err) {
             console.error('[Membres] fetch error:', err);
@@ -124,6 +137,7 @@ export default function MembresScreen() {
                 style={styles.scroll}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
             >
                 {/* Résumé */}
                 <View style={styles.statsRow}>

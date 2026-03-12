@@ -34,7 +34,13 @@
       "Bash(grep -rln \"from ''''react-native-gesture-handler''''\" app/ src/components/)",
       "Bash(while read:*)",
       "Read(//c/Users/Cerco/Music/inclusion-marchand-mobile/**)",
-      "Bash(then echo:*)"
+      "Bash(then echo:*)",
+      "Bash(cd \"C:\\\\Users\\\\Cerco\\\\Music\\\\inclusion-marchand-mobile\" && SUPABASE_SERVICE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpbm9jam13a3RyeHF1cHlqc3FuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjY2MDM2NSwiZXhwIjoyMDg4MjM2MzY1fQ.3HrEJkbuRjsYq0nIJJ1tlIeG8nsPPxWVXR_qlpnO_Gw\" node scripts/seed.js --reset 2>&1)",
+      "Bash(cd \"C:/Users/Cerco/Music/inclusion-marchand-mobile\" && npx tsc --noEmit 2>&1; echo \"EXIT:$?\")",
+      "Bash(cd \"C:\\\\Users\\\\Cerco\\\\Music\\\\inclusion-marchand-mobile\" && curl -s \"http://localhost:8081/_expo/static/js/web/entry-2e67c7b7c3c6c38f34e3.js\" 2>&1 | grep -i \"error\\\\|cannot\\\\|undefined\\\\|cannot find\" | head -20 || echo \"bundle not at that path\")",
+      "Bash(cd \"C:\\\\Users\\\\Cerco\\\\Music\\\\inclusion-marchand-mobile\" && curl -s \"http://localhost:8081/index.bundle?platform=web&dev=false\" 2>&1 | tail -50)",
+      "Bash(cd \"C:\\\\Users\\\\Cerco\\\\Music\\\\inclusion-marchand-mobile\" && curl -s \"http://localhost:8081/index.bundle?platform=web&dev=true\" 2>&1 | grep -E '\"message\"|\"errors\"|\"type\":\"error\"' | head -30)",
+      "Bash(ls \"C:\\\\Users\\\\Cerco\\\\Music\\\\inclusion-marchand-mobile\\\\app/\\(tabs\\)/\")"
     ]
   }
 }

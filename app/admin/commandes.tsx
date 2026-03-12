@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl,
+    Platform, useWindowDimensions,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { useFocusEffect } from 'expo-router';
@@ -52,6 +53,9 @@ export default function CommandesAdmin() {
     const [loading, setLoading]       = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [orderFilter, setOrderFilter] = useState<OrderFilter>('toutes');
+
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const fetchOrders = useCallback(async () => {
         try {
@@ -175,37 +179,77 @@ export default function CommandesAdmin() {
                         <Text style={s.emptyText}>AUCUNE COMMANDE TROUVÉE</Text>
                     </View>
                 ) : (
-                    filtered.map(order => {
-                        const sc = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
-                        return (
-                            <View key={order.id} style={s.orderCard}>
-                                <View style={s.orderTop}>
-                                    <Text style={s.orderNote} numberOfLines={2}>
-                                        {order.notes || `Commande · ${order.quantity} unité${order.quantity > 1 ? 's' : ''}`}
-                                    </Text>
-                                    <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
-                                        <Text style={[s.statusText, { color: sc.text }]}>{sc.label}</Text>
+                    <>
+                        {/* En-tête tableau (desktop uniquement) */}
+                        {isDesktop && (
+                            <View style={dtC.tableHeader}>
+                                <Text style={[dtC.thText, dtC.colBuyer]}>ACHETEUR</Text>
+                                <Text style={[dtC.thText, dtC.colSeller]}>VENDEUR</Text>
+                                <Text style={[dtC.thText, dtC.colNote]}>NOTES</Text>
+                                <Text style={[dtC.thText, dtC.colQty]}>QTÉ</Text>
+                                <Text style={[dtC.thText, dtC.colDate]}>DATE</Text>
+                                <Text style={[dtC.thText, dtC.colTotal]}>MONTANT</Text>
+                                <Text style={[dtC.thText, dtC.colStatus]}>STATUT</Text>
+                            </View>
+                        )}
+                        {filtered.map(order => {
+                            const sc = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
+                            if (isDesktop) {
+                                return (
+                                    <View key={order.id} style={[s.orderCard, dtC.tableRow]}>
+                                        <Text style={[s.storeName, dtC.colBuyer]} numberOfLines={1}>{order.buyerName}</Text>
+                                        <View style={[dtC.colSeller, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+                                            <ArrowRight color="#94a3b8" size={12} />
+                                            <Text style={[s.storeName, { flex: 1 }]} numberOfLines={1}>{order.sellerName}</Text>
+                                        </View>
+                                        <Text style={[s.orderNote, dtC.colNote]} numberOfLines={1}>
+                                            {order.notes || `${order.quantity} unité${order.quantity > 1 ? 's' : ''}`}
+                                        </Text>
+                                        <Text style={[s.orderMeta, dtC.colQty]} numberOfLines={1}>{order.quantity}</Text>
+                                        <Text style={[s.orderMeta, dtC.colDate]} numberOfLines={1}>
+                                            {new Date(order.created_at).toLocaleDateString('fr-FR')}
+                                        </Text>
+                                        <Text style={[s.orderTotal, dtC.colTotal]} numberOfLines={1}>
+                                            {(order.total_amount ?? 0).toLocaleString('fr-FR')} F
+                                        </Text>
+                                        <View style={[dtC.colStatus, { alignItems: 'flex-end' }]}>
+                                            <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
+                                                <Text style={[s.statusText, { color: sc.text }]}>{sc.label}</Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                );
+                            }
+                            return (
+                                <View key={order.id} style={s.orderCard}>
+                                    <View style={s.orderTop}>
+                                        <Text style={s.orderNote} numberOfLines={2}>
+                                            {order.notes || `Commande · ${order.quantity} unité${order.quantity > 1 ? 's' : ''}`}
+                                        </Text>
+                                        <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
+                                            <Text style={[s.statusText, { color: sc.text }]}>{sc.label}</Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Acheteur → Vendeur */}
+                                    <View style={s.orderFlow}>
+                                        <Text style={s.storeName} numberOfLines={1}>{order.buyerName}</Text>
+                                        <ArrowRight color="#94a3b8" size={14} />
+                                        <Text style={s.storeName} numberOfLines={1}>{order.sellerName}</Text>
+                                    </View>
+
+                                    <View style={s.orderBottom}>
+                                        <Text style={s.orderMeta}>
+                                            {order.quantity} u · {new Date(order.created_at).toLocaleDateString('fr-FR')}
+                                        </Text>
+                                        <Text style={s.orderTotal}>
+                                            {(order.total_amount ?? 0).toLocaleString('fr-FR')} F
+                                        </Text>
                                     </View>
                                 </View>
-
-                                {/* Acheteur → Vendeur */}
-                                <View style={s.orderFlow}>
-                                    <Text style={s.storeName} numberOfLines={1}>{order.buyerName}</Text>
-                                    <ArrowRight color="#94a3b8" size={14} />
-                                    <Text style={s.storeName} numberOfLines={1}>{order.sellerName}</Text>
-                                </View>
-
-                                <View style={s.orderBottom}>
-                                    <Text style={s.orderMeta}>
-                                        {order.quantity} u · {new Date(order.created_at).toLocaleDateString('fr-FR')}
-                                    </Text>
-                                    <Text style={s.orderTotal}>
-                                        {(order.total_amount ?? 0).toLocaleString('fr-FR')} F
-                                    </Text>
-                                </View>
-                            </View>
-                        );
-                    })
+                            );
+                        })}
+                    </>
                 )}
             </ScrollView>
         </View>
@@ -267,4 +311,24 @@ const s = StyleSheet.create({
         borderStyle: 'dashed', gap: 12,
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+});
+
+// ── Desktop table styles ────────────────────────────────────────────────────────
+const dtC = StyleSheet.create({
+    tableHeader: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 12, paddingVertical: 8,
+        backgroundColor: '#f1f5f9', borderRadius: 10,
+        marginBottom: 4,
+    },
+    tableRow: { flexDirection: 'row', alignItems: 'center', gap: 0, paddingVertical: 10 },
+    thText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+    // Colonnes
+    colBuyer:  { flex: 1.5, fontSize: 12, fontWeight: '700', color: '#1e293b', paddingRight: 8 },
+    colSeller: { flex: 1.5, paddingRight: 8 },
+    colNote:   { flex: 2, fontSize: 11, color: '#64748b', paddingRight: 8 },
+    colQty:    { width: 50, fontSize: 11, color: '#64748b', textAlign: 'center', paddingRight: 8 },
+    colDate:   { flex: 1, fontSize: 11, color: '#94a3b8', paddingRight: 8 },
+    colTotal:  { width: 110, fontSize: 13, fontWeight: '900', color: '#1e293b', textAlign: 'right', paddingRight: 12 },
+    colStatus: { width: 100 },
 });

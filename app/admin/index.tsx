@@ -1,7 +1,7 @@
 // Dashboard Admin — Tableau de bord global de supervision
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, Dimensions, BackHandler,
+    View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl, BackHandler, Platform, useWindowDimensions,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -15,8 +15,7 @@ import { colors } from '@/src/lib/colors';
 import { onSocketEvent } from '@/src/lib/socket';
 import { useAuth } from '@/src/context/AuthContext';
 
-const { width: SCREEN_W } = Dimensions.get('window');
-const CARD_W = Math.floor((SCREEN_W - 48) / 2);
+// CARD_W calculé dynamiquement dans le composant (voir ci-dessous)
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface DashboardData {
@@ -31,6 +30,7 @@ interface DashboardData {
     productsCount: number;
     activeOrdersCount: number;
     pendingEnroll: number;
+    todayMomo: number;
 }
 
 interface ActivityLog {
@@ -64,9 +64,28 @@ const TYPE_COLORS: Record<string, { bg: string; icon: string }> = {
 };
 
 // ── Composant principal ────────────────────────────────────────────────────────
+const ROLE_ROUTES: Record<string, string> = {
+    MERCHANT:    '/(tabs)/commercant',
+    PRODUCER:    '/producteur',
+    COOPERATIVE: '/cooperative',
+    FIELD_AGENT: '/agent',
+    SUPERVISOR:  '/admin',
+};
+
 export default function AdminDashboard() {
     const router = useRouter();
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
+    // Garde de route — redirige si pas SUPERVISOR
+    useEffect(() => {
+        if (user && user.role !== 'SUPERVISOR') {
+            router.replace((ROLE_ROUTES[user.role] ?? '/(tabs)/commercant') as any);
+        }
+    }, [user?.role]);
+    const contentW  = isDesktop ? width - 250 : width;
+    const CARD_W    = Math.floor((contentW - (isDesktop ? 96 : 48)) / (isDesktop ? 3 : 2));
 
     const [data, setData]           = useState<DashboardData | null>(null);
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -88,14 +107,14 @@ export default function AdminDashboard() {
                 supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%producer%'),
                 supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%agent%'),
                 supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%cooperative%'),
-                supabase.from('transactions').select('price').gte('created_at', todayStart.toISOString()),
+                supabase.from('transactions').select('price, status').gte('created_at', todayStart.toISOString()),
                 supabase.from('transactions').select('price').gte('created_at', monthStart),
                 supabase.from('products').select('*', { count: 'exact', head: true }),
                 supabase.from('orders').select('*', { count: 'exact', head: true }).in('status', ['PENDING', 'ACCEPTED']),
                 supabase.from('demandes_enrolement').select('*', { count: 'exact', head: true }).eq('statut', 'en_attente'),
             ]);
 
-            const todayTxArr = (todayTxRes.data ?? []) as { price: number }[];
+            const todayTxArr = (todayTxRes.data ?? []) as { price: number; status: string }[];
             const monthTxArr = (monthTxRes.data ?? []) as { price: number }[];
 
             setData({
@@ -106,6 +125,7 @@ export default function AdminDashboard() {
                 cooperatives:      coopRes.count       ?? 0,
                 todayTxCount:      todayTxArr.length,
                 todayTotal:        todayTxArr.reduce((s, t) => s + (t.price ?? 0), 0),
+                todayMomo:         todayTxArr.filter(t => t.status === 'MOMO').reduce((s, t) => s + (t.price ?? 0), 0),
                 monthRevenue:      monthTxArr.reduce((s, t) => s + (t.price ?? 0), 0),
                 productsCount:     productsRes.count   ?? 0,
                 activeOrdersCount: ordersRes.count     ?? 0,
@@ -170,10 +190,12 @@ export default function AdminDashboard() {
         return () => unsubs.forEach(fn => fn());
     }, [fetchDashboard]);
 
-    useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useFocusEffect(useCallback(() => { fetchDashboard(); }, []));
 
-    // Bouton retour Android sur le dashboard → quitter l'app
+    // Bouton retour Android sur le dashboard → quitter l'app (Android uniquement)
     useFocusEffect(useCallback(() => {
+        if (Platform.OS !== 'android') return;
         const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
             BackHandler.exitApp();
             return true;
@@ -224,6 +246,12 @@ export default function AdminDashboard() {
             value: loading ? '–' : String(d?.totalUsers ?? 0),
             sub: 'utilisateurs',
         },
+        {
+            label: 'MOBILE MONEY',
+            topColor: '#0891b2',
+            value: loading ? '–' : `${Math.round((d?.todayMomo ?? 0) / 1000)}k`,
+            sub: 'F encaissés aujourd\'hui',
+        },
     ];
 
     // ── Navigation modules ─────────────────────────────────────────────────────
@@ -264,7 +292,7 @@ export default function AdminDashboard() {
             {/* ════════════════ CONTENU ════════════════ */}
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && { paddingHorizontal: 24 }]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 overScrollMode="never"
@@ -287,10 +315,10 @@ export default function AdminDashboard() {
                     </TouchableOpacity>
                 )}
 
-                {/* ── Grille stats 2×3 ── */}
+                {/* ── Grille stats 2 col mobile / 3 col desktop ── */}
                 <View style={s.statsGrid}>
                     {statsGrid.map((stat, i) => (
-                        <View key={i} style={[s.statCard, { borderTopColor: stat.topColor }]}>
+                        <View key={i} style={[s.statCard, { borderTopColor: stat.topColor }, isDesktop && { width: '31.5%' }]}>
                             <Text style={s.statLabel}>{stat.label}</Text>
                             <Text style={[s.statValue, stat.highlight && { color: '#ef4444' }]}>
                                 {stat.value}

@@ -1,0 +1,42 @@
+{
+  "date": "2026-03-11T07:13:52.217Z",
+  "duration": 18,
+  "totalTests": 102,
+  "passed": 101,
+  "failed": 0,
+  "warnings": 1,
+  "roles": {
+    "MERCHANT": {
+      "tests": 13,
+      "passed": 13,
+      "failed": 0
+    },
+    "PRODUCER": {
+      "tests": 7,
+      "passed": 7,
+      "failed": 0
+    },
+    "FIELD_AGENT": {
+      "tests": 11,
+      "passed": 11,
+      "failed": 0
+    },
+    "COOPERATIVE": {
+      "tests": 18,
+      "passed": 18,
+      "failed": 0
+    },
+    "SUPERVISOR": {
+      "tests": 14,
+      "passed": 14,
+      "failed": 0
+    }
+  },
+  "errors": [],
+  "warnings_list": [
+    {
+      "test": "Carnet dettes",
+      "detail": "Table credits_clients : column credits_clients.marchand_id does not exist"
+    }
+  ]
+}

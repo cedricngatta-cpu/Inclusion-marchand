@@ -15,7 +15,8 @@ import { colors } from '@/src/lib/colors';
 export default function CarnetScreen() {
     const { history, markAsPaid, refreshHistory } = useHistoryContext();
 
-    useFocusEffect(useCallback(() => { refreshHistory(); }, [refreshHistory]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useFocusEffect(useCallback(() => { refreshHistory(); }, []));
     const [search, setSearch]               = useState('');
     const [selectedClient, setSelectedClient] = useState<string | null>(null);
     const [processing, setProcessing]       = useState<string | null>(null);

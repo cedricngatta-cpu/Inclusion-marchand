@@ -1,0 +1,66 @@
+[
+  {
+    "date": "2026-03-11T06:31:56.147Z",
+    "total": 94,
+    "passed": 89,
+    "failed": 4,
+    "warnings": 1,
+    "score": 95
+  },
+  {
+    "date": "2026-03-11T07:05:26.044Z",
+    "total": 101,
+    "passed": 98,
+    "failed": 2,
+    "warnings": 1,
+    "score": 97
+  },
+  {
+    "date": "2026-03-11T07:09:44.425Z",
+    "total": 101,
+    "passed": 98,
+    "failed": 2,
+    "warnings": 1,
+    "score": 97
+  },
+  {
+    "date": "2026-03-11T07:13:52.217Z",
+    "total": 102,
+    "passed": 101,
+    "failed": 0,
+    "warnings": 1,
+    "score": 99
+  },
+  {
+    "date": "2026-03-11T12:28:03.880Z",
+    "total": 100,
+    "passed": 100,
+    "failed": 0,
+    "warnings": 0,
+    "score": 100
+  },
+  {
+    "date": "2026-03-11T12:30:04.479Z",
+    "total": 100,
+    "passed": 99,
+    "failed": 1,
+    "warnings": 0,
+    "score": 99
+  },
+  {
+    "date": "2026-03-11T12:32:34.684Z",
+    "total": 100,
+    "passed": 100,
+    "failed": 0,
+    "warnings": 0,
+    "score": 100
+  },
+  {
+    "date": "2026-03-11T14:17:13.720Z",
+    "total": 102,
+    "passed": 102,
+    "failed": 0,
+    "warnings": 0,
+    "score": 100
+  }
+]

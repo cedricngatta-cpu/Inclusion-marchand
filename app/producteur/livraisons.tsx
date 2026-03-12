@@ -20,7 +20,7 @@ interface DeliveryOrder {
     total_amount: number;
     created_at: string;
     products: { name: string; price: number } | null;
-    stores: { name: string } | null;
+    stores: { name: string; owner_id?: string } | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -46,13 +46,12 @@ const STEP_LABELS = ['En attente', 'Acceptée', 'En préparation', 'En livraison
 
 function getNextStatus(current: string): string | null {
     if (current === 'ACCEPTED') return 'SHIPPED';
-    if (current === 'SHIPPED') return 'DELIVERED';
+    // DELIVERED est confirmé par le marchand depuis son écran Mes Commandes
     return null;
 }
 
 function getNextLabel(current: string): string | null {
-    if (current === 'ACCEPTED') return 'MARQUER EN LIVRAISON';
-    if (current === 'SHIPPED') return 'MARQUER LIVRÉE';
+    if (current === 'ACCEPTED') return 'METTRE EN LIVRAISON';
     return null;
 }
 
@@ -99,7 +98,7 @@ export default function LivraisonsScreen() {
         try {
             const { data } = await supabase
                 .from('orders')
-                .select('*, products(name, price), stores!buyer_store_id(name)')
+                .select('*, products(name, price), stores!buyer_store_id(name, owner_id)')
                 .eq('seller_store_id', activeProfile.id)
                 .in('status', ['ACCEPTED', 'SHIPPED'])
                 .order('created_at', { ascending: false });
@@ -129,31 +128,12 @@ export default function LivraisonsScreen() {
         try {
             await supabase.from('orders').update({ status: nextStatus }).eq('id', orderId);
 
-            // Log activité + socket si livraison terminée
-            if (nextStatus === 'DELIVERED') {
+            if (nextStatus === 'SHIPPED') {
                 const order = orders.find(o => o.id === orderId);
-                const amount = order
-                    ? (order.total_amount > 0 ? order.total_amount : (order.products?.price ?? 0) * order.quantity)
-                    : 0;
-                emitEvent('livraison-terminee', {
-                    orderId,
-                    sellerStoreId: activeProfile?.id,
-                    productName:   order?.products?.name ?? 'Produit',
-                    quantity:      order?.quantity ?? 1,
-                    totalPrice:    amount,
-                });
-                try {
-                    await supabase.from('activity_logs').insert([{
-                        user_id:   activeProfile?.id ?? null,
-                        user_name: activeProfile?.name ?? 'Producteur',
-                        action:    `Livraison terminée : ${order?.products?.name ?? 'Produit'} × ${order?.quantity ?? 1} → ${order?.stores?.name ?? 'Acheteur'}`,
-                        type:      'livraison',
-                    }]);
-                } catch {}
-            } else if (nextStatus === 'SHIPPED') {
                 emitEvent('livraison-en-cours', {
                     orderId,
                     sellerStoreId: activeProfile?.id,
+                    buyerUserId:   order?.stores?.owner_id ?? null,
                     driverName:    activeProfile?.name,
                 });
             }
@@ -269,7 +249,7 @@ export default function LivraisonsScreen() {
                                 </View>
 
                                 {/* Bouton changer statut */}
-                                {nextStatus && nextLabel && (
+                                {nextStatus && nextLabel ? (
                                     <TouchableOpacity
                                         style={[styles.statusBtn, isLoading && { opacity: 0.6 }]}
                                         onPress={() => handleChangeStatus(order.id, nextStatus)}
@@ -285,7 +265,13 @@ export default function LivraisonsScreen() {
                                             </>
                                         )}
                                     </TouchableOpacity>
-                                )}
+                                ) : order.status === 'SHIPPED' ? (
+                                    <View style={styles.waitingBanner}>
+                                        <Text style={styles.waitingBannerText}>
+                                            En attente de confirmation par le marchand
+                                        </Text>
+                                    </View>
+                                ) : null}
                             </View>
                         );
                     })
@@ -351,6 +337,12 @@ const styles = StyleSheet.create({
         elevation: 3,
     },
     statusBtnText: { fontSize: 12, fontWeight: '900', color: colors.white, letterSpacing: 1 },
+
+    waitingBanner: {
+        backgroundColor: '#eff6ff', borderRadius: 8, padding: 12,
+        borderWidth: 1, borderColor: '#bfdbfe', alignItems: 'center',
+    },
+    waitingBannerText: { fontSize: 12, fontWeight: '600', color: '#1e40af' },
 
     // Empty
     emptyCard: {

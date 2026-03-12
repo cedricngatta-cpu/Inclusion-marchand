@@ -11,7 +11,7 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://dinocjmwktrxqupyjsqn.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "VOTRE_SUPABASE_ANON_KEY",
-        "EXPO_PUBLIC_SOCKET_URL": "http://192.168.1.235:3001",
+        "EXPO_PUBLIC_SOCKET_URL": "https://inclusion-marchand.onrender.com",
         "EXPO_PUBLIC_GROQ_API_KEY": "VOTRE_GROQ_API_KEY"
       }
     },
@@ -19,7 +19,7 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://dinocjmwktrxqupyjsqn.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "VOTRE_SUPABASE_ANON_KEY",
-        "EXPO_PUBLIC_SOCKET_URL": "http://192.168.1.235:3001",
+        "EXPO_PUBLIC_SOCKET_URL": "https://inclusion-marchand.onrender.com",
         "EXPO_PUBLIC_GROQ_API_KEY": "VOTRE_GROQ_API_KEY"
       }
     }

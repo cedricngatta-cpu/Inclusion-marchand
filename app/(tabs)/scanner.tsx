@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, Pressable,
-    Animated, Vibration, Dimensions,
+    Animated, Vibration, Dimensions, Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { ChevronLeft, Flashlight, FlashlightOff, RotateCcw, Plus, ShoppingBag } from 'lucide-react-native';
@@ -30,6 +30,20 @@ type ScanResult =
 export default function ScannerScreen() {
     const router = useRouter();
     const { products } = useProductContext();
+
+    // Scanner non disponible sur web
+    if (Platform.OS === 'web') {
+        return (
+            <View style={styles.fullDark}>
+                <Text style={styles.permTitle}>Scanner non disponible</Text>
+                <Text style={styles.permText}>Le scanner de codes-barres est disponible uniquement sur l'application mobile.</Text>
+                <TouchableOpacity style={styles.backTextBtn} onPress={() => router.back()}>
+                    <Text style={styles.backTextBtnText}>RETOUR</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
+
     const [permission, requestPermission] = useCameraPermissions();
     const [torch, setTorch] = useState(false);
     const [paused, setPaused] = useState(false);

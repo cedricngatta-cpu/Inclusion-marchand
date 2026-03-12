@@ -20,6 +20,7 @@ export default function TabsLayout() {
             <Stack.Screen name="formation" />
             <Stack.Screen name="conseils" />
             <Stack.Screen name="achats-groupes" />
+            <Stack.Screen name="mes-commandes" />
         </Stack>
     );
 }

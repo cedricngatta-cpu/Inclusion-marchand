@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, ScrollView, TouchableOpacity, StyleSheet,
-    TextInput, Modal, Alert, Animated, Vibration, Dimensions, Image,
+    TextInput, Modal, Alert, Animated, Vibration, Dimensions, Image, Platform, useWindowDimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +15,7 @@ import { useProductContext } from '@/src/context/ProductContext';
 import { useStockContext } from '@/src/context/StockContext';
 import { useHistoryContext } from '@/src/context/HistoryContext';
 import { useAuth } from '@/src/context/AuthContext';
+import { useProfileContext } from '@/src/context/ProfileContext';
 import { useNetwork } from '@/src/context/NetworkContext';
 import { offlineQueue, syncOfflineQueue, PendingTransaction } from '@/src/lib/offlineQueue';
 import { colors } from '@/src/lib/colors';
@@ -42,17 +43,29 @@ const PAYMENT_OPTIONS = [
     { value: 'DETTE' as const, label: 'Crédit', icon: BookOpen,    color: '#f97316' },
 ];
 
+const MOMO_OPERATORS = [
+    { value: 'ORANGE' as const, label: 'Orange Money', bgColor: '#FFF3E6', borderColor: '#FF6600', textColor: '#FF6600' },
+    { value: 'MTN'    as const, label: 'MTN MoMo',     bgColor: '#FFFDE6', borderColor: '#FFCC00', textColor: '#996600' },
+    { value: 'WAVE'   as const, label: 'Wave',          bgColor: '#E6F9FC', borderColor: '#1DC4E9', textColor: '#0A8FA8' },
+    { value: 'MOOV'   as const, label: 'Moov Money',   bgColor: '#E6F0FF', borderColor: '#0066CC', textColor: '#0066CC' },
+];
+
 export default function VendreScreen() {
     const { user } = useAuth();
+    const { activeProfile } = useProfileContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
     const { products } = useProductContext();
-    const { updateStock, getStockLevel } = useStockContext();
-    const { addTransaction } = useHistoryContext();
+    const { updateStock, getStockLevel, refreshStock } = useStockContext();
+    const { addTransaction, refreshHistory } = useHistoryContext();
     const { isOnline, addToPendingCount, resetPendingCount } = useNetwork();
 
     // ── Panier ──
     const [cart, setCart]             = useState<CartItem[]>([]);
     const [clientName, setClientName] = useState('');
     const [paymentStatus, setPaymentStatus] = useState<'PAYÉ' | 'DETTE' | 'MOMO'>('PAYÉ');
+    const [momoOperator, setMomoOperator]   = useState<'ORANGE' | 'MTN' | 'WAVE' | 'MOOV' | null>(null);
+    const [clientPhone,  setClientPhone]    = useState('');
     const [showSuccess, setShowSuccess]     = useState(false);
     const [isLoading, setIsLoading]         = useState(false);
 
@@ -183,7 +196,7 @@ export default function VendreScreen() {
 
         // ── Chemin hors-ligne : mise en file d'attente locale ──
         if (!isOnline) {
-            const storeId = user?.id ?? '';
+            const storeId = activeProfile?.id ?? user?.id ?? '';
             for (const item of cart) {
                 const tx: PendingTransaction = {
                     id: `offline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -195,6 +208,8 @@ export default function VendreScreen() {
                     price: item.price * item.quantity,
                     client_name: clientName || undefined,
                     status: paymentStatus,
+                    operator: paymentStatus === 'MOMO' ? (momoOperator ?? undefined) : undefined,
+                    client_phone: paymentStatus === 'MOMO' && clientPhone ? clientPhone : undefined,
                     created_at: new Date().toISOString(),
                 };
                 await offlineQueue.addTransaction(storeId, tx);
@@ -205,7 +220,9 @@ export default function VendreScreen() {
             setTimeout(() => {
                 setCart([]);
                 setClientName('');
+                setClientPhone('');
                 setPaymentStatus('PAYÉ');
+                setMomoOperator(null);
                 setShowSuccess(false);
             }, 2500);
             return;
@@ -235,6 +252,8 @@ export default function VendreScreen() {
                     price:       item.price * item.quantity,
                     clientName:  clientName || undefined,
                     status:      paymentStatus,
+                    operator:    paymentStatus === 'MOMO' ? (momoOperator ?? undefined) : undefined,
+                    clientPhone: paymentStatus === 'MOMO' && clientPhone ? clientPhone : undefined,
                 });
             }
 
@@ -248,12 +267,18 @@ export default function VendreScreen() {
                 }]);
             } catch {}
 
-            // ── Étape 4 : succès ──
+            // ── Étape 4 : rafraîchir les contextes depuis Supabase ──
+            refreshHistory().catch(console.error);
+            refreshStock().catch(console.error);
+
+            // ── Étape 5 : succès ──
             setShowSuccess(true);
             setTimeout(() => {
                 setCart([]);
                 setClientName('');
+                setClientPhone('');
                 setPaymentStatus('PAYÉ');
+                setMomoOperator(null);
                 setShowSuccess(false);
             }, 2500);
 
@@ -272,7 +297,7 @@ export default function VendreScreen() {
         } finally {
             setIsLoading(false);
         }
-    }, [cart, paymentStatus, clientName, getStockLevel, updateStock, addTransaction, isOnline, addToPendingCount]);
+    }, [cart, paymentStatus, clientName, getStockLevel, updateStock, addTransaction, refreshHistory, refreshStock, isOnline, addToPendingCount]);
 
     return (
         <View style={styles.safe}>
@@ -281,9 +306,11 @@ export default function VendreScreen() {
                 showBack={true}
                 rightIcon={
                     <View style={styles.headerRight}>
-                        <TouchableOpacity style={styles.headerIconBtn} onPress={() => setShowScanner(true)} activeOpacity={0.8}>
-                            <QrCode color={colors.white} size={20} />
-                        </TouchableOpacity>
+                        {Platform.OS !== 'web' && (
+                            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setShowScanner(true)} activeOpacity={0.8}>
+                                <QrCode color={colors.white} size={20} />
+                            </TouchableOpacity>
+                        )}
                         {cart.length > 0 && (
                             <TouchableOpacity style={styles.headerIconBtn} onPress={() => setCart([])} activeOpacity={0.8}>
                                 <Trash2 color={colors.white} size={20} />
@@ -293,10 +320,10 @@ export default function VendreScreen() {
                 }
             />
 
-            <View style={styles.container}>
+            <View style={[styles.container, isDesktop && dtVd.container]}>
 
                 {/* ── Grille produits ── */}
-                <ScrollView style={styles.productsScroll} showsVerticalScrollIndicator={false}>
+                <ScrollView style={styles.productsScroll} contentContainerStyle={isDesktop && { paddingHorizontal: 24, paddingTop: 20 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                     {products.length === 0 ? (
                         <View style={styles.empty}>
                             <ShoppingBag color={colors.slate300} size={40} />
@@ -304,7 +331,7 @@ export default function VendreScreen() {
                             <Text style={styles.emptySubtext}>Ajoutez des produits dans l'onglet Stock</Text>
                         </View>
                     ) : (
-                        <View style={styles.productsGrid}>
+                        <View style={[styles.productsGrid, isDesktop && dtVd.productsGrid]}>
                             {products.map(product => {
                                 const stock    = getStockLevel(product.id);
                                 const epuise   = stock <= 0;
@@ -314,6 +341,7 @@ export default function VendreScreen() {
                                         key={product.id}
                                         style={[
                                             styles.productCard,
+                                            isDesktop && dtVd.productCard,
                                             inCart  && styles.productCardActive,
                                             epuise  && styles.productCardDisabled,
                                         ]}
@@ -400,13 +428,49 @@ export default function VendreScreen() {
                                 <TouchableOpacity
                                     key={opt.value}
                                     style={[styles.payBtn, paymentStatus === opt.value && { backgroundColor: opt.color, borderColor: opt.color }]}
-                                    onPress={() => setPaymentStatus(opt.value)}
+                                    onPress={() => { setPaymentStatus(opt.value); if (opt.value !== 'MOMO') setMomoOperator(null); }}
                                 >
                                     <opt.icon color={paymentStatus === opt.value ? colors.white : colors.slate400} size={14} />
                                     <Text style={[styles.payBtnText, paymentStatus === opt.value && { color: colors.white }]}>{opt.label}</Text>
                                 </TouchableOpacity>
                             ))}
                         </View>
+
+                        {/* Sélecteur opérateur Mobile Money */}
+                        {paymentStatus === 'MOMO' && (
+                            <>
+                                <View style={styles.operatorGrid}>
+                                    {MOMO_OPERATORS.map(op => (
+                                        <TouchableOpacity
+                                            key={op.value}
+                                            style={[
+                                                styles.operatorBtn,
+                                                { backgroundColor: op.bgColor, borderColor: momoOperator === op.value ? colors.primary : op.borderColor },
+                                            ]}
+                                            onPress={() => setMomoOperator(op.value)}
+                                            activeOpacity={0.8}
+                                        >
+                                            {momoOperator === op.value && (
+                                                <View style={styles.operatorCheck}>
+                                                    <CheckCircle color={colors.primary} size={12} />
+                                                </View>
+                                            )}
+                                            <Text style={[styles.operatorName, { color: op.textColor }]} numberOfLines={1}>
+                                                {op.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                                <TextInput
+                                    style={styles.clientInput}
+                                    placeholder="Numéro Mobile Money client (optionnel)"
+                                    placeholderTextColor={colors.slate400}
+                                    value={clientPhone}
+                                    onChangeText={setClientPhone}
+                                    keyboardType="phone-pad"
+                                />
+                            </>
+                        )}
 
                         <TouchableOpacity
                             style={[styles.validateBtn, isLoading && { opacity: 0.7 }]}
@@ -592,6 +656,15 @@ const styles = StyleSheet.create({
     },
     payBtnText: { fontSize: 11, fontWeight: '700', color: colors.slate400 },
 
+    operatorGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    operatorBtn: {
+        width: '47%', borderRadius: 10, borderWidth: 2,
+        paddingVertical: 10, paddingHorizontal: 10,
+        alignItems: 'center', justifyContent: 'center', position: 'relative',
+    },
+    operatorCheck: { position: 'absolute', top: 4, right: 4 },
+    operatorName: { fontSize: 12, fontWeight: '800' },
+
     validateBtn: {
         backgroundColor: colors.primary, borderRadius: 10,
         paddingVertical: 16, alignItems: 'center',
@@ -673,4 +746,11 @@ const styles = StyleSheet.create({
     },
     successTitle:  { fontSize: 22, fontWeight: '900', color: colors.slate900, letterSpacing: -0.5 },
     successAmount: { fontSize: 32, fontWeight: '900', color: colors.primary },
+});
+
+// ── Styles desktop uniquement ─────────────────────────────────────────────
+const dtVd = StyleSheet.create({
+    container:    { alignSelf: 'center', width: '100%', maxWidth: 900 },
+    productsGrid: { gap: 14 },
+    productCard:  { width: '31%' },
 });

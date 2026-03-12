@@ -28,6 +28,7 @@
         "resizeMode": "contain",
         "backgroundColor": "#059669"
       },
+      "softwareKeyboardLayoutMode": "pan",
       "package": "com.inclusionmarchand.app",
       "permissions": [
         "android.permission.CAMERA",
@@ -39,7 +40,8 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "bundler": "metro",
+      "favicon": "./assets/icon.png"
     },
     "plugins": [
       "expo-router",

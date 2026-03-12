@@ -37,9 +37,21 @@ interface RecentActivity {
 }
 
 // ── Composant principal ────────────────────────────────────────────────────────
+const ROLE_ROUTES: Record<string, string> = {
+    MERCHANT: '/(tabs)/commercant', PRODUCER: '/producteur',
+    COOPERATIVE: '/cooperative', FIELD_AGENT: '/agent', SUPERVISOR: '/admin',
+};
+
 export default function CooperativeDashboard() {
     const router = useRouter();
     const { user } = useAuth();
+
+    // Garde de route — redirige si pas COOPERATIVE
+    useEffect(() => {
+        if (user && user.role !== 'COOPERATIVE') {
+            router.replace((ROLE_ROUTES[user.role] ?? '/(tabs)/commercant') as any);
+        }
+    }, [user?.role]);
 
     const [monthlyVolume,  setMonthlyVolume]  = useState(0);
     const [txCount,        setTxCount]        = useState(0);
@@ -76,19 +88,15 @@ export default function CooperativeDashboard() {
                     .select('*', { count: 'exact', head: true })
                     .in('status', ['PENDING', 'ACCEPTED']),
 
-                // Enrôlements en attente
-                supabase
-                    .from('demandes_enrolement')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('statut', 'en_attente'),
+                // Membres à vérifier — filtrés par coopérative
+                user?.id
+                    ? supabase.from('demandes_enrolement').select('*', { count: 'exact', head: true }).eq('statut', 'en_attente').eq('cooperative_id', user.id)
+                    : supabase.from('demandes_enrolement').select('*', { count: 'exact', head: true }).eq('statut', 'en_attente'),
 
-                // Dernières demandes d'enrôlement
-                supabase
-                    .from('demandes_enrolement')
-                    .select('*')
-                    .eq('statut', 'en_attente')
-                    .order('date_demande', { ascending: false })
-                    .limit(3),
+                // Derniers membres à vérifier — filtrés par coopérative
+                user?.id
+                    ? supabase.from('demandes_enrolement').select('*').eq('statut', 'en_attente').eq('cooperative_id', user.id).order('date_demande', { ascending: false }).limit(3)
+                    : supabase.from('demandes_enrolement').select('*').eq('statut', 'en_attente').order('date_demande', { ascending: false }).limit(3),
             ]);
 
             const vol = (volRes.data ?? []).reduce((s: number, t: any) => s + (t.price ?? 0), 0);
@@ -127,7 +135,8 @@ export default function CooperativeDashboard() {
     }, [fetchDashboard]);
 
     // Recharge à chaque retour sur l'écran
-    useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useFocusEffect(useCallback(() => { fetchDashboard(); }, []));
 
     // Bouton retour Android sur le dashboard → quitter l'app
     useFocusEffect(useCallback(() => {
@@ -175,7 +184,7 @@ export default function CooperativeDashboard() {
                 <View style={s.kpiRow}>
                     <View style={s.kpiCell}>
                         <View style={s.kpiIconWrap}>
-                            <Users color="rgba(255,255,255,0.9)" size={16} />
+                            <Users color="#059669" size={16} />
                         </View>
                         <Text style={s.kpiValue}>{loading ? '–' : totalMembers}</Text>
                         <Text style={s.kpiLabel}>MEMBRES</Text>
@@ -183,7 +192,7 @@ export default function CooperativeDashboard() {
                     <View style={s.kpiSep} />
                     <View style={s.kpiCell}>
                         <View style={[s.kpiIconWrap, b2bPending > 0 && { backgroundColor: 'rgba(239,68,68,0.3)' }]}>
-                            <Truck color="rgba(255,255,255,0.9)" size={16} />
+                            <Truck color={b2bPending > 0 ? '#ef4444' : '#059669'} size={16} />
                         </View>
                         <Text style={[s.kpiValue, b2bPending > 0 && { color: '#fca5a5' }]}>
                             {loading ? '–' : b2bPending}
@@ -213,9 +222,9 @@ export default function CooperativeDashboard() {
                         </View>
                         <View style={{ flex: 1 }}>
                             <Text style={[s.alertTitle, { color: PURPLE }]}>
-                                {pendingEnroll} demande{pendingEnroll > 1 ? 's' : ''} en attente
+                                {pendingEnroll} membre{pendingEnroll > 1 ? 's' : ''} à vérifier
                             </Text>
-                            <Text style={[s.alertSub, { color: '#a78bfa' }]}>Valider les nouveaux membres →</Text>
+                            <Text style={[s.alertSub, { color: '#a78bfa' }]}>Vérifier les nouveaux membres →</Text>
                         </View>
                     </TouchableOpacity>
                 )}
@@ -243,9 +252,8 @@ export default function CooperativeDashboard() {
                 {/* ── Navigation modules ── */}
                 <Text style={s.sectionTitle}>MODULES</Text>
                 {[
-                    { label: 'Demandes d\'enrôlement', icon: Users,      bg: '#fef3c7', color: '#92400e', path: '/cooperative/demandes' },
-                    { label: 'Performances',           icon: TrendingUp, bg: '#ede9fe', color: PURPLE,   path: '/cooperative/performances' },
-                    { label: 'Analyses de marché',     icon: TrendingUp, bg: '#e0e7ff', color: '#3730a3', path: '/cooperative/analyses' },
+                    { label: 'Validations',         icon: Users,      bg: '#fef3c7', color: '#92400e', path: '/cooperative/demandes' },
+                    { label: 'Analyses de marché',  icon: TrendingUp, bg: '#e0e7ff', color: '#3730a3', path: '/cooperative/analyses' },
                 ].map(item => {
                     const Icon = item.icon;
                     return (
@@ -289,7 +297,7 @@ export default function CooperativeDashboard() {
                                     <Text style={s.activitySub}>{act.sub} · {new Date(act.created_at).toLocaleDateString('fr-FR')}</Text>
                                 </View>
                                 <View style={s.pendingBadge}>
-                                    <Text style={s.pendingBadgeText}>EN ATTENTE</Text>
+                                    <Text style={s.pendingBadgeText}>À VÉRIFIER</Text>
                                 </View>
                             </TouchableOpacity>
                         ))}

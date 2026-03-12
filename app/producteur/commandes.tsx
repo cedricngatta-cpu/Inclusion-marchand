@@ -28,7 +28,7 @@ interface Order {
     product_id: string | null;
     buyer_store_id: string | null;
     products: { name: string; price: number } | null;
-    stores: { id: string; name: string } | null;
+    stores: { id: string; name: string; owner_id?: string } | null;
 }
 
 interface DemandeGroupee {
@@ -103,7 +103,7 @@ export default function CommandesScreen() {
         try {
             let query = supabase
                 .from('orders')
-                .select('*, products(name, price), stores!buyer_store_id(id, name)')
+                .select('*, products(name, price), stores!buyer_store_id(id, name, owner_id)')
                 .eq('seller_store_id', activeProfile.id)
                 .order('created_at', { ascending: false });
             if (filter !== 'ALL') query = query.eq('status', filter);
@@ -188,17 +188,15 @@ export default function CommandesScreen() {
             const buyerStoreId = order.stores?.id ?? order.buyer_store_id ?? null;
             const eventData = {
                 buyerStoreId,
-                buyerId:     null,
+                buyerUserId: order.stores?.owner_id ?? null,
                 productName: order.products?.name ?? 'Produit',
                 quantity:    order.quantity,
                 orderId:     order.id,
             };
 
-            if (status === 'ACCEPTED' || status === 'CANCELLED' || status === 'DELIVERED') {
+            if (status === 'ACCEPTED' || status === 'CANCELLED') {
                 try {
-                    const actionLabel = status === 'ACCEPTED' ? 'Commande acceptée'
-                        : status === 'CANCELLED' ? 'Commande refusée'
-                        : 'Commande livrée';
+                    const actionLabel = status === 'ACCEPTED' ? 'Commande acceptée' : 'Commande refusée';
                     await supabase.from('activity_logs').insert([{
                         user_id:   user?.id ?? null,
                         user_name: user?.name ?? 'Producteur',
@@ -214,33 +212,6 @@ export default function CommandesScreen() {
                 emitEvent('commande-refusee', { ...eventData, reason: 'Non disponible' });
             } else if (status === 'SHIPPED') {
                 emitEvent('livraison-en-cours', { ...eventData, driverName: user?.name });
-            } else if (status === 'DELIVERED') {
-                if (buyerStoreId && order.product_id) {
-                    const { data: existingStock } = await supabase
-                        .from('stock')
-                        .select('id, quantity')
-                        .eq('store_id', buyerStoreId)
-                        .eq('product_id', order.product_id)
-                        .maybeSingle();
-
-                    if (existingStock) {
-                        await supabase
-                            .from('stock')
-                            .update({ quantity: existingStock.quantity + order.quantity })
-                            .eq('id', existingStock.id);
-                    } else {
-                        await supabase.from('stock').insert([{
-                            store_id:   buyerStoreId,
-                            product_id: order.product_id,
-                            quantity:   order.quantity,
-                        }]);
-                    }
-                }
-                emitEvent('livraison-terminee', {
-                    ...eventData,
-                    sellerStoreId: activeProfile?.id,
-                    totalPrice:    order.total_amount,
-                });
             }
 
             await fetchOrders();
@@ -362,6 +333,7 @@ export default function CommandesScreen() {
                 style={styles.scroll}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 refreshControl={
                     <RefreshControl
                         refreshing={refreshing}
@@ -388,10 +360,9 @@ export default function CommandesScreen() {
                             const isPending  = order.status === 'PENDING';
                             const isAccepted = order.status === 'ACCEPTED';
                             const isShipping = order.status === 'SHIPPED';
-                            const acceptKey    = order.id + 'ACCEPTED';
-                            const rejectKey    = order.id + 'CANCELLED';
-                            const shippingKey  = order.id + 'SHIPPED';
-                            const deliveredKey = order.id + 'DELIVERED';
+                            const acceptKey   = order.id + 'ACCEPTED';
+                            const rejectKey   = order.id + 'CANCELLED';
+                            const shippingKey = order.id + 'SHIPPED';
 
                             return (
                                 <View key={order.id} style={styles.orderCard}>
@@ -471,17 +442,7 @@ export default function CommandesScreen() {
                                         </TouchableOpacity>
                                     )}
 
-                                    {isShipping && (
-                                        <TouchableOpacity
-                                            style={[styles.deliveredBtn, actionLoading === deliveredKey && { opacity: 0.6 }]}
-                                            onPress={() => handleUpdateStatus(order, 'DELIVERED')}
-                                            disabled={!!actionLoading}
-                                        >
-                                            {actionLoading === deliveredKey
-                                                ? <ActivityIndicator color={colors.white} size="small" />
-                                                : <Text style={styles.deliveredBtnText}>✓  MARQUER LIVRÉE</Text>}
-                                        </TouchableOpacity>
-                                    )}
+                                    {/* Livraison confirmée par le marchand uniquement */}
                                 </View>
                             );
                         })

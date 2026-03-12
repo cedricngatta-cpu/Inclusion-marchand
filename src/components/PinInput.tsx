@@ -4,8 +4,9 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
     View, Text, TouchableOpacity, StyleSheet, Image,
     Animated, Vibration, Alert, ActivityIndicator,
+    Platform, TextInput, useWindowDimensions,
 } from 'react-native';
-import { Delete } from 'lucide-react-native';
+import { Delete, ChevronLeft, Phone } from 'lucide-react-native';
 
 interface PinInputProps {
     mode: 'login' | 'lock';
@@ -14,6 +15,7 @@ interface PinInputProps {
     onVerify: (pin: string) => Promise<boolean>;
     onSuccess: () => void;
     onForgot?: () => void;
+    onBack?: () => void;
 }
 
 function maskPhone(phone: string): string {
@@ -33,6 +35,7 @@ export default function PinInput({
     onVerify,
     onSuccess,
     onForgot,
+    onBack,
 }: PinInputProps) {
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
@@ -127,11 +130,183 @@ export default function PinInput({
         ? 'pour déverrouiller'
         : 'pour continuer';
 
+    // ── Layout desktop ──────────────────────────────────────────────────────
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
+    const handleDesktopChange = useCallback(async (text: string) => {
+        const digits = text.replace(/[^0-9]/g, '').slice(0, 4);
+        setPin(digits);
+        setError('');
+        setDotState('normal');
+        if (digits.length === 4) {
+            setLoading(true);
+            const ok = await onVerify(digits);
+            setLoading(false);
+            if (ok) {
+                onSuccess();
+            } else {
+                setDotState('error');
+                setError('Code incorrect');
+                resetTimer.current = setTimeout(() => {
+                    setPin('');
+                    setDotState('normal');
+                    setError('');
+                }, 2000);
+            }
+        }
+    }, [onVerify, onSuccess]);
+
+    if (isDesktop) {
+        return (
+            // Overlay sombre plein écran — masque sidebar + tout le reste
+            <View style={{
+                flex: 1,
+                backgroundColor: 'rgba(0,0,0,0.4)',
+                justifyContent: 'center',
+                alignItems: 'center',
+            }}>
+                {/* Carte blanche */}
+                <View style={{
+                    width: 420,
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: 16,
+                    padding: 40,
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: 0.15,
+                    shadowRadius: 24,
+                    elevation: 10,
+                }}>
+                    {/* Logo */}
+                    <Image
+                        source={require('../../assets/icon.png')}
+                        style={{ width: 52, height: 52, borderRadius: 12, marginBottom: 16 }}
+                        resizeMode="cover"
+                    />
+
+                    <Text style={{ fontSize: 20, fontWeight: '800', color: '#1F2937', marginBottom: 4 }}>
+                        Entrez votre code PIN
+                    </Text>
+                    <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 28 }}>
+                        4 chiffres pour continuer
+                    </Text>
+
+                    {/* Numéro masqué + modifier */}
+                    {onBack && phoneNumber && (
+                        <TouchableOpacity
+                            onPress={onBack}
+                            activeOpacity={0.7}
+                            style={{
+                                flexDirection: 'row', alignItems: 'center', marginBottom: 24,
+                                backgroundColor: '#F9FAFB', paddingHorizontal: 14, paddingVertical: 8,
+                                borderRadius: 8,
+                            }}
+                        >
+                            <Text style={{ fontSize: 13, color: '#6B7280' }}>
+                                {maskPhone(phoneNumber)}
+                            </Text>
+                            <Text style={{ fontSize: 12, color: '#059669', fontWeight: '600', marginLeft: 10 }}>
+                                Modifier
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* 4 cases individuelles */}
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+                        {[0, 1, 2, 3].map(i => {
+                            const filled  = pin.length > i;
+                            const active  = pin.length === i;
+                            const isError = dotState === 'error';
+                            return (
+                                <View key={i} style={{
+                                    width: 56, height: 64,
+                                    borderWidth: 2,
+                                    borderColor: isError && filled ? '#DC2626'
+                                        : filled || active ? '#059669' : '#E5E7EB',
+                                    borderRadius: 12,
+                                    backgroundColor: isError && filled ? '#FEF2F2'
+                                        : filled ? '#ECFDF5' : '#F9FAFB',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                }}>
+                                    {filled ? (
+                                        // Point masqué (chiffre rempli)
+                                        <View style={{
+                                            width: 14, height: 14, borderRadius: 7,
+                                            backgroundColor: isError ? '#DC2626' : '#059669',
+                                        }} />
+                                    ) : active ? (
+                                        // Curseur clignotant simulé
+                                        <View style={{
+                                            width: 2, height: 24,
+                                            backgroundColor: '#059669',
+                                            borderRadius: 1,
+                                        }} />
+                                    ) : (
+                                        // Tiret vide
+                                        <View style={{
+                                            width: 8, height: 2,
+                                            backgroundColor: '#CBD5E1',
+                                            borderRadius: 1,
+                                        }} />
+                                    )}
+                                </View>
+                            );
+                        })}
+                    </View>
+
+                    {/* TextInput invisible — capture les frappes clavier */}
+                    <TextInput
+                        value={pin}
+                        onChangeText={handleDesktopChange}
+                        maxLength={4}
+                        autoFocus={true}
+                        keyboardType="numeric"
+                        editable={!loading}
+                        style={{
+                            position: 'absolute',
+                            opacity: 0,
+                            width: 1,
+                            height: 1,
+                        } as any}
+                    />
+
+                    {/* Erreur / loading */}
+                    <View style={{ height: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                        {loading
+                            ? <ActivityIndicator color="#059669" size="small" />
+                            : error
+                                ? <Text style={{ fontSize: 13, color: '#DC2626', fontWeight: '500' }}>{error}</Text>
+                                : null
+                        }
+                    </View>
+
+                    {/* Code oublié */}
+                    {onForgot && (
+                        <TouchableOpacity onPress={handleForgot} activeOpacity={0.7}>
+                            <Text style={{ fontSize: 13, color: '#059669', fontWeight: '600' }}>
+                                Code oublié ?
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </View>
+        );
+    }
+
     return (
         <View style={styles.container}>
 
-            {/* Numéro partiellement masqué — haut droite */}
-            {phoneNumber ? (
+            {/* Bouton retour + numéro masqué (mode login uniquement) */}
+            {onBack && phoneNumber ? (
+                <TouchableOpacity style={styles.backRow} onPress={onBack} activeOpacity={0.7}>
+                    <ChevronLeft color="#059669" size={18} />
+                    <Text style={styles.backText}>{maskPhone(phoneNumber)}</Text>
+                    <Text style={styles.backChange}>Modifier</Text>
+                </TouchableOpacity>
+            ) : phoneNumber ? (
                 <View style={styles.phoneTopRight}>
                     <Text style={styles.phoneText}>{maskPhone(phoneNumber)}</Text>
                 </View>
@@ -232,7 +407,29 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
     },
 
-    // Numéro haut droite
+    // Bouton retour avec numéro masqué
+    backRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 4,
+        gap: 4,
+    },
+    backText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#059669',
+    },
+    backChange: {
+        fontSize: 13,
+        fontWeight: '400',
+        color: '#94a3b8',
+        marginLeft: 4,
+    },
+
+    // Numéro haut droite (sans bouton retour)
     phoneTopRight: {
         position: 'absolute',
         top: 16,

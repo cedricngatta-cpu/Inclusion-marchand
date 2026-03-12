@@ -1,5 +1,5 @@
 // Écran Profil — migré depuis Next.js /profil/page.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { User, LogOut, Store, Shield, Phone, ChevronRight } from 'lucide-react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -9,6 +9,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { useProfileContext } from '@/src/context/ProfileContext';
 import { useVoiceButton } from '@/src/context/VoiceButtonContext';
 import { colors } from '@/src/lib/colors';
+import { ChangePinModal } from '@/src/components/ChangePinModal';
 
 const ROLE_LABELS: Record<string, string> = {
     MERCHANT: 'Commerçant',
@@ -29,6 +30,7 @@ const ROLE_COLORS: Record<string, string> = {
 export default function ProfilScreen() {
     const router = useRouter();
     const { user, logout } = useAuth();
+    const [changePinVisible, setChangePinVisible] = useState(false);
     const { activeProfile } = useProfileContext();
     const { hideVoiceButton, showVoiceButton } = useVoiceButton();
 
@@ -101,7 +103,7 @@ export default function ProfilScreen() {
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>ACTIONS</Text>
 
-                    <TouchableOpacity style={styles.actionRow} activeOpacity={0.7}>
+                    <TouchableOpacity style={styles.actionRow} activeOpacity={0.7} onPress={() => setChangePinVisible(true)}>
                         <View style={styles.actionLeft}>
                             <Shield color={colors.slate600} size={18} />
                             <Text style={styles.actionText}>Changer mon PIN</Text>
@@ -118,6 +120,12 @@ export default function ProfilScreen() {
 
                 <Text style={styles.footer}>Inclusion Marchand • v1.0.0</Text>
             </ScrollView>
+
+            <ChangePinModal
+                visible={changePinVisible}
+                canCancel={true}
+                onClose={() => setChangePinVisible(false)}
+            />
         </View>
     );
 }

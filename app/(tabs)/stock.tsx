@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, ScrollView, TouchableOpacity, StyleSheet,
     TextInput, Modal, Alert, Animated, Vibration, Dimensions,
-    KeyboardAvoidingView, Platform, Image,
+    KeyboardAvoidingView, Platform, Image, useWindowDimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -30,12 +30,15 @@ const MASK = 'rgba(0,0,0,0.72)';
 export default function StockScreen() {
     const { products, addProduct, refreshProducts } = useProductContext();
     const { getStockLevel, updateStock, refreshStock } = useStockContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     // Recharger stock et produits à chaque retour sur l'écran
     useFocusEffect(useCallback(() => {
         refreshProducts();
         refreshStock();
-    }, [refreshProducts, refreshStock]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []));
     const insets = useSafeAreaInsets();
 
     const [search,       setSearch]       = useState('');
@@ -202,7 +205,11 @@ export default function StockScreen() {
             </View>
 
             {/* Liste */}
-            <ScrollView style={styles.list} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+            <ScrollView
+                style={styles.list}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={[{ paddingBottom: 24 }, isDesktop && { paddingHorizontal: 24, paddingTop: 16 }]}
+            >
                 {filtered.length === 0 ? (
                     <View style={styles.empty}>
                         <Package color={colors.slate300} size={48} />
@@ -210,10 +217,11 @@ export default function StockScreen() {
                         <Text style={styles.emptyText}>Appuyez sur + pour ajouter votre premier produit</Text>
                     </View>
                 ) : (
-                    filtered.map(product => {
+                    <View style={isDesktop ? dtSt.grid : undefined}>
+                    {filtered.map(product => {
                         const stock = getStockLevel(product.id);
                         return (
-                            <View key={product.id} style={styles.productRow}>
+                            <View key={product.id} style={[styles.productRow, isDesktop && dtSt.productCard]}>
                                 {/* Photo ou initiale */}
                                 {product.imageUrl ? (
                                     <Image source={{ uri: product.imageUrl }} style={styles.productIcon} />
@@ -244,7 +252,8 @@ export default function StockScreen() {
                                 </View>
                             </View>
                         );
-                    })
+                    })}
+                    </View>
                 )}
             </ScrollView>
 
@@ -307,9 +316,11 @@ export default function StockScreen() {
                                         keyboardType="numeric"
                                         returnKeyType="next"
                                     />
-                                    <TouchableOpacity style={styles.scanBtn} onPress={handleOpenScanner}>
-                                        <QrCode color={colors.white} size={20} />
-                                    </TouchableOpacity>
+                                    {Platform.OS !== 'web' && (
+                                        <TouchableOpacity style={styles.scanBtn} onPress={handleOpenScanner}>
+                                            <QrCode color={colors.white} size={20} />
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
 
                                 {/* 3. Nom */}
@@ -530,4 +541,21 @@ const styles = StyleSheet.create({
     noPermText: { color: colors.white, fontSize: 15, fontWeight: '700' },
     permBtn: { backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 12 },
     permBtnText: { color: colors.white, fontWeight: '900', fontSize: 13 },
+});
+
+// ── Styles grille desktop ─────────────────────────────────────────────────
+const dtSt = StyleSheet.create({
+    grid: {
+        flexDirection: 'row', flexWrap: 'wrap', gap: 12,
+    },
+    productCard: {
+        width: '48.5%',
+        borderBottomWidth: 0,
+        backgroundColor: colors.white,
+        borderRadius: 10,
+        borderWidth: 1, borderColor: colors.slate100,
+        padding: 14,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    },
 });

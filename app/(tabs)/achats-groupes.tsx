@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, Modal, TextInput, Alert, RefreshControl,
+    KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { ShoppingCart, Users, Clock, TrendingDown, Package, X, CheckCircle } from 'lucide-react-native';
@@ -221,6 +222,7 @@ export default function AchatsGroupesMarchandScreen() {
                 style={s.scroll}
                 contentContainerStyle={s.scrollContent}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
             >
                 {/* Explication */}
@@ -358,6 +360,10 @@ export default function AchatsGroupesMarchandScreen() {
                 transparent
                 onRequestClose={() => setJoinModal(null)}
             >
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
                 <View style={m.overlay}>
                     <View style={m.sheet}>
                         <View style={m.sheetHeader}>
@@ -424,6 +430,7 @@ export default function AchatsGroupesMarchandScreen() {
                         )}
                     </View>
                 </View>
+                </KeyboardAvoidingView>
             </Modal>
         </View>
     );

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, ActivityIndicator, TextInput,
-    Alert, RefreshControl, Modal,
+    Alert, RefreshControl, Modal, Platform, useWindowDimensions,
 } from 'react-native';
 import { TouchableOpacity, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFocusEffect } from 'expo-router';
@@ -79,6 +79,9 @@ export default function Utilisateurs() {
     const [userStats, setUserStats]       = useState<UserStats | null>(null);
     const [statsLoading, setStatsLoading] = useState(false);
 
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
     // ── Chargement liste ──────────────────────────────────────────────────────
     const fetchUsers = useCallback(async () => {
         try {
@@ -99,7 +102,7 @@ export default function Utilisateurs() {
                     console.log('❌ [Utilisateurs] fetch profiles:', fallback.error.message);
                     return;
                 }
-                data = fallback.data;
+                data = (fallback.data ?? []).map(r => ({ ...r, cooperative_id: null }));
             }
 
             const rows = (data as Profile[]) ?? [];
@@ -342,53 +345,86 @@ export default function Utilisateurs() {
                         <Text style={s.emptyText}>AUCUN UTILISATEUR TROUVÉ</Text>
                     </View>
                 ) : (
-                    filtered.map(u => {
-                        const ri      = getRoleInfo(u.role);
-                        const initial = (u.full_name ?? 'U')[0].toUpperCase();
-                        const isPending = !u.cooperative_id &&
-                            (u.role === 'MERCHANT' || u.role === 'PRODUCER');
-                        return (
-                            <TouchableOpacity
-                                key={u.id}
-                                style={s.userCard}
-                                activeOpacity={0.85}
-                                onPress={() => openModal(u)}
-                            >
-                                {/* Avatar */}
-                                <View style={[s.avatar, { backgroundColor: ri.avatarBg }]}>
-                                    <Text style={s.avatarText}>{initial}</Text>
-                                </View>
+                    <>
+                        {/* En-tête tableau (desktop uniquement) */}
+                        {isDesktop && (
+                            <View style={dtU.tableHeader}>
+                                <View style={dtU.colAvatar} />
+                                <Text style={[dtU.thText, dtU.colName]}>NOM</Text>
+                                <Text style={[dtU.thText, dtU.colPhone]}>TÉLÉPHONE</Text>
+                                <Text style={[dtU.thText, dtU.colRole]}>RÔLE</Text>
+                                <Text style={[dtU.thText, dtU.colCoop]}>COOPÉRATIVE</Text>
+                                <Text style={[dtU.thText, dtU.colDate]}>INSCRIPTION</Text>
+                                <View style={dtU.colChev} />
+                            </View>
+                        )}
+                        {filtered.map(u => {
+                            const ri      = getRoleInfo(u.role);
+                            const initial = (u.full_name ?? 'U')[0].toUpperCase();
+                            const isPending = !u.cooperative_id &&
+                                (u.role === 'MERCHANT' || u.role === 'PRODUCER');
+                            return (
+                                <TouchableOpacity
+                                    key={u.id}
+                                    style={[s.userCard, isDesktop && dtU.tableRow]}
+                                    activeOpacity={0.85}
+                                    onPress={() => openModal(u)}
+                                >
+                                    {/* Avatar */}
+                                    <View style={[s.avatar, { backgroundColor: ri.avatarBg }, isDesktop && dtU.colAvatar]}>
+                                        <Text style={s.avatarText}>{initial}</Text>
+                                    </View>
 
-                                {/* Infos */}
-                                <View style={s.userInfo}>
-                                    <Text style={s.userName} numberOfLines={1}>{u.full_name}</Text>
-                                    <Text style={s.userPhone}>{u.phone_number}</Text>
-                                    {u.boutique_name && (
-                                        <Text style={s.userBoutique} numberOfLines={1}>
-                                            🏪 {u.boutique_name}
-                                        </Text>
+                                    {isDesktop ? (
+                                        // ── Ligne tableau desktop ──────────────────────────────
+                                        <>
+                                            <Text style={[s.userName, dtU.colName]} numberOfLines={1}>{u.full_name}</Text>
+                                            <Text style={[s.userPhone, dtU.colPhone]} numberOfLines={1}>{u.phone_number}</Text>
+                                            <View style={[dtU.colRole, { alignItems: 'flex-start' }]}>
+                                                <View style={[s.roleBadge, { backgroundColor: ri.bg }]}>
+                                                    <Text style={[s.roleBadgeText, { color: ri.text }]}>{ri.label}</Text>
+                                                </View>
+                                            </View>
+                                            <Text style={[s.userCoop, dtU.colCoop]} numberOfLines={1}>
+                                                {u.cooperative_nom ?? (isPending ? 'À affecter' : '—')}
+                                            </Text>
+                                            <Text style={[s.userDate, dtU.colDate]} numberOfLines={1}>
+                                                {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                                            </Text>
+                                        </>
+                                    ) : (
+                                        // ── Carte mobile ──────────────────────────────────────
+                                        <>
+                                            <View style={s.userInfo}>
+                                                <Text style={s.userName} numberOfLines={1}>{u.full_name}</Text>
+                                                <Text style={s.userPhone}>{u.phone_number}</Text>
+                                                {u.boutique_name && (
+                                                    <Text style={s.userBoutique} numberOfLines={1}>
+                                                        🏪 {u.boutique_name}
+                                                    </Text>
+                                                )}
+                                                {u.cooperative_nom && (
+                                                    <Text style={s.userCoop} numberOfLines={1}>
+                                                        🤝 {u.cooperative_nom}
+                                                    </Text>
+                                                )}
+                                                {isPending && (
+                                                    <Text style={s.userNoCoopBadge}>À affecter</Text>
+                                                )}
+                                                <Text style={s.userDate}>
+                                                    {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                                                </Text>
+                                            </View>
+                                            <View style={[s.roleBadge, { backgroundColor: ri.bg }]}>
+                                                <Text style={[s.roleBadgeText, { color: ri.text }]}>{ri.label}</Text>
+                                            </View>
+                                        </>
                                     )}
-                                    {u.cooperative_nom && (
-                                        <Text style={s.userCoop} numberOfLines={1}>
-                                            🤝 {u.cooperative_nom}
-                                        </Text>
-                                    )}
-                                    {isPending && (
-                                        <Text style={s.userNoCoopBadge}>À affecter</Text>
-                                    )}
-                                    <Text style={s.userDate}>
-                                        {new Date(u.created_at).toLocaleDateString('fr-FR')}
-                                    </Text>
-                                </View>
-
-                                {/* Badge rôle */}
-                                <View style={[s.roleBadge, { backgroundColor: ri.bg }]}>
-                                    <Text style={[s.roleBadgeText, { color: ri.text }]}>{ri.label}</Text>
-                                </View>
-                                <ChevronRight color={colors.slate300} size={16} />
-                            </TouchableOpacity>
-                        );
-                    })
+                                    <ChevronRight color={colors.slate300} size={16} />
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </>
                 )}
             </ScrollView>
 
@@ -683,4 +719,26 @@ const s = StyleSheet.create({
         alignItems: 'center',
     },
     actionBtnText: { fontSize: 12, fontWeight: '900', letterSpacing: 1 },
+});
+
+// ── Desktop table styles ────────────────────────────────────────────────────────
+const dtU = StyleSheet.create({
+    tableHeader: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 12, paddingVertical: 8,
+        backgroundColor: '#f1f5f9', borderRadius: 10,
+        marginBottom: 4,
+    },
+    tableRow: {
+        gap: 0,
+    },
+    thText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+    // Colonnes — largeurs fixes / flex
+    colAvatar: { width: 44, marginRight: 12 },
+    colName:   { flex: 2, fontSize: 13, fontWeight: '700', color: '#1e293b', paddingRight: 8 },
+    colPhone:  { flex: 1.5, fontSize: 11, color: '#64748b', paddingRight: 8 },
+    colRole:   { flex: 1, paddingRight: 8 },
+    colCoop:   { flex: 1.5, fontSize: 11, color: '#7c3aed', fontWeight: '600', paddingRight: 8 },
+    colDate:   { flex: 1, fontSize: 11, color: '#94a3b8', paddingRight: 8 },
+    colChev:   { width: 16 },
 });

@@ -1,0 +1,63 @@
+{
+  "date": "2026-03-11T06:31:56.147Z",
+  "duration": 18,
+  "totalTests": 94,
+  "passed": 89,
+  "failed": 4,
+  "warnings": 1,
+  "roles": {
+    "MERCHANT": {
+      "tests": 11,
+      "passed": 10,
+      "failed": 1
+    },
+    "PRODUCER": {
+      "tests": 6,
+      "passed": 5,
+      "failed": 1
+    },
+    "FIELD_AGENT": {
+      "tests": 10,
+      "passed": 9,
+      "failed": 1
+    },
+    "COOPERATIVE": {
+      "tests": 14,
+      "passed": 13,
+      "failed": 1
+    },
+    "SUPERVISOR": {
+      "tests": 14,
+      "passed": 14,
+      "failed": 0
+    }
+  },
+  "errors": [
+    {
+      "test": "Création vente",
+      "detail": "Could not find the 'total_amount' column of 'transactions' in the schema cache",
+      "timestamp": "2026-03-11T06:32:06.038Z"
+    },
+    {
+      "test": "Publication produit",
+      "detail": "Could not find the 'quantity_available' column of 'products' in the schema cache",
+      "timestamp": "2026-03-11T06:32:07.025Z"
+    },
+    {
+      "test": "Création signalement",
+      "detail": "Could not find the 'member_id' column of 'reports' in the schema cache",
+      "timestamp": "2026-03-11T06:32:08.869Z"
+    },
+    {
+      "test": "Création achat groupé",
+      "detail": "Could not find the 'quantite_cible' column of 'achats_groupes' in the schema cache",
+      "timestamp": "2026-03-11T06:32:09.742Z"
+    }
+  ],
+  "warnings_list": [
+    {
+      "test": "Carnet dettes",
+      "detail": "Table credits_clients : column credits_clients.store_id does not exist"
+    }
+  ]
+}

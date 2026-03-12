@@ -159,6 +159,25 @@ Tu es l'agent de mémoire du projet. Tu gardes la trace de tout ce qui a été f
   - credit.tsx orphelin → à supprimer ou lier depuis finance.tsx
   - Build APK démo
 
+### Session 11 mars 2026 — Terminologie coopérative + flux PIN oublié
+- Modifié : app/cooperative/demandes.tsx, app/cooperative/index.tsx, src/context/NotificationContext.tsx, src/context/AuthContext.tsx, app/(auth)/login.tsx, app/_layout.tsx, app/(tabs)/profil.tsx, MEMORY-AGENT.md, CLAUDE.md
+- Ajouté : src/components/ChangePinModal.tsx
+- Bugs corrigés :
+  - cooperative/demandes.tsx : textes "VALIDER"/"REJETER" remplacés par "CONFIRMER CE MEMBRE"/"CE N'EST PAS UN DE NOS MEMBRES"
+  - cooperative/demandes.tsx : onglets "En attente"→"À vérifier", "Validées"→"Confirmés", "Refusées"→"Rejetés"
+  - cooperative/demandes.tsx : labels statut "En attente"→"À vérifier", "Validée"→"Confirmé", "Refusée"→"Rejeté"
+  - cooperative/demandes.tsx : titre "Demandes"→"Validations", sous-titre "Enrôlements en attente"→"Membres à vérifier"
+  - cooperative/demandes.tsx : boutons en colonne (column) pour éviter overflow du long texte
+  - cooperative/index.tsx : "Demandes d'enrôlement"→"Validations", "X demandes en attente"→"X membres à vérifier", badge "EN ATTENTE"→"À VÉRIFIER", "Valider les nouveaux membres"→"Vérifier les nouveaux membres"
+  - cooperative/index.tsx : compteur pendingEnroll filtré par cooperative_id = user.id
+  - NotificationContext.tsx : notification coopérative (nouvel-enrolement) → titre "Nouveau membre à vérifier", message "L'agent [nom] a inscrit [membre] ([type]). Vérifiez que cette personne est bien un de vos membres."
+- Fonctionnalités ajoutées :
+  - Flux PIN oublié : modal dans login.tsx (phone input, Supabase reset à '0101', notif admins, limiteur 3 tentatives)
+  - ChangePinModal : bloquant si mustChangePin=true (_layout.tsx), optionnel depuis profil.tsx
+  - AuthContext : mustChangePin state, vérifié au login si pin==='0101'
+- Score diagnostic : non effectué (TODO)
+- TODO restant : build APK démo, tester flux PIN oublié en conditions réelles
+
 ### Session [date] — Ce qui a été fait
 (Claude Code doit mettre à jour cette section à la fin de chaque session)
 

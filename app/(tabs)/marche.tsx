@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, FlatList, StyleSheet, TouchableOpacity,
     TextInput, ActivityIndicator, Image, Alert, Modal,
-    Linking, Pressable,
+    Linking, Pressable, Platform, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
@@ -34,6 +34,7 @@ interface CatalogueItem {
     storeName: string;
     storePhone?: string;
     storeAddress?: string;
+    storeOwnerId?: string;
     stockQty: number;
     imageUrl?: string;
     created_at?: string;
@@ -61,9 +62,79 @@ function callPhone(phone?: string) {
 interface ProductCardProps {
     item: CatalogueItem;
     onPress: (item: CatalogueItem) => void;
+    isDesktop?: boolean;
 }
 
-const ProductCard = React.memo(({ item, onPress }: ProductCardProps) => (
+const ProductCard = React.memo(({ item, onPress, isDesktop }: ProductCardProps) => {
+    if (isDesktop) {
+        return (
+            <TouchableOpacity style={dtCard.card} onPress={() => onPress(item)} activeOpacity={0.85}>
+                {/* Image ou placeholder */}
+                {item.imageUrl ? (
+                    <Image source={{ uri: item.imageUrl }} style={dtCard.img} resizeMode="cover" />
+                ) : (
+                    <View style={dtCard.placeholder}>
+                        <Package color="#4f46e5" size={32} />
+                    </View>
+                )}
+                {/* Corps de la carte */}
+                <View style={dtCard.body}>
+                    <Text style={dtCard.name} numberOfLines={2}>{item.name}</Text>
+                    {/* Store + badge dispo */}
+                    <View style={dtCard.metaRow}>
+                        <Text style={dtCard.store} numberOfLines={1}>{item.storeName}</Text>
+                        {item.stockQty > 0 ? (
+                            <View style={styles.badgeAvail}>
+                                <Text style={styles.badgeAvailText}>{item.stockQty} dispo</Text>
+                            </View>
+                        ) : (
+                            <View style={styles.badgeOut}>
+                                <Text style={styles.badgeOutText}>Rupture</Text>
+                            </View>
+                        )}
+                    </View>
+                    {/* Localisation + délai */}
+                    {(item.zone_livraison || item.delai_livraison) ? (
+                        <View style={dtCard.chipRow}>
+                            {item.zone_livraison ? (
+                                <View style={styles.deliveryInfoChip}>
+                                    <MapPin color="#6366f1" size={9} />
+                                    <Text style={styles.deliveryInfoText}>{item.zone_livraison}</Text>
+                                </View>
+                            ) : null}
+                            {item.delai_livraison ? (
+                                <View style={styles.deliveryInfoChip}>
+                                    <Clock color="#0891b2" size={9} />
+                                    <Text style={styles.deliveryInfoText}>{item.delai_livraison}</Text>
+                                </View>
+                            ) : null}
+                        </View>
+                    ) : null}
+                    {/* Prix */}
+                    <Text style={dtCard.price}>{item.price.toLocaleString('fr-FR')} F</Text>
+                    {/* Livraison */}
+                    {(item.delivery_price ?? 0) > 0 ? (
+                        <View style={styles.deliveryRow}>
+                            <Truck color="#3b82f6" size={10} />
+                            <Text style={styles.deliveryPrice}>+{item.delivery_price!.toLocaleString('fr-FR')} F livraison</Text>
+                        </View>
+                    ) : (
+                        <Text style={styles.perUnit}>Livraison gratuite</Text>
+                    )}
+                    {/* Bouton */}
+                    {item.stockQty > 0 && (
+                        <TouchableOpacity style={dtCard.btn} activeOpacity={0.82} onPress={() => onPress(item)}>
+                            <ShoppingCart color="#fff" size={13} />
+                            <Text style={dtCard.btnText}>Commander</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            </TouchableOpacity>
+        );
+    }
+
+    // ── Layout mobile (inchangé) ──
+    return (
     <TouchableOpacity
         style={styles.itemCard}
         onPress={() => onPress(item)}
@@ -129,18 +200,21 @@ const ProductCard = React.memo(({ item, onPress }: ProductCardProps) => (
             )}
         </View>
     </TouchableOpacity>
-));
+    );
+});
 
 const PAGE_SIZE = 20;
 
 // ── Types Supabase internes ────────────────────────────────────────────────────
-interface StoreRow { id: string; name: string; profiles?: { phone_number?: string; address?: string } | null; }
+interface StoreRow { id: string; name: string; owner_id?: string; profiles?: { phone_number?: string; address?: string } | null; }
 interface ProdRow  { id: string; name: string; price: number; delivery_price?: number; category: string; store_id: string; image_url?: string; zone_livraison?: string; delai_livraison?: string; livreur_nom?: string; livreur_telephone?: string; description?: string; unite?: string; created_at?: string; }
 interface StockRow { product_id: string; quantity: number; }
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function MarcheScreen() {
     const { activeProfile } = useProfileContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [items,       setItems]       = useState<CatalogueItem[]>([]);
     const [loading,     setLoading]     = useState(true);
@@ -157,7 +231,8 @@ export default function MarcheScreen() {
     const [showConfirm,  setShowConfirm]  = useState(false);
     const [orderQty,     setOrderQty]     = useState(1);
     const [ordering,     setOrdering]     = useState(false);
-    const [paymentMode,  setPaymentMode]  = useState<'ESPECES' | 'MOBILE_MONEY' | 'CREDIT' | null>(null);
+    const [paymentMode,  setPaymentMode]  = useState<'CASH' | 'MOBILE_MONEY' | 'CREDIT'>('CASH');
+    const [momoOperator, setMomoOperator] = useState<'ORANGE' | 'MTN' | 'WAVE' | 'MOOV' | null>(null);
 
     // ── Fetch catalogue (paginé) ─────────────────────────────────────────────
     const fetchCatalogue = useCallback(async (pageNum = 0, append = false) => {
@@ -167,7 +242,7 @@ export default function MarcheScreen() {
             // 1. Boutiques producteurs + infos propriétaire
             const { data: storeData, error: storeErr } = await supabase
                 .from('stores')
-                .select('id, name, profiles!owner_id(phone_number, address)')
+                .select('id, name, owner_id, profiles!owner_id(phone_number, address)')
                 .eq('store_type', 'PRODUCER');
 
             if (storeErr || !storeData?.length) {
@@ -176,12 +251,13 @@ export default function MarcheScreen() {
                 return;
             }
 
-            const storeMap: Record<string, { name: string; phone?: string; address?: string }> = {};
+            const storeMap: Record<string, { name: string; phone?: string; address?: string; ownerId?: string }> = {};
             (storeData as StoreRow[]).forEach((s) => {
                 storeMap[s.id] = {
                     name:    s.name,
                     phone:   s.profiles?.phone_number ?? undefined,
                     address: s.profiles?.address ?? undefined,
+                    ownerId: s.owner_id ?? undefined,
                 };
             });
             const storeIds = (storeData as StoreRow[]).map((s) => s.id);
@@ -229,6 +305,7 @@ export default function MarcheScreen() {
                 storeName:          storeMap[p.store_id]?.name ?? 'Producteur',
                 storePhone:         storeMap[p.store_id]?.phone,
                 storeAddress:       storeMap[p.store_id]?.address,
+                storeOwnerId:       storeMap[p.store_id]?.ownerId,
                 stockQty:           stockMap[p.id] ?? 0,
                 imageUrl:           p.image_url ?? undefined,
                 created_at:         p.created_at,
@@ -305,15 +382,33 @@ export default function MarcheScreen() {
                 total_amount:    total,
                 status:          'PENDING',
                 payment_mode:    paymentMode,
+                operator:        paymentMode === 'MOBILE_MONEY' ? momoOperator : null,
                 notes:           selectedItem.name,
                 buyer_name:      activeProfile.name,
             };
+
+            console.log('=== ORDER INSERT ===', JSON.stringify({
+                buyer_store_id:  activeProfile.id,
+                seller_store_id: selectedItem.store_id,
+                product_id:      selectedItem.id,
+                product_name:    selectedItem.name,
+                quantity:        orderQty,
+                unit_price:      selectedItem.price,
+                total_amount:    total,
+                status:          'PENDING',
+                payment_mode:    paymentMode,
+                operator:        paymentMode === 'MOBILE_MONEY' ? momoOperator : null,
+                notes:           selectedItem.name,
+                buyer_name:      activeProfile.name,
+            }, null, 2));
 
             const { data: orderData, error: orderErr } = await supabase
                 .from('orders')
                 .insert([payload])
                 .select()
                 .single();
+
+            console.log('=== ORDER RESULT ===', 'error:', JSON.stringify(orderErr));
 
             if (orderErr) {
                 Alert.alert('Erreur commande', orderErr.message);
@@ -332,6 +427,7 @@ export default function MarcheScreen() {
 
             emitEvent('nouvelle-commande', {
                 sellerStoreId: selectedItem.store_id,
+                sellerUserId:  selectedItem.storeOwnerId ?? null,
                 orderId:       orderData?.id,
                 productName:   selectedItem.name,
                 buyerName:     activeProfile.name,
@@ -386,11 +482,15 @@ export default function MarcheScreen() {
                 </ScrollView>
             ) : (
             <FlatList
+                key={isDesktop ? 'grid3' : 'list1'}
                 data={filtered}
                 keyExtractor={(item) => item.id}
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && { paddingHorizontal: 24 }]}
+                numColumns={isDesktop ? 3 : 1}
+                columnWrapperStyle={isDesktop ? { gap: 12 } : undefined}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 onEndReached={fetchMore}
                 onEndReachedThreshold={0.3}
                 ListEmptyComponent={
@@ -404,7 +504,7 @@ export default function MarcheScreen() {
                 ListFooterComponent={loadingMore ? (
                     <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
                 ) : null}
-                renderItem={({ item }) => <ProductCard item={item} onPress={openDetail} />}
+                renderItem={({ item }) => <ProductCard item={item} onPress={openDetail} isDesktop={isDesktop} />}
             />
             )}
 
@@ -665,7 +765,7 @@ export default function MarcheScreen() {
                                     <Text style={styles.payLabel}>MODE DE PAIEMENT</Text>
                                     <View style={styles.payRow}>
                                         {([
-                                            { key: 'ESPECES',      label: 'Espèces',      emoji: '💵' },
+                                            { key: 'CASH',         label: 'Espèces',      emoji: '💵' },
                                             { key: 'MOBILE_MONEY', label: 'Mobile Money', emoji: '📱' },
                                             { key: 'CREDIT',       label: 'À crédit',     emoji: '🤝' },
                                         ] as const).map(opt => (
@@ -675,7 +775,7 @@ export default function MarcheScreen() {
                                                     styles.payBtn,
                                                     paymentMode === opt.key && styles.payBtnActive,
                                                 ]}
-                                                onPress={() => setPaymentMode(opt.key)}
+                                                onPress={() => { setPaymentMode(opt.key); if (opt.key !== 'MOBILE_MONEY') setMomoOperator(null); }}
                                                 activeOpacity={0.8}
                                             >
                                                 <Text style={styles.payEmoji}>{opt.emoji}</Text>
@@ -688,6 +788,30 @@ export default function MarcheScreen() {
                                             </TouchableOpacity>
                                         ))}
                                     </View>
+                                    {/* Sélecteur opérateur si Mobile Money */}
+                                    {paymentMode === 'MOBILE_MONEY' && (
+                                        <View style={styles.operatorGrid}>
+                                            {([
+                                                { v: 'ORANGE', label: 'Orange Money', bg: '#FFF3E6', border: '#FF6600', text: '#FF6600' },
+                                                { v: 'MTN',    label: 'MTN MoMo',    bg: '#FFFDE6', border: '#FFCC00', text: '#996600' },
+                                                { v: 'WAVE',   label: 'Wave',         bg: '#E6F9FC', border: '#1DC4E9', text: '#0A8FA8' },
+                                                { v: 'MOOV',   label: 'Moov Money',  bg: '#E6F0FF', border: '#0066CC', text: '#0066CC' },
+                                            ] as const).map(op => (
+                                                <TouchableOpacity
+                                                    key={op.v}
+                                                    style={[
+                                                        styles.operatorBtn,
+                                                        { backgroundColor: op.bg, borderColor: momoOperator === op.v ? colors.primary : op.border },
+                                                    ]}
+                                                    onPress={() => setMomoOperator(op.v)}
+                                                    activeOpacity={0.8}
+                                                >
+                                                    <Text style={[styles.operatorLabel, { color: op.text }]} numberOfLines={1}>{op.label}</Text>
+                                                    {momoOperator === op.v && <Text style={styles.operatorCheck}>✓</Text>}
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                    )}
                                 </View>
 
                                 {/* Récapitulatif */}
@@ -935,6 +1059,14 @@ const styles = StyleSheet.create({
     payEmoji:        { fontSize: 18 },
     payBtnText:      { fontSize: 11, fontWeight: '700', color: colors.slate500, textAlign: 'center' },
     payBtnTextActive:{ color: colors.primary },
+    operatorGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8, paddingHorizontal: 20 },
+    operatorBtn: {
+        width: '47%', borderRadius: 10, borderWidth: 2,
+        paddingVertical: 8, paddingHorizontal: 8,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    },
+    operatorLabel: { fontSize: 11, fontWeight: '800', flex: 1 },
+    operatorCheck: { fontSize: 13, fontWeight: '900', color: colors.primary },
 
     // Récap
     recapBox: {
@@ -974,4 +1106,83 @@ const styles = StyleSheet.create({
         backgroundColor: colors.primary,
     },
     confirmBtnText: { fontSize: 13, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
+});
+
+// ── Styles carte desktop (grille 3 col) ───────────────────────────────────
+const dtCard = StyleSheet.create({
+    card: {
+        flexDirection: 'column',
+        backgroundColor: '#fff',
+        borderRadius: 10,
+        overflow: 'hidden',
+        flex: 1,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    img: {
+        width: '100%',
+        height: 180,
+        borderRadius: 0,
+    },
+    placeholder: {
+        width: '100%',
+        height: 180,
+        backgroundColor: '#e0e7ff',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    body: {
+        padding: 12,
+        gap: 6,
+    },
+    name: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: '#1F2937',
+        lineHeight: 20,
+    },
+    metaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        flexWrap: 'wrap',
+    },
+    store: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#9CA3AF',
+        textTransform: 'uppercase',
+        flex: 1,
+    },
+    chipRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 4,
+    },
+    price: {
+        fontSize: 16,
+        fontWeight: '900',
+        color: '#1F2937',
+        marginTop: 2,
+    },
+    btn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: '#059669',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 8,
+        marginTop: 4,
+        alignSelf: 'stretch',
+        justifyContent: 'center',
+    },
+    btnText: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#fff',
+    },
 });

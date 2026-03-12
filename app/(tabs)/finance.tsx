@@ -78,6 +78,8 @@ export default function FinanceScreen() {
     const [loading, setLoading]           = useState(true);
     const [entries, setEntries]           = useState<FinancialEntry[]>([]);
     const [weekRevByDay, setWeekRevByDay] = useState<number[]>([0, 0, 0, 0, 0, 0, 0]);
+    const [momoByOp, setMomoByOp]         = useState({ ORANGE: 0, MTN: 0, WAVE: 0, MOOV: 0 });
+    const [todayMomo, setTodayMomo]       = useState(0);
 
     const fetchFinance = useCallback(async () => {
         if (!activeProfile) return;
@@ -90,7 +92,7 @@ export default function FinanceScreen() {
             const [txRes, ordRes] = await Promise.all([
                 supabase
                     .from('transactions')
-                    .select('id, price, product_name, status, created_at')
+                    .select('id, price, product_name, status, operator, created_at')
                     .eq('store_id', activeProfile.id)
                     .eq('type', 'VENTE')
                     .neq('status', 'DETTE')
@@ -106,12 +108,28 @@ export default function FinanceScreen() {
             ]);
 
             const ins: FinancialEntry[] = (txRes.data ?? []).map((t: any) => ({
-                id:     'tx_' + t.id,
-                label:  t.product_name ?? 'Vente',
-                amount: t.price ?? 0,
-                type:   'IN',
-                date:   t.created_at,
-            }));
+                id:       'tx_' + t.id,
+                label:    t.product_name ?? 'Vente',
+                amount:   t.price ?? 0,
+                type:     'IN',
+                date:     t.created_at,
+                status:   t.status,
+                operator: t.operator,
+            } as FinancialEntry & { status?: string; operator?: string }));
+
+            // Calcul Mobile Money du mois et d'aujourd'hui
+            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+            const momoTxAll = (txRes.data ?? []).filter((t: any) => t.status === 'MOMO');
+            const momoToday = momoTxAll
+                .filter((t: any) => new Date(t.created_at) >= todayStart)
+                .reduce((s: number, t: any) => s + (t.price ?? 0), 0);
+            setTodayMomo(momoToday);
+            setMomoByOp({
+                ORANGE: momoTxAll.filter((t: any) => t.operator === 'ORANGE').reduce((s: number, t: any) => s + (t.price ?? 0), 0),
+                MTN:    momoTxAll.filter((t: any) => t.operator === 'MTN').reduce((s: number, t: any) => s + (t.price ?? 0), 0),
+                WAVE:   momoTxAll.filter((t: any) => t.operator === 'WAVE').reduce((s: number, t: any) => s + (t.price ?? 0), 0),
+                MOOV:   momoTxAll.filter((t: any) => t.operator === 'MOOV').reduce((s: number, t: any) => s + (t.price ?? 0), 0),
+            });
             const outs: FinancialEntry[] = (ordRes.data ?? []).map((o: any) => ({
                 id:     'ord_' + o.id,
                 label:  (o.products as any)?.name ?? 'Commande',
@@ -143,9 +161,11 @@ export default function FinanceScreen() {
         } finally {
             setLoading(false);
         }
-    }, [activeProfile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeProfile?.id]);
 
-    useFocusEffect(useCallback(() => { fetchFinance(); }, [fetchFinance]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useFocusEffect(useCallback(() => { fetchFinance(); }, []));
 
     const totalIn  = useMemo(() => entries.filter(e => e.type === 'IN').reduce((s, e) => s + e.amount, 0), [entries]);
     const totalOut = useMemo(() => entries.filter(e => e.type === 'OUT').reduce((s, e) => s + e.amount, 0), [entries]);
@@ -278,6 +298,41 @@ export default function FinanceScreen() {
                     )}
                 </Card>
 
+                {/* ── Section Mobile Money ── */}
+                {(momoByOp.ORANGE + momoByOp.MTN + momoByOp.WAVE + momoByOp.MOOV) > 0 && (
+                    <Card>
+                        <Text style={styles.cardTitle}>MOBILE MONEY — CE MOIS</Text>
+                        {todayMomo > 0 && (
+                            <View style={styles.momoTodayRow}>
+                                <Text style={styles.momoTodayLabel}>Encaissé aujourd'hui</Text>
+                                <Text style={styles.momoTodayVal}>{todayMomo.toLocaleString('fr-FR')} F</Text>
+                            </View>
+                        )}
+                        {([
+                            { key: 'ORANGE', label: 'Orange Money', color: '#FF6600', bg: '#FFF3E6' },
+                            { key: 'MTN',    label: 'MTN MoMo',    color: '#996600', bg: '#FFFDE6' },
+                            { key: 'WAVE',   label: 'Wave',         color: '#0A8FA8', bg: '#E6F9FC' },
+                            { key: 'MOOV',   label: 'Moov Money',  color: '#0066CC', bg: '#E6F0FF' },
+                        ] as const).map(op => {
+                            const val = momoByOp[op.key];
+                            if (val === 0) return null;
+                            const total = momoByOp.ORANGE + momoByOp.MTN + momoByOp.WAVE + momoByOp.MOOV;
+                            const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+                            return (
+                                <View key={op.key} style={styles.momoRow}>
+                                    <View style={[styles.momoOpBadge, { backgroundColor: op.bg }]}>
+                                        <Text style={[styles.momoOpText, { color: op.color }]}>{op.label}</Text>
+                                    </View>
+                                    <View style={styles.momoBarTrack}>
+                                        <View style={[styles.momoBarFill, { width: `${pct}%` as any, backgroundColor: op.color }]} />
+                                    </View>
+                                    <Text style={[styles.momoVal, { color: op.color }]}>{val.toLocaleString('fr-FR')} F</Text>
+                                </View>
+                            );
+                        })}
+                    </Card>
+                )}
+
                 {/* ── Services Financiers ── */}
                 <Text style={styles.sectionTitle}>SERVICES FINANCIERS</Text>
 
@@ -347,6 +402,17 @@ const styles = StyleSheet.create({
     entryAmount:    { fontSize: 13, fontWeight: '900' },
     entryAmountIn:  { color: colors.primary },
     entryAmountOut: { color: colors.error },
+
+    // Section Mobile Money
+    momoTodayRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.slate100 },
+    momoTodayLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
+    momoTodayVal: { fontSize: 14, fontWeight: '900', color: '#0891b2' },
+    momoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    momoOpBadge: { width: 105, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+    momoOpText: { fontSize: 11, fontWeight: '800' },
+    momoBarTrack: { flex: 1, height: 6, backgroundColor: colors.slate100, borderRadius: 3, overflow: 'hidden' },
+    momoBarFill: { height: '100%', borderRadius: 3 },
+    momoVal: { fontSize: 11, fontWeight: '900', minWidth: 68, textAlign: 'right' },
 
     // Section services
     sectionTitle: {

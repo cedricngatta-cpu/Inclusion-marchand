@@ -1,0 +1,43 @@
+{
+  "date": "2026-03-11T12:30:04.479Z",
+  "duration": 17,
+  "totalTests": 100,
+  "passed": 99,
+  "failed": 1,
+  "warnings": 0,
+  "roles": {
+    "MERCHANT": {
+      "tests": 14,
+      "passed": 14,
+      "failed": 0
+    },
+    "PRODUCER": {
+      "tests": 7,
+      "passed": 7,
+      "failed": 0
+    },
+    "FIELD_AGENT": {
+      "tests": 10,
+      "passed": 10,
+      "failed": 0
+    },
+    "COOPERATIVE": {
+      "tests": 17,
+      "passed": 17,
+      "failed": 0
+    },
+    "SUPERVISOR": {
+      "tests": 14,
+      "passed": 14,
+      "failed": 0
+    }
+  },
+  "errors": [
+    {
+      "test": "Login Marchand (0711223344)",
+      "detail": "PIN incorrect : attendu 1802, trouvé 1234",
+      "timestamp": "2026-03-11T12:30:10.281Z"
+    }
+  ],
+  "warnings_list": []
+}
