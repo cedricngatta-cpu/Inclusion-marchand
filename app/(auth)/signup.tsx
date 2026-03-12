@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.slate50, borderWidth: 2, borderColor: colors.slate100,
         borderRadius: 10, paddingHorizontal: 14, paddingVertical: 14,
     },
-    input: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.slate900 },
+    input: { flex: 1, fontSize: 15, fontWeight: '700', color: colors.slate900, outlineWidth: 0 } as any,
 
     phoneRow: { flexDirection: 'row', gap: 8 },
     countryCode: {

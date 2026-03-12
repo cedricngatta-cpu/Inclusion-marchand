@@ -29,7 +29,7 @@ export default function BilanScreen() {
     const today = new Date().setHours(0, 0, 0, 0);
     const todayTx = history.filter(t => t.timestamp >= today);
     const todaySales = todayTx.filter(t => t.type === 'VENTE' && t.status !== 'DETTE').reduce((acc, t) => acc + t.price, 0);
-    const todayDebts = todayTx.filter(t => t.status === 'DETTE').reduce((acc, t) => acc + t.price, 0);
+    const todayDebts = history.filter(t => t.status === 'DETTE').reduce((acc, t) => acc + t.price, 0);
     const stockValue = products.reduce((acc, p) => acc + p.price * (stock[p.id] || 0), 0);
 
     // Répartition Mobile Money

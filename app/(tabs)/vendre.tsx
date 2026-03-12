@@ -60,6 +60,15 @@ export default function VendreScreen() {
     const { addTransaction, refreshHistory } = useHistoryContext();
     const { isOnline, addToPendingCount, resetPendingCount } = useNetwork();
 
+    // ── Blocage des touches au montage (web : le clic de navigation se propage) ──
+    const [touchReady, setTouchReady] = useState(Platform.OS !== 'web');
+    useEffect(() => {
+        if (Platform.OS === 'web') {
+            const t = setTimeout(() => setTouchReady(true), 250);
+            return () => clearTimeout(t);
+        }
+    }, []);
+
     // ── Panier ──
     const [cart, setCart]             = useState<CartItem[]>([]);
     const [clientName, setClientName] = useState('');
@@ -306,11 +315,9 @@ export default function VendreScreen() {
                 showBack={true}
                 rightIcon={
                     <View style={styles.headerRight}>
-                        {Platform.OS !== 'web' && (
-                            <TouchableOpacity style={styles.headerIconBtn} onPress={() => setShowScanner(true)} activeOpacity={0.8}>
-                                <QrCode color={colors.white} size={20} />
-                            </TouchableOpacity>
-                        )}
+                        <TouchableOpacity style={styles.headerIconBtn} onPress={() => setShowScanner(true)} activeOpacity={0.8}>
+                            <QrCode color={colors.white} size={20} />
+                        </TouchableOpacity>
                         {cart.length > 0 && (
                             <TouchableOpacity style={styles.headerIconBtn} onPress={() => setCart([])} activeOpacity={0.8}>
                                 <Trash2 color={colors.white} size={20} />
@@ -331,7 +338,7 @@ export default function VendreScreen() {
                             <Text style={styles.emptySubtext}>Ajoutez des produits dans l'onglet Stock</Text>
                         </View>
                     ) : (
-                        <View style={[styles.productsGrid, isDesktop && dtVd.productsGrid]}>
+                        <View style={[styles.productsGrid, isDesktop && dtVd.productsGrid]} pointerEvents={touchReady ? 'auto' : 'none'}>
                             {products.map(product => {
                                 const stock    = getStockLevel(product.id);
                                 const epuise   = stock <= 0;
@@ -508,7 +515,7 @@ export default function VendreScreen() {
                         <CameraView
                             style={StyleSheet.absoluteFillObject}
                             facing="back"
-                            enableTorch={torch}
+                            enableTorch={Platform.OS !== 'web' ? torch : false}
                             barcodeScannerSettings={{
                                 barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e'],
                             }}

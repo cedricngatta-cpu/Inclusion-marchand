@@ -31,19 +31,6 @@ export default function ScannerScreen() {
     const router = useRouter();
     const { products } = useProductContext();
 
-    // Scanner non disponible sur web
-    if (Platform.OS === 'web') {
-        return (
-            <View style={styles.fullDark}>
-                <Text style={styles.permTitle}>Scanner non disponible</Text>
-                <Text style={styles.permText}>Le scanner de codes-barres est disponible uniquement sur l'application mobile.</Text>
-                <TouchableOpacity style={styles.backTextBtn} onPress={() => router.back()}>
-                    <Text style={styles.backTextBtnText}>RETOUR</Text>
-                </TouchableOpacity>
-            </View>
-        );
-    }
-
     const [permission, requestPermission] = useCameraPermissions();
     const [torch, setTorch] = useState(false);
     const [paused, setPaused] = useState(false);
@@ -72,7 +59,7 @@ export default function ScannerScreen() {
         if (cooldown.current || paused) return;
         cooldown.current = true;
         setPaused(true);
-        Vibration.vibrate(100);
+        if (Platform.OS !== 'web') Vibration.vibrate(100);
 
         const product = products.find(p => p.barcode === data);
         if (product) {
@@ -123,7 +110,7 @@ export default function ScannerScreen() {
             <CameraView
                 style={StyleSheet.absoluteFillObject}
                 facing="back"
-                enableTorch={torch}
+                enableTorch={Platform.OS !== 'web' ? torch : false}
                 barcodeScannerSettings={{
                     barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e'],
                 }}
@@ -139,12 +126,16 @@ export default function ScannerScreen() {
                         <ChevronLeft color={colors.primary} size={24} />
                     </TouchableOpacity>
                     <Text style={styles.headerTitle}>SCANNER PRODUIT</Text>
-                    <TouchableOpacity style={styles.iconBtn} onPress={() => setTorch(v => !v)}>
-                        {torch
-                            ? <FlashlightOff color={colors.white} size={22} />
-                            : <Flashlight color={colors.white} size={22} />
-                        }
-                    </TouchableOpacity>
+                    {Platform.OS !== 'web' ? (
+                        <TouchableOpacity style={styles.iconBtn} onPress={() => setTorch(v => !v)}>
+                            {torch
+                                ? <FlashlightOff color={colors.white} size={22} />
+                                : <Flashlight color={colors.white} size={22} />
+                            }
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={styles.iconBtn} />
+                    )}
                 </View>
 
                 {/* Zone au-dessus du cadre */}

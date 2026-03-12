@@ -469,7 +469,7 @@ const styles = StyleSheet.create({
         borderRadius: 10, paddingHorizontal: 16, paddingVertical: 14,
     },
     inputIcon: { marginRight: 12 },
-    input: { flex: 1, fontSize: 18, fontWeight: '800', color: colors.slate900 },
+    input: { flex: 1, fontSize: 18, fontWeight: '800', color: colors.slate900, outlineWidth: 0 } as any,
 
     // Boutons
     btnPrimary: {
@@ -505,7 +505,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#f8fafc', borderWidth: 1.5, borderColor: '#e2e8f0',
         borderRadius: 10, paddingHorizontal: 14, paddingVertical: 14, marginBottom: 8,
     },
-    forgotTextInput: { flex: 1, fontSize: 16, fontWeight: '700', color: '#1e293b' },
+    forgotTextInput: { flex: 1, fontSize: 16, fontWeight: '700', color: '#1e293b', outlineWidth: 0 } as any,
     forgotErrorText: { fontSize: 12, color: '#dc2626', marginBottom: 12 },
     forgotBtn: {
         height: 52, borderRadius: 10, backgroundColor: '#059669',
