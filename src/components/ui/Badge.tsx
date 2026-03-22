@@ -6,12 +6,13 @@ import { colors } from '@/src/lib/colors';
 type StatusKey =
     | 'en_attente' | 'PENDING'
     | 'acceptee'   | 'ACCEPTED' | 'valide' | 'VALIDATED'
-    | 'en_livraison' | 'SHIPPED' | 'SHIPPING'
+    | 'en_livraison' | 'SHIPPED'
     | 'livree'     | 'DELIVERED'
-    | 'refusee'    | 'REJECTED' | 'rejete' | 'CANCELLED'
+    | 'refusee'    | 'rejete' | 'CANCELLED'
     | 'ouvert'     | 'OPEN'
     | 'actif'      | 'ACTIVE'
-    | 'inactif'    | 'INACTIVE';
+    | 'inactif'    | 'INACTIVE'
+    | 'NEGOTIATION' | 'COMPLETED';
 
 interface BadgeProps {
     status: string;
@@ -28,11 +29,9 @@ const STATUS_MAP: Record<string, { bg: string; text: string; label: string }> = 
     VALIDATED:  { bg: colors.greenLight,   text: colors.green,   label: 'Validé' },
     en_livraison: { bg: colors.blueLight,  text: colors.blue,    label: 'En livraison' },
     SHIPPED:    { bg: colors.blueLight,    text: colors.blue,    label: 'En livraison' },
-    SHIPPING:   { bg: colors.blueLight,    text: colors.blue,    label: 'En livraison' },
     livree:     { bg: colors.greenLight,   text: colors.green,   label: 'Livrée' },
     DELIVERED:  { bg: colors.greenLight,   text: colors.green,   label: 'Livrée' },
     refusee:    { bg: colors.redLight,     text: colors.red,     label: 'Refusée' },
-    REJECTED:   { bg: colors.redLight,     text: colors.red,     label: 'Refusée' },
     rejete:     { bg: colors.redLight,     text: colors.red,     label: 'Rejeté' },
     CANCELLED:  { bg: colors.redLight,     text: colors.red,     label: 'Annulée' },
     ouvert:     { bg: colors.primaryBg,    text: colors.primary, label: 'Ouvert' },
@@ -41,6 +40,8 @@ const STATUS_MAP: Record<string, { bg: string; text: string; label: string }> = 
     ACTIVE:     { bg: colors.greenLight,   text: colors.green,   label: 'Actif' },
     inactif:    { bg: colors.slate100,     text: colors.slate500, label: 'Inactif' },
     INACTIVE:   { bg: colors.slate100,     text: colors.slate500, label: 'Inactif' },
+    NEGOTIATION: { bg: colors.orangeLight, text: colors.orange,  label: 'En négociation' },
+    COMPLETED:  { bg: colors.greenLight,   text: colors.green,   label: 'Terminé' },
 };
 
 export function Badge({ status, label, size = 'md' }: BadgeProps) {

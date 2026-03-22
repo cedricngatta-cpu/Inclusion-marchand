@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/context/AuthContext';
+import { colors } from '../src/lib/colors';
+import LandingPage from '../src/components/LandingPage';
 
 export default function Index() {
   const router = useRouter();
@@ -23,7 +25,10 @@ export default function Index() {
     const role = profile?.role || user?.role;
 
     if (!user) {
-      router.replace('/(auth)/login');
+      // Sur mobile, rediriger vers login — sur web, la landing page s'affiche
+      if (Platform.OS !== 'web') {
+        router.replace('/(auth)/login');
+      }
       return;
     }
 
@@ -53,9 +58,14 @@ export default function Index() {
     }
   }, [isReady, isLoading, user, profile]);
 
+  // Web non connecté : afficher la landing page
+  if (Platform.OS === 'web' && !user && !isLoading && isReady) {
+    return <LandingPage />;
+  }
+
   // Écran de chargement en attendant
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#059669' }}>
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.primary }}>
       <ActivityIndicator size="large" color="white" />
     </View>
   );

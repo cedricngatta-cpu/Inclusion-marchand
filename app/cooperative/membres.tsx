@@ -1,8 +1,8 @@
 // Membres — Coopérative (producteurs uniquement)
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator, TextInput,
+    ActivityIndicator, TextInput, Platform, useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Search, Phone, Users, ChevronRight } from 'lucide-react-native';
@@ -23,7 +23,7 @@ interface Member {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const AVATAR_COLORS = ['#059669', '#2563eb', '#7c3aed', '#d97706', '#0891b2'];
+const AVATAR_COLORS = [colors.primary, '#2563eb', '#7c3aed', '#d97706', '#0891b2'];
 function getAvatarColor(id: string) {
     let sum = 0;
     for (let i = 0; i < id.length; i++) sum += id.charCodeAt(i);
@@ -45,6 +45,8 @@ function getInitials(m: Member) {
 export default function MembresScreen() {
     const router = useRouter();
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [members, setMembers]           = useState<Member[]>([]);
     const [search, setSearch]             = useState('');
@@ -81,7 +83,6 @@ export default function MembresScreen() {
         }
     }, [user]);
 
-    useEffect(() => { fetchMembers(); }, [fetchMembers]);
     useFocusEffect(useCallback(() => { fetchMembers(); }, [fetchMembers]));
 
     // ── Filtrage ──────────────────────────────────────────────────────────────
@@ -121,11 +122,11 @@ export default function MembresScreen() {
                 showBack={true}
                 paddingBottom={12}
             >
-                <View style={styles.searchBar}>
+                <View style={[styles.searchBar, isDesktop && dtMb.searchBar]}>
                     <Search color="rgba(255,255,255,0.6)" size={16} />
                     <TextInput
                         style={styles.searchInput}
-                        placeholder="Rechercher par nom, téléphone, boutique…"
+                        placeholder="Rechercher par nom, telephone, boutique..."
                         placeholderTextColor="rgba(255,255,255,0.5)"
                         value={search}
                         onChangeText={setSearch}
@@ -135,11 +136,11 @@ export default function MembresScreen() {
 
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtMb.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
             >
-                {/* Résumé */}
+                {/* Resume */}
                 <View style={styles.statsRow}>
                     <View style={styles.statCard}>
                         <Text style={styles.statValue}>{totalCount}</Text>
@@ -147,7 +148,7 @@ export default function MembresScreen() {
                     </View>
                     <View style={styles.statCard}>
                         <Text style={[styles.statValue, { color: '#2563eb' }]}>{filtered.length}</Text>
-                        <Text style={styles.statLabel}>Affichés</Text>
+                        <Text style={styles.statLabel}>Affiches</Text>
                     </View>
                 </View>
 
@@ -156,9 +157,55 @@ export default function MembresScreen() {
                 ) : filtered.length === 0 ? (
                     <View style={styles.emptyCard}>
                         <Users color={colors.slate300} size={36} />
-                        <Text style={styles.emptyText}>Aucun producteur rattaché à votre coopérative</Text>
+                        <Text style={styles.emptyText}>Aucun producteur rattache a votre cooperative</Text>
+                    </View>
+                ) : isDesktop ? (
+                    /* -- Desktop : tableau -- */
+                    <View style={dtMb.tableCard}>
+                        {/* En-tete tableau */}
+                        <View style={dtMb.tableHeader}>
+                            <Text style={[dtMb.thCell, { flex: 2 }]}>Nom</Text>
+                            <Text style={[dtMb.thCell, { flex: 1.5 }]}>Boutique</Text>
+                            <Text style={[dtMb.thCell, { flex: 1 }]}>Telephone</Text>
+                            <Text style={[dtMb.thCell, { flex: 1 }]}>Inscription</Text>
+                            <Text style={[dtMb.thCell, { width: 60, textAlign: 'center' }]}>Detail</Text>
+                        </View>
+                        {/* Lignes */}
+                        {filtered.map((member, idx) => {
+                            const av = getAvatarColor(member.id);
+                            return (
+                                <TouchableOpacity
+                                    key={member.id}
+                                    style={[dtMb.tableRow, idx % 2 === 1 && dtMb.tableRowAlt]}
+                                    activeOpacity={0.7}
+                                    onPress={() => goToDetail(member)}
+                                >
+                                    <View style={[dtMb.tdCell, { flex: 2, flexDirection: 'row', alignItems: 'center', gap: 10 }]}>
+                                        <View style={[styles.avatar, { backgroundColor: av, width: 36, height: 36 }]}>
+                                            <Text style={[styles.avatarText, { fontSize: 13 }]}>{getInitials(member)}</Text>
+                                        </View>
+                                        <Text style={styles.cardName} numberOfLines={1}>{getDisplayName(member)}</Text>
+                                    </View>
+                                    <Text style={[dtMb.tdText, { flex: 1.5 }]} numberOfLines={1}>
+                                        {member.boutique_name || '--'}
+                                    </Text>
+                                    <Text style={[dtMb.tdText, { flex: 1 }]} numberOfLines={1}>
+                                        {member.phone_number || '--'}
+                                    </Text>
+                                    <Text style={[dtMb.tdText, { flex: 1 }]}>
+                                        {new Date(member.created_at).toLocaleDateString('fr-FR')}
+                                    </Text>
+                                    <View style={{ width: 60, alignItems: 'center' }}>
+                                        <View style={styles.arrowBox}>
+                                            <ChevronRight color={colors.primary} size={18} />
+                                        </View>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
                     </View>
                 ) : (
+                    /* -- Mobile : cartes -- */
                     filtered.map(member => {
                         const av = getAvatarColor(member.id);
                         return (
@@ -194,7 +241,7 @@ export default function MembresScreen() {
                                     </Text>
                                 </View>
 
-                                {/* Flèche */}
+                                {/* Fleche */}
                                 <View style={styles.arrowBox}>
                                     <ChevronRight color={colors.primary} size={20} />
                                 </View>
@@ -257,4 +304,64 @@ const styles = StyleSheet.create({
         borderStyle: 'dashed', gap: 12,
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────
+const dtMb = StyleSheet.create({
+    searchBar: {
+        maxWidth: 500,
+    },
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center',
+        width: '100%',
+        padding: 32,
+    },
+    tableCard: {
+        backgroundColor: colors.white,
+        borderRadius: 12,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 4,
+        borderWidth: 1,
+        borderColor: colors.slate100,
+    },
+    tableHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#f8fafc',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.slate100,
+    },
+    thCell: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: colors.slate400,
+        letterSpacing: 0.5,
+        textTransform: 'uppercase',
+    },
+    tableRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    tableRowAlt: {
+        backgroundColor: '#f8fafc',
+    },
+    tdCell: {
+        paddingRight: 8,
+    },
+    tdText: {
+        fontSize: 13,
+        color: colors.slate600,
+        paddingRight: 8,
+    },
 });

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     TextInput, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform,
+    useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Camera, X } from 'lucide-react-native';
@@ -25,6 +26,8 @@ type DelaiLivr   = (typeof DELAIS_LIVR)[number];
 export default function PublierScreen() {
     const router = useRouter();
     const { activeProfile } = useProfileContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [imageUri,          setImageUri]          = useState<string | null>(null);
     const [nom,               setNom]               = useState('');
@@ -178,10 +181,10 @@ export default function PublierScreen() {
                 showBack={true}
             />
 
-            {/* ── FORMULAIRE ── */}
+            {/* -- FORMULAIRE -- */}
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtPub.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
             >
@@ -436,4 +439,13 @@ const styles = StyleSheet.create({
         shadowColor: colors.primary, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4, marginTop: 4,
     },
     publishBtnText: { fontSize: 14, fontWeight: '900', color: colors.white, letterSpacing: 1 },
+});
+
+// -- Desktop styles --
+const dtPub = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 600,
+        alignSelf: 'center' as const,
+        width: '100%' as any,
+    },
 });

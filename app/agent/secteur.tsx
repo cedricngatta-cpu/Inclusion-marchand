@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator, TextInput,
+    ActivityIndicator, TextInput, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search, Users } from 'lucide-react-native';
@@ -57,6 +57,8 @@ const FILTERS: { key: FilterType; label: string }[] = [
 export default function Secteur() {
     const router = useRouter();
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
     const [loading, setLoading]         = useState(true);
@@ -127,12 +129,12 @@ export default function Secteur() {
 
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtSc.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
             >
                 {/* Barre de recherche */}
-                <View style={styles.searchBar}>
+                <View style={[styles.searchBar, isDesktop && dtSc.searchBar]}>
                     <Search color={colors.slate400} size={16} />
                     <TextInput
                         style={styles.searchInput}
@@ -168,6 +170,56 @@ export default function Secteur() {
                         <Users color={colors.slate300} size={40} />
                         <Text style={styles.emptyText}>AUCUN MEMBRE TROUVÉ</Text>
                     </View>
+                ) : isDesktop ? (
+                    <View style={dtSc.tableCard}>
+                        {/* Header tableau desktop */}
+                        <View style={dtSc.tableHeader}>
+                            <Text style={[dtSc.tableHeaderText, { flex: 2 }]}>NOM</Text>
+                            <Text style={[dtSc.tableHeaderText, { flex: 1.5 }]}>TÉLÉPHONE</Text>
+                            <Text style={[dtSc.tableHeaderText, { flex: 2 }]}>BOUTIQUE</Text>
+                            <Text style={[dtSc.tableHeaderText, { flex: 2 }]}>ADRESSE</Text>
+                            <Text style={[dtSc.tableHeaderText, { flex: 1 }]}>TYPE</Text>
+                            <Text style={[dtSc.tableHeaderText, { flex: 1 }]}>STATUT</Text>
+                            <Text style={[dtSc.tableHeaderText, { flex: 1.5 }]}>DATE</Text>
+                        </View>
+                        {filtered.map((enroll, index) => {
+                            const sc   = STATUS_COLORS[enroll.statut] ?? STATUS_COLORS.en_attente;
+                            const rc   = ROLE_COLORS[enroll.type] ?? ROLE_COLORS.MERCHANT;
+                            return (
+                                <View key={enroll.id} style={[dtSc.tableRow, index % 2 === 1 && dtSc.tableRowAlt]}>
+                                    <Text style={[dtSc.tableCell, { flex: 2, fontWeight: '700' }]} numberOfLines={1}>
+                                        {enroll.nom}
+                                    </Text>
+                                    <Text style={[dtSc.tableCell, { flex: 1.5 }]} numberOfLines={1}>
+                                        {enroll.telephone}
+                                    </Text>
+                                    <Text style={[dtSc.tableCell, { flex: 2 }]} numberOfLines={1}>
+                                        {enroll.nom_boutique || '—'}
+                                    </Text>
+                                    <Text style={[dtSc.tableCell, { flex: 2 }]} numberOfLines={1}>
+                                        {enroll.adresse || '—'}
+                                    </Text>
+                                    <View style={{ flex: 1, justifyContent: 'center' }}>
+                                        <View style={[styles.badge, { backgroundColor: rc.bg, alignSelf: 'flex-start' }]}>
+                                            <Text style={[styles.badgeText, { color: rc.text }]}>
+                                                {ROLE_LABELS[enroll.type] ?? enroll.type}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <View style={{ flex: 1, justifyContent: 'center' }}>
+                                        <View style={[styles.badge, { backgroundColor: sc.bg, alignSelf: 'flex-start' }]}>
+                                            <Text style={[styles.badgeText, { color: sc.text }]}>
+                                                {STATUS_LABELS[enroll.statut] ?? enroll.statut}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <Text style={[dtSc.tableCell, { flex: 1.5 }]} numberOfLines={1}>
+                                        {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
+                                    </Text>
+                                </View>
+                            );
+                        })}
+                    </View>
                 ) : (
                     filtered.map(enroll => {
                         const sc   = STATUS_COLORS[enroll.statut] ?? STATUS_COLORS.en_attente;
@@ -193,7 +245,7 @@ export default function Secteur() {
                                     </View>
                                 </View>
 
-                                {/* Ligne 2 : téléphone */}
+                                {/* Ligne 2 : telephone */}
                                 <Text style={styles.memberMeta}>{enroll.telephone}</Text>
 
                                 {/* Ligne 3 : boutique */}
@@ -212,7 +264,7 @@ export default function Secteur() {
 
                                 {/* Ligne 5 : date */}
                                 <Text style={styles.memberDate}>
-                                    Enrôlé le {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
+                                    {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
                                 </Text>
                             </View>
                         );
@@ -294,4 +346,57 @@ const styles = StyleSheet.create({
         borderStyle: 'dashed', gap: 12, marginTop: 8,
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+});
+
+const dtSc = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as const,
+        width: '100%',
+        padding: 32,
+    },
+    searchBar: {
+        maxWidth: 500,
+    },
+    tableCard: {
+        backgroundColor: colors.white,
+        borderRadius: 12,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 3,
+        borderWidth: 1,
+        borderColor: colors.slate100,
+    },
+    tableHeader: {
+        flexDirection: 'row',
+        backgroundColor: colors.slate50,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.slate200,
+    },
+    tableHeaderText: {
+        fontSize: 11,
+        fontWeight: '900',
+        color: colors.slate400,
+        letterSpacing: 1,
+    },
+    tableRow: {
+        flexDirection: 'row',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        borderBottomColor: colors.slate100,
+    },
+    tableRowAlt: {
+        backgroundColor: colors.slate50,
+    },
+    tableCell: {
+        fontSize: 13,
+        color: colors.slate700,
+    },
 });

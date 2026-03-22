@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, ActivityIndicator,
-    RefreshControl, Alert,
+    RefreshControl, Alert, Platform, useWindowDimensions,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { useFocusEffect } from 'expo-router';
@@ -50,6 +50,9 @@ export default function Signalements() {
     const [actionLoading, setActionLoading] = useState<string | null>(null);
     const [useFallback, setUseFallback]     = useState(false);
 
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
     const fetchSignalements = useCallback(async () => {
         try {
             let sigs: Signalement[] = [];
@@ -63,6 +66,7 @@ export default function Signalements() {
                 .limit(100);
 
             if (!logsErr && logsData && logsData.length > 0) {
+                console.log('[Signalements] ✅ activity_logs signalements:', logsData.length);
                 sigs = (logsData as Signalement[]);
                 setUseFallback(false);
             } else {
@@ -74,6 +78,7 @@ export default function Signalements() {
                     .limit(50);
 
                 if (!allErr && allLogs && allLogs.length > 0) {
+                    console.log('[Signalements] ⚠️ fallback tous activity_logs:', allLogs.length);
                     sigs = (allLogs as Signalement[]);
                     setUseFallback(false);
                 } else {
@@ -98,6 +103,7 @@ export default function Signalements() {
                     }));
                 }
             }
+            console.log('[Signalements] total affiché:', sigs.length, useFallback ? '(fallback enrolements)' : '');
             setSignalements(sigs);
         } catch (err) {
             console.error('[Signalements] fetch error:', err);
@@ -108,11 +114,9 @@ export default function Signalements() {
         }
     }, []);
 
-    useEffect(() => { setLoading(true); fetchSignalements(); }, [fetchSignalements]);
-
     const onRefresh = useCallback(() => { setRefreshing(true); fetchSignalements(); }, [fetchSignalements]);
 
-    useFocusEffect(useCallback(() => { fetchSignalements(); }, [fetchSignalements]));
+    useFocusEffect(useCallback(() => { setLoading(true); fetchSignalements(); }, [fetchSignalements]));
 
     // ── Status effectif = override local prioritaire ─────────────────────────
     const getStatus = useCallback((sig: Signalement): string =>
@@ -137,15 +141,16 @@ export default function Signalements() {
         setLocalStatuses(prev => ({ ...prev, [sig.id]: newStatus }));
         try {
             await supabase.from('activity_logs').update({ status: newStatus }).eq('id', sig.id);
+            // Supabase first : émettre le socket UNIQUEMENT après succès Supabase
+            emitEvent('signalement-conformite', {
+                agentId:     sig.user_id,
+                agentName:   sig.user_name,
+                marchandName: sig.user_name,
+                type:        'statut',
+                description: `Statut mis à jour : ${newStatus}`,
+                severity:    newStatus === 'clos' ? 'resolved' : 'medium',
+            });
         } catch { /* colonne status peut-être absente — override local maintenu */ }
-        emitEvent('signalement-conformite', {
-            agentId:     sig.user_id,
-            agentName:   sig.user_name,
-            marchandName: sig.user_name,
-            type:        'statut',
-            description: `Statut mis à jour : ${newStatus}`,
-            severity:    newStatus === 'clos' ? 'resolved' : 'medium',
-        });
     }, []);
 
     // ── Sanctionner ───────────────────────────────────────────────────────────
@@ -226,7 +231,7 @@ export default function Signalements() {
 
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && { maxWidth: 1400, alignSelf: 'center', width: '100%', padding: 32 }]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 overScrollMode="never"
@@ -235,20 +240,37 @@ export default function Signalements() {
                 }
             >
                 {/* Filtres */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
-                    {SIG_FILTERS.map(f => (
-                        <TouchableOpacity
-                            key={f.key}
-                            style={[s.filterBtn, sigFilter === f.key && s.filterBtnActive]}
-                            activeOpacity={0.82}
-                            onPress={() => setSigFilter(f.key)}
-                        >
-                            <Text style={[s.filterLabel, sigFilter === f.key && s.filterLabelActive]}>
-                                {f.label}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
+                {isDesktop ? (
+                    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                        {SIG_FILTERS.map(f => (
+                            <TouchableOpacity
+                                key={f.key}
+                                style={[s.filterBtn, sigFilter === f.key && s.filterBtnActive]}
+                                activeOpacity={0.82}
+                                onPress={() => setSigFilter(f.key)}
+                            >
+                                <Text style={[s.filterLabel, sigFilter === f.key && s.filterLabelActive]}>
+                                    {f.label}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+                        {SIG_FILTERS.map(f => (
+                            <TouchableOpacity
+                                key={f.key}
+                                style={[s.filterBtn, sigFilter === f.key && s.filterBtnActive]}
+                                activeOpacity={0.82}
+                                onPress={() => setSigFilter(f.key)}
+                            >
+                                <Text style={[s.filterLabel, sigFilter === f.key && s.filterLabelActive]}>
+                                    {f.label}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                )}
 
                 {/* Bannière fallback */}
                 {useFallback && signalements.length > 0 && (
@@ -275,76 +297,78 @@ export default function Signalements() {
                         </Text>
                     </View>
                 ) : (
-                    filtered.map(sig => {
-                        const currentStatus = getStatus(sig);
-                        const sc            = STATUS_STYLES[currentStatus] ?? STATUS_STYLES.ouvert;
-                        const isSanctioning = actionLoading === sig.id + '_sanction';
-                        const isClos        = currentStatus === 'clos';
+                    <View style={isDesktop ? dtS.grid : undefined}>
+                        {filtered.map(sig => {
+                            const currentStatus = getStatus(sig);
+                            const sc            = STATUS_STYLES[currentStatus] ?? STATUS_STYLES.ouvert;
+                            const isSanctioning = actionLoading === sig.id + '_sanction';
+                            const isClos        = currentStatus === 'clos';
 
-                        return (
-                            <View key={sig.id} style={s.sigCard}>
-                                {/* Contenu principal */}
-                                <View style={s.sigCardTop}>
-                                    <View style={s.sigIconWrap}>
-                                        <Shield color="#991b1b" size={18} />
+                            return (
+                                <View key={sig.id} style={[s.sigCard, isDesktop && dtS.gridItem]}>
+                                    {/* Contenu principal */}
+                                    <View style={s.sigCardTop}>
+                                        <View style={s.sigIconWrap}>
+                                            <Shield color="#991b1b" size={18} />
+                                        </View>
+                                        <View style={s.sigInfo}>
+                                            <Text style={s.sigAction} numberOfLines={2}>{sig.action}</Text>
+                                            {sig.details ? (
+                                                <Text style={s.sigDetails} numberOfLines={1}>{sig.details}</Text>
+                                            ) : null}
+                                            <Text style={s.sigMeta}>
+                                                {sig.user_name} · {new Date(sig.created_at).toLocaleDateString('fr-FR', {
+                                                    day: '2-digit', month: 'short', year: 'numeric',
+                                                })}
+                                            </Text>
+                                        </View>
+                                        <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
+                                            <Text style={[s.statusText, { color: sc.text }]}>{sc.label}</Text>
+                                        </View>
                                     </View>
-                                    <View style={s.sigInfo}>
-                                        <Text style={s.sigAction} numberOfLines={2}>{sig.action}</Text>
-                                        {sig.details ? (
-                                            <Text style={s.sigDetails} numberOfLines={1}>{sig.details}</Text>
-                                        ) : null}
-                                        <Text style={s.sigMeta}>
-                                            {sig.user_name} · {new Date(sig.created_at).toLocaleDateString('fr-FR', {
-                                                day: '2-digit', month: 'short', year: 'numeric',
-                                            })}
-                                        </Text>
-                                    </View>
-                                    <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
-                                        <Text style={[s.statusText, { color: sc.text }]}>{sc.label}</Text>
-                                    </View>
-                                </View>
 
-                                {/* Boutons d'action (sauf si clos) */}
-                                {!isClos && (
-                                    <View style={s.actionRow}>
-                                        {currentStatus === 'ouvert' && (
-                                            <TouchableOpacity
-                                                style={s.btnTraitement}
-                                                onPress={() => handleChangeStatus(sig, 'traitement')}
-                                                activeOpacity={0.85}
-                                            >
-                                                <Text style={s.btnText}>EN TRAITEMENT</Text>
-                                            </TouchableOpacity>
-                                        )}
-                                        {currentStatus === 'traitement' && (
-                                            <TouchableOpacity
-                                                style={s.btnClos}
-                                                onPress={() => handleChangeStatus(sig, 'clos')}
-                                                activeOpacity={0.85}
-                                            >
-                                                <Text style={s.btnText}>CLÔTURER</Text>
-                                            </TouchableOpacity>
-                                        )}
-                                        <TouchableOpacity
-                                            style={s.btnSanction}
-                                            onPress={() => handleSanctionner(sig)}
-                                            disabled={isSanctioning}
-                                            activeOpacity={0.85}
-                                        >
-                                            {isSanctioning ? (
-                                                <ActivityIndicator color="#fff" size="small" />
-                                            ) : (
-                                                <>
-                                                    <UserX color="#fff" size={13} />
-                                                    <Text style={s.btnText}>SANCTIONNER</Text>
-                                                </>
+                                    {/* Boutons d'action (sauf si clos) */}
+                                    {!isClos && (
+                                        <View style={s.actionRow}>
+                                            {currentStatus === 'ouvert' && (
+                                                <TouchableOpacity
+                                                    style={s.btnTraitement}
+                                                    onPress={() => handleChangeStatus(sig, 'traitement')}
+                                                    activeOpacity={0.85}
+                                                >
+                                                    <Text style={s.btnText}>EN TRAITEMENT</Text>
+                                                </TouchableOpacity>
                                             )}
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-                            </View>
-                        );
-                    })
+                                            {currentStatus === 'traitement' && (
+                                                <TouchableOpacity
+                                                    style={s.btnClos}
+                                                    onPress={() => handleChangeStatus(sig, 'clos')}
+                                                    activeOpacity={0.85}
+                                                >
+                                                    <Text style={s.btnText}>CLOTURER</Text>
+                                                </TouchableOpacity>
+                                            )}
+                                            <TouchableOpacity
+                                                style={s.btnSanction}
+                                                onPress={() => handleSanctionner(sig)}
+                                                disabled={isSanctioning}
+                                                activeOpacity={0.85}
+                                            >
+                                                {isSanctioning ? (
+                                                    <ActivityIndicator color="#fff" size="small" />
+                                                ) : (
+                                                    <>
+                                                        <UserX color="#fff" size={13} />
+                                                        <Text style={s.btnText}>SANCTIONNER</Text>
+                                                    </>
+                                                )}
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
+                                </View>
+                            );
+                        })}
+                    </View>
                 )}
             </ScrollView>
         </View>
@@ -353,7 +377,7 @@ export default function Signalements() {
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#f8fafc' },
+    safe: { flex: 1, backgroundColor: colors.slate50 },
 
     kpiRow: {
         flexDirection: 'row',
@@ -374,9 +398,9 @@ const s = StyleSheet.create({
         borderRadius: 8, borderWidth: 1.5, borderColor: '#e2e8f0',
         backgroundColor: '#fff',
     },
-    filterBtnActive:   { borderColor: '#059669', backgroundColor: '#ecfdf5' },
+    filterBtnActive:   { borderColor: colors.primary, backgroundColor: colors.primaryBg },
     filterLabel:       { fontSize: 11, fontWeight: '700', color: '#64748b' },
-    filterLabelActive: { color: '#059669' },
+    filterLabelActive: { color: colors.primary },
 
     fallbackBanner: {
         flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -412,11 +436,11 @@ const s = StyleSheet.create({
         paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
     },
     btnClos: {
-        flex: 1, backgroundColor: '#059669', borderRadius: 8,
+        flex: 1, backgroundColor: colors.primary, borderRadius: 8,
         paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
     },
     btnSanction: {
-        flex: 1, backgroundColor: '#dc2626', borderRadius: 8,
+        flex: 1, backgroundColor: colors.error, borderRadius: 8,
         paddingVertical: 10, flexDirection: 'row',
         alignItems: 'center', justifyContent: 'center', gap: 6,
     },
@@ -428,4 +452,16 @@ const s = StyleSheet.create({
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
     emptySub:  { fontSize: 12, color: '#94a3b8', textAlign: 'center' },
+});
+
+// ── Desktop grid styles ─────────────────────────────────────────────────────────
+const dtS = StyleSheet.create({
+    grid: {
+        flexDirection: 'row', flexWrap: 'wrap', gap: 16,
+    },
+    gridItem: {
+        width: '48%' as any,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+    },
 });

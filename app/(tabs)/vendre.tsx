@@ -113,8 +113,8 @@ export default function VendreScreen() {
         if (!showScanner) return;
         const loop = Animated.loop(
             Animated.sequence([
-                Animated.timing(scanAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
-                Animated.timing(scanAnim, { toValue: 0, duration: 0,    useNativeDriver: true }),
+                Animated.timing(scanAnim, { toValue: 1, duration: 1800, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(scanAnim, { toValue: 0, duration: 0,    useNativeDriver: Platform.OS !== 'web' }),
             ])
         );
         loop.start();
@@ -330,7 +330,7 @@ export default function VendreScreen() {
             <View style={[styles.container, isDesktop && dtVd.container]}>
 
                 {/* ── Grille produits ── */}
-                <ScrollView style={styles.productsScroll} contentContainerStyle={isDesktop && { paddingHorizontal: 24, paddingTop: 20 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView style={[styles.productsScroll, isDesktop && dtVd.productsScroll]} contentContainerStyle={isDesktop && { padding: 24 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                     {products.length === 0 ? (
                         <View style={styles.empty}>
                             <ShoppingBag color={colors.slate300} size={40} />
@@ -338,7 +338,7 @@ export default function VendreScreen() {
                             <Text style={styles.emptySubtext}>Ajoutez des produits dans l'onglet Stock</Text>
                         </View>
                     ) : (
-                        <View style={[styles.productsGrid, isDesktop && dtVd.productsGrid]} pointerEvents={touchReady ? 'auto' : 'none'}>
+                        <View style={[styles.productsGrid, isDesktop && dtVd.productsGrid, { pointerEvents: touchReady ? 'auto' : 'none' }]}>
                             {products.map(product => {
                                 const stock    = getStockLevel(product.id);
                                 const epuise   = stock <= 0;
@@ -379,13 +379,11 @@ export default function VendreScreen() {
                                         ]}>
                                             {epuise ? '—' : `${stock} en stock`}
                                         </Text>
-                                        {/* Badge quantité panier */}
                                         {inCart && !epuise && (
                                             <View style={styles.productBadge}>
                                                 <Text style={styles.productBadgeText}>{inCart.quantity}</Text>
                                             </View>
                                         )}
-                                        {/* Badge épuisé */}
                                         {epuise && (
                                             <View style={styles.epuiseBadge}>
                                                 <Text style={styles.epuiseBadgeText}>ÉPUISÉ</Text>
@@ -397,12 +395,118 @@ export default function VendreScreen() {
                         </View>
                     )}
 
-                    {/* Espace pour que le dernier produit ne soit pas caché sous le panier */}
-                    <View style={{ height: cart.length > 0 ? 280 : 100 }} />
+                    {!isDesktop && <View style={{ height: cart.length > 0 ? 280 : 100 }} />}
+                    {isDesktop && <View style={{ height: 32 }} />}
                 </ScrollView>
 
-                {/* ── Panier (collé en bas) ── */}
-                {cart.length > 0 && (
+                {/* ── Panier desktop : panneau latéral droit ── */}
+                {isDesktop && (
+                    <View style={dtVd.sideCart}>
+                        <Text style={dtVd.sideCartTitle}>Panier ({cart.reduce((a, i) => a + i.quantity, 0)})</Text>
+
+                        {cart.length === 0 ? (
+                            <View style={dtVd.sideCartEmpty}>
+                                <ShoppingBag color={colors.slate300} size={32} />
+                                <Text style={{ fontSize: 13, color: colors.slate400, marginTop: 8 }}>Cliquez sur un produit pour l'ajouter</Text>
+                            </View>
+                        ) : (
+                            <>
+                                <ScrollView style={{ maxHeight: 260 }} showsVerticalScrollIndicator={false}>
+                                    {cart.map(item => (
+                                        <View key={item.id} style={styles.cartItem}>
+                                            <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
+                                            <View style={styles.cartQtyRow}>
+                                                <TouchableOpacity onPress={() => changeQty(item.id, -1)} style={styles.qtyBtn}>
+                                                    <Minus color={colors.slate600} size={14} />
+                                                </TouchableOpacity>
+                                                <Text style={styles.qtyText}>{item.quantity}</Text>
+                                                <TouchableOpacity onPress={() => changeQty(item.id, 1)} style={styles.qtyBtn}>
+                                                    <Plus color={colors.slate600} size={14} />
+                                                </TouchableOpacity>
+                                            </View>
+                                            <Text style={styles.cartItemPrice}>{(item.price * item.quantity).toLocaleString()} F</Text>
+                                        </View>
+                                    ))}
+                                </ScrollView>
+
+                                <View style={dtVd.sideCartDivider} />
+
+                                <TextInput
+                                    style={styles.clientInput}
+                                    placeholder="Nom du client (optionnel)"
+                                    placeholderTextColor={colors.slate400}
+                                    value={clientName}
+                                    onChangeText={setClientName}
+                                />
+
+                                <View style={styles.paymentRow}>
+                                    {PAYMENT_OPTIONS.map(opt => (
+                                        <TouchableOpacity
+                                            key={opt.value}
+                                            style={[styles.payBtn, paymentStatus === opt.value && { backgroundColor: opt.color, borderColor: opt.color }]}
+                                            onPress={() => { setPaymentStatus(opt.value); if (opt.value !== 'MOMO') setMomoOperator(null); }}
+                                        >
+                                            <opt.icon color={paymentStatus === opt.value ? colors.white : colors.slate400} size={14} />
+                                            <Text style={[styles.payBtnText, paymentStatus === opt.value && { color: colors.white }]}>{opt.label}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                {paymentStatus === 'MOMO' && (
+                                    <>
+                                        <View style={styles.operatorGrid}>
+                                            {MOMO_OPERATORS.map(op => (
+                                                <TouchableOpacity
+                                                    key={op.value}
+                                                    style={[
+                                                        styles.operatorBtn,
+                                                        { backgroundColor: op.bgColor, borderColor: momoOperator === op.value ? colors.primary : op.borderColor },
+                                                    ]}
+                                                    onPress={() => setMomoOperator(op.value)}
+                                                    activeOpacity={0.8}
+                                                >
+                                                    {momoOperator === op.value && (
+                                                        <View style={styles.operatorCheck}>
+                                                            <CheckCircle color={colors.primary} size={12} />
+                                                        </View>
+                                                    )}
+                                                    <Text style={[styles.operatorName, { color: op.textColor }]} numberOfLines={1}>
+                                                        {op.label}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                        <TextInput
+                                            style={styles.clientInput}
+                                            placeholder="Numéro Mobile Money client (optionnel)"
+                                            placeholderTextColor={colors.slate400}
+                                            value={clientPhone}
+                                            onChangeText={setClientPhone}
+                                            keyboardType="phone-pad"
+                                        />
+                                    </>
+                                )}
+
+                                <View style={dtVd.totalRow}>
+                                    <Text style={dtVd.totalLabel}>TOTAL</Text>
+                                    <Text style={dtVd.totalValue}>{total.toLocaleString()} F</Text>
+                                </View>
+
+                                <TouchableOpacity
+                                    style={[styles.validateBtn, isLoading && { opacity: 0.7 }]}
+                                    onPress={handleFinish}
+                                    activeOpacity={0.85}
+                                    disabled={isLoading}
+                                >
+                                    <Text style={styles.validateBtnText}>VALIDER LA VENTE</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
+                    </View>
+                )}
+
+                {/* ── Panier mobile (collé en bas) ── */}
+                {!isDesktop && cart.length > 0 && (
                     <View style={styles.cartPanel}>
                         <ScrollView style={{ maxHeight: 130 }} showsVerticalScrollIndicator={false}>
                             {cart.map(item => (
@@ -443,7 +547,6 @@ export default function VendreScreen() {
                             ))}
                         </View>
 
-                        {/* Sélecteur opérateur Mobile Money */}
                         {paymentStatus === 'MOMO' && (
                             <>
                                 <View style={styles.operatorGrid}>
@@ -757,7 +860,32 @@ const styles = StyleSheet.create({
 
 // ── Styles desktop uniquement ─────────────────────────────────────────────
 const dtVd = StyleSheet.create({
-    container:    { alignSelf: 'center', width: '100%', maxWidth: 900 },
-    productsGrid: { gap: 14 },
-    productCard:  { width: '31%' },
+    container:     { flexDirection: 'row', maxWidth: 1400, alignSelf: 'center', width: '100%' },
+    productsScroll: { flex: 1 },
+    productsGrid:  { gap: 16 },
+    productCard: {
+        width: '23%',
+        borderWidth: 0,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 10, elevation: 3,
+    },
+    sideCart: {
+        width: 380, backgroundColor: '#FFF', borderLeftWidth: 1, borderLeftColor: '#F3F4F6',
+        padding: 24, gap: 12,
+    },
+    sideCartTitle: {
+        fontSize: 16, fontWeight: '900', color: '#1F2937', marginBottom: 4,
+    },
+    sideCartEmpty: {
+        flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40,
+    },
+    sideCartDivider: {
+        height: 1, backgroundColor: '#F3F4F6', marginVertical: 4,
+    },
+    totalRow: {
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#F3F4F6', marginTop: 4,
+    },
+    totalLabel: { fontSize: 12, fontWeight: '800', color: '#6B7280', letterSpacing: 1 },
+    totalValue: { fontSize: 22, fontWeight: '900', color: '#1F2937' },
 });

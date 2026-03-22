@@ -4,7 +4,7 @@ import React, { useState, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, Alert, TextInput, Modal, Dimensions,
-    KeyboardAvoidingView, Platform,
+    KeyboardAvoidingView, Platform, useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Phone, MapPin, Store, User, Check, X, ChevronDown } from 'lucide-react-native';
@@ -56,6 +56,9 @@ export default function AdminEnrolements() {
     const [refusModal, setRefusModal] = useState<Demande | null>(null);
     const [motif, setMotif]           = useState('');
 
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
     const fetchDemandes = useCallback(async () => {
         setLoading(true);
         try {
@@ -66,6 +69,7 @@ export default function AdminEnrolements() {
 
             if (error) throw error;
             const list = (data ?? []) as Demande[];
+            console.log('[AdminEnrolements] ✅ demandes chargées:', list.length, '— en_attente:', list.filter(d => d.statut === 'en_attente').length);
 
             // Enrichir avec les infos agents
             const agentIds = [...new Set(list.map(d => d.agent_id).filter(Boolean))] as string[];
@@ -214,29 +218,49 @@ export default function AdminEnrolements() {
                 paddingBottom={12}
             >
                 {/* Onglets filtre */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabsScroll}>
-                    {TABS.map(tab => {
-                        const count = demandes.filter(d => d.statut === tab.key).length;
-                        return (
-                            <TouchableOpacity
-                                key={tab.key}
-                                style={[s.tab, activeTab === tab.key && s.tabActive]}
-                                onPress={() => setActiveTab(tab.key)}
-                            >
-                                <Text style={[s.tabText, activeTab === tab.key && s.tabTextActive]}>
-                                    {tab.label}
-                                    {count > 0 ? ` (${count})` : ''}
-                                </Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </ScrollView>
+                {isDesktop ? (
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                        {TABS.map(tab => {
+                            const count = demandes.filter(d => d.statut === tab.key).length;
+                            return (
+                                <TouchableOpacity
+                                    key={tab.key}
+                                    style={[s.tab, activeTab === tab.key && s.tabActive]}
+                                    onPress={() => setActiveTab(tab.key)}
+                                >
+                                    <Text style={[s.tabText, activeTab === tab.key && s.tabTextActive]}>
+                                        {tab.label}
+                                        {count > 0 ? ` (${count})` : ''}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabsScroll}>
+                        {TABS.map(tab => {
+                            const count = demandes.filter(d => d.statut === tab.key).length;
+                            return (
+                                <TouchableOpacity
+                                    key={tab.key}
+                                    style={[s.tab, activeTab === tab.key && s.tabActive]}
+                                    onPress={() => setActiveTab(tab.key)}
+                                >
+                                    <Text style={[s.tabText, activeTab === tab.key && s.tabTextActive]}>
+                                        {tab.label}
+                                        {count > 0 ? ` (${count})` : ''}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </ScrollView>
+                )}
             </ScreenHeader>
 
             <ScrollView
                 style={s.scroll}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && { maxWidth: 1400, alignSelf: 'center', width: '100%', padding: 32 }]}
                 showsVerticalScrollIndicator={false}
             >
                 {loading ? (
@@ -244,6 +268,67 @@ export default function AdminEnrolements() {
                 ) : filtered.length === 0 ? (
                     <View style={s.emptyCard}>
                         <Text style={s.emptyText}>AUCUNE DEMANDE {activeTab === 'en_attente' ? 'EN ATTENTE' : activeTab === 'valide' ? 'VALIDÉE' : 'REFUSÉE'}</Text>
+                    </View>
+                ) : isDesktop ? (
+                    <View style={dtE.tableCard}>
+                        <View style={dtE.tableHeader}>
+                            <Text style={[dtE.thText, { flex: 2 }]}>NOM</Text>
+                            <Text style={[dtE.thText, { flex: 1.2 }]}>TYPE</Text>
+                            <Text style={[dtE.thText, { flex: 1.5 }]}>TELEPHONE</Text>
+                            <Text style={[dtE.thText, { flex: 2 }]}>BOUTIQUE</Text>
+                            <Text style={[dtE.thText, { flex: 1.5 }]}>AGENT</Text>
+                            <Text style={[dtE.thText, { flex: 1.5 }]}>DATE</Text>
+                            <Text style={[dtE.thText, { flex: 1 }]}>STATUT</Text>
+                            {activeTab === 'en_attente' && <Text style={[dtE.thText, { flex: 1.5 }]}>ACTIONS</Text>}
+                        </View>
+                        {filtered.map((demande, idx) => {
+                            const statColors = {
+                                en_attente: { bg: '#fef3c7', text: '#92400e', label: 'En attente' },
+                                valide:     { bg: '#d1fae5', text: '#065f46', label: 'Validee' },
+                                rejete:     { bg: '#fee2e2', text: '#991b1b', label: 'Refusee' },
+                            }[demande.statut];
+                            return (
+                                <View key={demande.id} style={[dtE.tableRow, idx % 2 === 1 && { backgroundColor: '#f8fafc' }]}>
+                                    <Text style={[dtE.cellText, { flex: 2, fontWeight: '700', color: '#1e293b' }]} numberOfLines={1}>{demande.nom}</Text>
+                                    <Text style={[dtE.cellText, { flex: 1.2 }]}>{TYPE_LABEL[demande.type] ?? demande.type}</Text>
+                                    <Text style={[dtE.cellText, { flex: 1.5 }]}>{demande.telephone}</Text>
+                                    <Text style={[dtE.cellText, { flex: 2 }]} numberOfLines={1}>{demande.nom_boutique || '--'}</Text>
+                                    <Text style={[dtE.cellText, { flex: 1.5 }]} numberOfLines={1}>{demande.agent_nom || '--'}</Text>
+                                    <Text style={[dtE.cellText, { flex: 1.5, color: '#94a3b8' }]}>
+                                        {new Date(demande.date_demande).toLocaleDateString('fr-FR')}
+                                    </Text>
+                                    <View style={{ flex: 1 }}>
+                                        <View style={[s.statusBadge, { backgroundColor: statColors.bg, alignSelf: 'flex-start' }]}>
+                                            <Text style={[s.statusText, { color: statColors.text }]}>{statColors.label}</Text>
+                                        </View>
+                                    </View>
+                                    {activeTab === 'en_attente' && (
+                                        <View style={{ flex: 1.5, flexDirection: 'row', gap: 6 }}>
+                                            {processing === demande.id ? (
+                                                <ActivityIndicator color={colors.primary} size="small" />
+                                            ) : (
+                                                <>
+                                                    <TouchableOpacity
+                                                        style={dtE.btnSmallValider}
+                                                        onPress={() => handleValider(demande)}
+                                                        activeOpacity={0.85}
+                                                    >
+                                                        <Check color={colors.white} size={14} />
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        style={dtE.btnSmallRefuser}
+                                                        onPress={() => { setMotif(''); setRefusModal(demande); }}
+                                                        activeOpacity={0.85}
+                                                    >
+                                                        <X color={colors.error} size={14} />
+                                                    </TouchableOpacity>
+                                                </>
+                                            )}
+                                        </View>
+                                    )}
+                                </View>
+                            );
+                        })}
                     </View>
                 ) : (
                     filtered.map(demande => (
@@ -539,4 +624,38 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 2, borderColor: colors.slate100, borderStyle: 'dashed',
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+});
+
+// ── Desktop table styles ────────────────────────────────────────────────────────
+const dtE = StyleSheet.create({
+    tableCard: {
+        backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+        borderWidth: 1, borderColor: '#f1f5f9',
+    },
+    tableHeader: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 14, paddingVertical: 10,
+        backgroundColor: '#f1f5f9',
+    },
+    thText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+    tableRow: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 14, paddingVertical: 12,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1, borderBottomColor: '#f1f5f9',
+    },
+    cellText: { fontSize: 12, color: '#64748b' },
+    btnSmallValider: {
+        width: 32, height: 32, borderRadius: 8,
+        backgroundColor: colors.primary,
+        alignItems: 'center', justifyContent: 'center',
+    },
+    btnSmallRefuser: {
+        width: 32, height: 32, borderRadius: 8,
+        borderWidth: 1.5, borderColor: colors.error,
+        backgroundColor: '#fff',
+        alignItems: 'center', justifyContent: 'center',
+    },
 });

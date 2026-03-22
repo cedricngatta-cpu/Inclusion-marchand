@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator, BackHandler,
+    ActivityIndicator, BackHandler, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
@@ -25,8 +25,8 @@ interface RecentOrder {
     status: string;
     quantity: number;
     total_amount: number;
+    product_name: string | null;
     created_at: string;
-    products: { name: string } | null;
     stores:   { name: string } | null;
 }
 
@@ -62,6 +62,8 @@ export default function ProducteurDashboard() {
     const router = useRouter();
     const { activeProfile } = useProfileContext();
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     // Garde de route — redirige si pas PRODUCER
     useEffect(() => {
@@ -123,7 +125,7 @@ export default function ProducteurDashboard() {
                 // Commandes récentes
                 supabase
                     .from('orders')
-                    .select('*, products(name), stores!buyer_store_id(name)')
+                    .select('*, stores!buyer_store_id(name)')
                     .eq('seller_store_id', activeProfile.id)
                     .order('created_at', { ascending: false })
                     .limit(5),
@@ -148,8 +150,6 @@ export default function ProducteurDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeProfile?.id]);
 
-    useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
-
     useEffect(() => {
         const unsubs = [
             onSocketEvent('nouvelle-commande',  () => fetchDashboard()),
@@ -160,8 +160,7 @@ export default function ProducteurDashboard() {
     }, []);
 
     // Recharge à chaque retour sur l'écran (ex: après avoir publié un produit)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useFocusEffect(useCallback(() => { fetchDashboard(); }, []));
+    useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
 
     // Bouton retour Android sur le dashboard → quitter l'app
     useFocusEffect(useCallback(() => {
@@ -223,16 +222,16 @@ export default function ProducteurDashboard() {
             {/* ════════════════════════════════ CONTENU ══════════════════════════ */}
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && dtPr.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 overScrollMode="never"
             >
                 {/* ── Grille 4 KPIs ── */}
-                <View style={s.kpiGrid}>
+                <View style={[s.kpiGrid, isDesktop && dtPr.kpiGrid]}>
                     {/* Mon Stock */}
                     <TouchableOpacity
-                        style={[s.kpiCell, { borderTopColor: '#f59e0b' }]}
+                        style={[s.kpiCell, { borderTopColor: '#f59e0b' }, isDesktop && dtPr.kpiCell]}
                         activeOpacity={0.82}
                         onPress={() => router.push('/producteur/stock' as any)}
                     >
@@ -246,7 +245,7 @@ export default function ProducteurDashboard() {
 
                     {/* Commandes */}
                     <TouchableOpacity
-                        style={[s.kpiCell, { borderTopColor: '#3b82f6' }]}
+                        style={[s.kpiCell, { borderTopColor: '#3b82f6' }, isDesktop && dtPr.kpiCell]}
                         activeOpacity={0.82}
                         onPress={() => router.push('/producteur/commandes' as any)}
                     >
@@ -265,7 +264,7 @@ export default function ProducteurDashboard() {
 
                     {/* Livraisons */}
                     <TouchableOpacity
-                        style={[s.kpiCell, { borderTopColor: '#10b981' }]}
+                        style={[s.kpiCell, { borderTopColor: '#D4882E' }, isDesktop && dtPr.kpiCell]}
                         activeOpacity={0.82}
                         onPress={() => router.push('/producteur/livraisons' as any)}
                     >
@@ -279,7 +278,7 @@ export default function ProducteurDashboard() {
 
                     {/* Revenus */}
                     <TouchableOpacity
-                        style={[s.kpiCell, { borderTopColor: '#8b5cf6' }]}
+                        style={[s.kpiCell, { borderTopColor: '#8b5cf6' }, isDesktop && dtPr.kpiCell]}
                         activeOpacity={0.82}
                         onPress={() => router.push('/producteur/revenus' as any)}
                     >
@@ -294,80 +293,83 @@ export default function ProducteurDashboard() {
                     </TouchableOpacity>
                 </View>
 
-                {/* ── CTA principal ── */}
-                <TouchableOpacity
-                    style={s.cta}
-                    activeOpacity={0.88}
-                    onPress={() => router.push('/producteur/publier' as any)}
-                >
-                    <Plus color={colors.white} size={20} />
-                    <Text style={s.ctaText}>DÉCLARER UNE RÉCOLTE</Text>
-                </TouchableOpacity>
+                {/* ── CTA principal + secondaire ── */}
+                <View style={isDesktop ? dtPr.ctaRow : undefined}>
+                    <TouchableOpacity
+                        style={[s.cta, isDesktop && dtPr.ctaBtn]}
+                        activeOpacity={0.88}
+                        onPress={() => router.push('/producteur/publier' as any)}
+                    >
+                        <Plus color={colors.white} size={20} />
+                        <Text style={s.ctaText}>DÉCLARER UNE RÉCOLTE</Text>
+                    </TouchableOpacity>
 
-                {/* ── Mes produits ── */}
-                <TouchableOpacity
-                    style={s.ctaSecondary}
-                    activeOpacity={0.88}
-                    onPress={() => router.push('/producteur/mes-produits' as any)}
-                >
-                    <List color={colors.primary} size={20} />
-                    <Text style={s.ctaSecondaryText}>MES PRODUITS PUBLIÉS</Text>
-                </TouchableOpacity>
-
-                {/* ── Dernières commandes ── */}
-                <View style={s.sectionHeader}>
-                    <Text style={s.sectionTitle}>DERNIÈRES COMMANDES</Text>
-                    <TouchableOpacity onPress={() => router.push('/producteur/commandes' as any)}>
-                        <Text style={s.sectionLink}>VOIR TOUT</Text>
+                    <TouchableOpacity
+                        style={[s.ctaSecondary, isDesktop && dtPr.ctaBtn]}
+                        activeOpacity={0.88}
+                        onPress={() => router.push('/producteur/mes-produits' as any)}
+                    >
+                        <List color={colors.primary} size={20} />
+                        <Text style={s.ctaSecondaryText}>MES PRODUITS PUBLIÉS</Text>
                     </TouchableOpacity>
                 </View>
 
-                {loading ? (
-                    <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />
-                ) : recentOrders.length === 0 ? (
-                    <View style={s.emptyCard}>
-                        <ShoppingBag color={colors.slate300} size={40} />
-                        <Text style={s.emptyText}>AUCUNE COMMANDE REÇUE</Text>
-                        <Text style={s.emptySub}>Les commandes des marchands apparaîtront ici</Text>
+                {/* ── Dernières commandes ── */}
+                <View style={isDesktop ? dtPr.ordersCard : undefined}>
+                    <View style={s.sectionHeader}>
+                        <Text style={s.sectionTitle}>DERNIÈRES COMMANDES</Text>
+                        <TouchableOpacity onPress={() => router.push('/producteur/commandes' as any)}>
+                            <Text style={s.sectionLink}>VOIR TOUT</Text>
+                        </TouchableOpacity>
                     </View>
-                ) : (
-                    recentOrders.map(order => {
-                        const sc = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
-                        return (
-                            <TouchableOpacity
-                                key={order.id}
-                                style={s.orderCard}
-                                activeOpacity={0.85}
-                                onPress={() => router.push('/producteur/commandes' as any)}
-                            >
-                                <View style={s.orderInfo}>
-                                    <Text style={s.orderProduct} numberOfLines={1}>
-                                        {order.products?.name ?? 'Produit'}
-                                    </Text>
-                                    <Text style={s.orderBuyer} numberOfLines={1}>
-                                        {order.stores?.name ?? 'Acheteur inconnu'}
-                                    </Text>
-                                    <Text style={s.orderMeta}>
-                                        {order.quantity} u · {new Date(order.created_at).toLocaleDateString('fr-FR')}
-                                    </Text>
-                                </View>
-                                <View style={s.orderRight}>
-                                    <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
-                                        <Text style={[s.statusText, { color: sc.text }]}>
-                                            {STATUS_LABELS[order.status] ?? order.status}
+
+                    {loading ? (
+                        <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />
+                    ) : recentOrders.length === 0 ? (
+                        <View style={s.emptyCard}>
+                            <ShoppingBag color={colors.slate300} size={40} />
+                            <Text style={s.emptyText}>AUCUNE COMMANDE REÇUE</Text>
+                            <Text style={s.emptySub}>Les commandes des marchands apparaîtront ici</Text>
+                        </View>
+                    ) : (
+                        recentOrders.map(order => {
+                            const sc = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
+                            return (
+                                <TouchableOpacity
+                                    key={order.id}
+                                    style={[s.orderCard, isDesktop && dtPr.orderCard]}
+                                    activeOpacity={0.85}
+                                    onPress={() => router.push('/producteur/commandes' as any)}
+                                >
+                                    <View style={s.orderInfo}>
+                                        <Text style={s.orderProduct} numberOfLines={1}>
+                                            {order.product_name ?? 'Produit'}
+                                        </Text>
+                                        <Text style={s.orderBuyer} numberOfLines={1}>
+                                            {order.stores?.name ?? 'Acheteur inconnu'}
+                                        </Text>
+                                        <Text style={s.orderMeta}>
+                                            {order.quantity} u · {new Date(order.created_at).toLocaleDateString('fr-FR')}
                                         </Text>
                                     </View>
-                                    {order.total_amount > 0 && (
-                                        <Text style={s.orderPrice}>
-                                            {order.total_amount.toLocaleString('fr-FR')} F
-                                        </Text>
-                                    )}
-                                    <ChevronRight color={colors.slate300} size={16} />
-                                </View>
-                            </TouchableOpacity>
-                        );
-                    })
-                )}
+                                    <View style={s.orderRight}>
+                                        <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
+                                            <Text style={[s.statusText, { color: sc.text }]}>
+                                                {STATUS_LABELS[order.status] ?? order.status}
+                                            </Text>
+                                        </View>
+                                        {order.total_amount > 0 && (
+                                            <Text style={s.orderPrice}>
+                                                {order.total_amount.toLocaleString('fr-FR')} F
+                                            </Text>
+                                        )}
+                                        <ChevronRight color={colors.slate300} size={16} />
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })
+                    )}
+                </View>
             </ScrollView>
         </View>
     );
@@ -375,7 +377,7 @@ export default function ProducteurDashboard() {
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-    safe:   { flex: 1, backgroundColor: '#f8fafc' },
+    safe:   { flex: 1, backgroundColor: colors.slate50 },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
     // Hero
@@ -423,14 +425,14 @@ const s = StyleSheet.create({
 
     // ── CTA ──
     cta: {
-        backgroundColor: '#059669',
+        backgroundColor: colors.primary,
         borderRadius: 10,
         paddingVertical: 18,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 10,
-        shadowColor: '#059669',
+        shadowColor: colors.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -447,15 +449,15 @@ const s = StyleSheet.create({
         justifyContent: 'center',
         gap: 10,
         borderWidth: 2,
-        borderColor: '#059669',
-        backgroundColor: '#ecfdf5',
+        borderColor: colors.primary,
+        backgroundColor: colors.primaryBg,
     },
-    ctaSecondaryText: { fontSize: 13, fontWeight: '900', color: '#059669', letterSpacing: 2 },
+    ctaSecondaryText: { fontSize: 13, fontWeight: '900', color: colors.primary, letterSpacing: 2 },
 
     // ── Section ──
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     sectionTitle:  { fontSize: 11, fontWeight: '900', color: '#94a3b8', letterSpacing: 2 },
-    sectionLink:   { fontSize: 11, fontWeight: '900', color: '#059669', letterSpacing: 1 },
+    sectionLink:   { fontSize: 11, fontWeight: '900', color: colors.primary, letterSpacing: 1 },
 
     // ── Commandes ──
     orderCard: {
@@ -483,4 +485,56 @@ const s = StyleSheet.create({
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
     emptySub:  { fontSize: 11, color: '#94a3b8', textAlign: 'center' },
+});
+
+// ── Styles desktop ──────────────────────────────────────────────────────────
+const dtPr = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as any,
+        width: '100%' as any,
+        padding: 32,
+        gap: 20,
+    },
+    kpiGrid: {
+        flexDirection: 'row',
+        flexWrap: 'nowrap',
+        gap: 20,
+    },
+    kpiCell: {
+        flex: 1,
+        width: 'auto' as any,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+        borderWidth: 0,
+    },
+    ctaRow: {
+        flexDirection: 'row',
+        gap: 16,
+    },
+    ctaBtn: {
+        flex: 1,
+    },
+    ordersCard: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        padding: 20,
+        gap: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+    },
+    orderCard: {
+        borderWidth: 0,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+    },
 });

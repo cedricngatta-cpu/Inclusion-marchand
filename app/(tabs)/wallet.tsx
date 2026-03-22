@@ -56,8 +56,6 @@ export default function WalletScreen() {
     const fetchWallet = useCallback(async () => {
         if (!activeProfile) return;
         setLoading(true);
-        console.log('=== WALLET — fetchWallet, store_id:', activeProfile.id);
-
         try {
             const now      = new Date();
             const mStart   = startOfMonth(now).toISOString();
@@ -73,18 +71,14 @@ export default function WalletScreen() {
                 .gte('created_at', mStart)
                 .order('created_at', { ascending: false });
 
-            console.log('[Wallet] transactions:', txData?.length ?? 0, 'erreur:', txErr?.message ?? null);
-
             // ── Dépenses : commandes livrées achetées par ce marchand ───────
             const { data: ordData, error: ordErr } = await supabase
                 .from('orders')
-                .select('id, total_amount, notes, created_at, products(name)')
+                .select('id, total_amount, product_name, notes, created_at')
                 .eq('buyer_store_id', activeProfile.id)
                 .eq('status', 'DELIVERED')
                 .gte('created_at', mStart)
                 .order('created_at', { ascending: false });
-
-            console.log('[Wallet] orders (dépenses):', ordData?.length ?? 0, 'erreur:', ordErr?.message ?? null);
 
             // ── Construction de la liste financière ─────────────────────────
             const ins: FinancialEntry[] = (txData ?? []).map((t: any) => ({
@@ -97,7 +91,7 @@ export default function WalletScreen() {
 
             const outs: FinancialEntry[] = (ordData ?? []).map((o: any) => ({
                 id:    'ord_' + o.id,
-                label: (o.products as any)?.name ?? o.notes ?? 'Commande',
+                label: o.product_name ?? o.notes ?? 'Commande',
                 amount: o.total_amount ?? 0,
                 type:  'OUT',
                 date:  o.created_at,
@@ -174,7 +168,7 @@ export default function WalletScreen() {
                 <View style={styles.statsRow}>
                     <View style={styles.statCell}>
                         <View style={styles.statIconIn}>
-                            <TrendingUp color="#059669" size={12} />
+                            <TrendingUp color={colors.success} size={12} />
                         </View>
                         <View>
                             <Text style={styles.statValue}>{loading ? '–' : totalIn.toLocaleString('fr-FR')} F</Text>
@@ -246,7 +240,7 @@ export default function WalletScreen() {
                             <View key={entry.id} style={[styles.entryRow, i > 0 && styles.entryBorder]}>
                                 <View style={[styles.entryIcon, entry.type === 'IN' ? styles.entryIconIn : styles.entryIconOut]}>
                                     {entry.type === 'IN'
-                                        ? <ShoppingBag color="#059669" size={14} />
+                                        ? <ShoppingBag color={colors.success} size={14} />
                                         : <ShoppingCart color="#e11d48" size={14} />
                                     }
                                 </View>
@@ -381,7 +375,7 @@ const styles = StyleSheet.create({
     entryLabel:   { fontSize: 13, fontWeight: '700', color: colors.slate800 },
     entryDate:    { fontSize: 11, color: colors.slate400, marginTop: 2 },
     entryAmount:  { fontSize: 13, fontWeight: '900', flexShrink: 0 },
-    entryAmountIn:  { color: '#059669' },
+    entryAmountIn:  { color: colors.success },
     entryAmountOut: { color: '#e11d48' },
 
     // Empty

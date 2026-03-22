@@ -43,7 +43,7 @@ const CONSEIL_CONFIG: Record<ConseilType, {
     },
     HAUSSE: {
         bg: '#ecfdf5', border: '#a7f3d0', icon: TrendingUp,
-        iconColor: '#059669', badge: 'HAUSSE', badgeBg: '#d1fae5',
+        iconColor: colors.primary, badge: 'HAUSSE', badgeBg: '#FDEBD0',
     },
     BAISSE: {
         bg: '#fff1f2', border: '#fecdd3', icon: TrendingDown,

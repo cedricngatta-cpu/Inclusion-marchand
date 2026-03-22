@@ -40,11 +40,12 @@ export default function ProfilScreen() {
         return () => showVoiceButton();
     }, []));
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
         if (Platform.OS === 'web') {
             // Sur web, window.confirm() à la place d'Alert.alert natif
             if (!(window as any).confirm('Voulez-vous vraiment vous déconnecter ?')) return;
-            logout().then(() => router.replace('/(auth)/login' as any));
+            await logout();
+            router.replace('/(auth)/login' as any);
             return;
         }
         Alert.alert(
@@ -124,7 +125,7 @@ export default function ProfilScreen() {
                     <Text style={styles.logoutBtnText}>SE DÉCONNECTER</Text>
                 </TouchableOpacity>
 
-                <Text style={styles.footer}>Inclusion Marchand • v1.0.0</Text>
+                <Text style={styles.footer}>Jùlaba • v1.0.0</Text>
             </ScrollView>
 
             <ChangePinModal

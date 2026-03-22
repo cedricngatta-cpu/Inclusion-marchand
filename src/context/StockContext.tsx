@@ -170,13 +170,10 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // Listener Socket.io : mises à jour stock depuis l'assistant vocal ou un autre appareil
     useEffect(() => {
         if (!activeProfile) return;
-        const unsubscribe = onSocketEvent('stock-update', ({ storeId, productId, newQty }) => {
-            if (storeId !== activeProfile.id || !productId || newQty === undefined) return;
-            setStock(prev => {
-                const updated = { ...prev, [productId]: newQty };
-                AsyncStorage.setItem(`stock_${activeProfile.id}`, JSON.stringify(updated)).catch(console.error);
-                return updated;
-            });
+        const unsubscribe = onSocketEvent('stock-update', ({ storeId }) => {
+            // Supabase first : recharger depuis la base au lieu d'utiliser newQty du socket
+            if (storeId !== activeProfile.id) return;
+            fetchStock();
         });
         return unsubscribe;
     }, [activeProfile?.id]);

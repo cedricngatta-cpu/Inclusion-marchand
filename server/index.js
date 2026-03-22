@@ -1,4 +1,4 @@
-// Serveur Socket.io — Inclusion Marchand Mobile
+// Serveur Socket.io — Jùlaba Mobile
 // Système realtime complet : 5 rôles, 15+ événements métier
 const express = require('express');
 const http    = require('http');
@@ -6,7 +6,8 @@ const { Server } = require('socket.io');
 const cors    = require('cors');
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/;
-const EMIT_SECRET    = process.env.EMIT_SECRET    || 'inclusion-marchand-secret';
+const EMIT_SECRET = process.env.EMIT_SECRET;
+if (!EMIT_SECRET) { console.error('❌ EMIT_SECRET manquant — set process.env.EMIT_SECRET'); process.exit(1); }
 
 const app = express();
 app.use(cors({ origin: ALLOWED_ORIGIN }));
@@ -72,6 +73,7 @@ io.on('connection', (socket) => {
     socket.on('user-connect', (data) => {
         const { userId, storeId, name, role } = data || {};
         if (!userId) return;
+        // TODO: vérifier userId et role contre Supabase pour empêcher l'usurpation
 
         clients.set(socket.id, { userId, storeId, name, role });
 
@@ -316,6 +318,35 @@ io.on('connection', (socket) => {
         try { fs.appendFileSync('error-log.txt', logLine); } catch (_) { /* ignorer si dossier inaccessible */ }
     });
 
+    // ── 20. Achat groupé finalisé (Coopérative → Marchands + Admin) ──────────
+    socket.on('achat-groupe-finalise', (data) => {
+        log(`✅ Achat groupé finalisé`);
+        if (data.cooperativeId) io.to(data.cooperativeId).emit('achat-groupe-finalise', data);
+        io.to('marchands').emit('achat-groupe-finalise', data);
+        io.to('admin').emit('achat-groupe-finalise', data);
+    });
+
+    // ── 21. Dette encaissée (Marchand → Admin) ─────────────────────────────
+    socket.on('dette-encaissee', (data) => {
+        log(`💰 Dette encaissée`);
+        if (data.storeId) io.to(data.storeId).emit('dette-encaissee', data);
+        io.to('admin').emit('dette-encaissee', data);
+    });
+
+    // ── 22. Produit modifié (Producteur → Marchands + Admin) ────────────────
+    socket.on('produit-modifie', (data) => {
+        log(`✏️  Produit modifié`);
+        io.to('marchands').emit('produit-modifie', data);
+        io.to('admin').emit('produit-modifie', data);
+    });
+
+    // ── 23. Produit supprimé (Producteur → Marchands + Admin) ───────────────
+    socket.on('produit-supprime', (data) => {
+        log(`🗑️  Produit supprimé`);
+        io.to('marchands').emit('produit-supprime', data);
+        io.to('admin').emit('produit-supprime', data);
+    });
+
     // ── Déconnexion ───────────────────────────────────────────────────────────
     socket.on('user-disconnect', () => {
         const c = clients.get(socket.id);
@@ -347,6 +378,10 @@ app.get('/health', (req, res) => {
 
 // ── Notification externe (ex: Supabase webhook) ──────────────────────────────
 app.post('/notify', (req, res) => {
+    const authHeader = req.headers['authorization'];
+    if (authHeader !== `Bearer ${EMIT_SECRET}`) {
+        return res.status(401).json({ error: 'Non autorisé' });
+    }
     const { targetId, title, message, type } = req.body;
     if (!targetId || !title) return res.status(400).json({ error: 'targetId et title requis' });
 
@@ -384,7 +419,7 @@ app.post('/emit', (req, res) => {
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', () => {
     log('\n╔══════════════════════════════════════╗');
-    log('║  Inclusion Marchand — Serveur Realtime ║');
+    log('║  Jùlaba — Serveur Realtime ║');
     log('╠══════════════════════════════════════╣');
     log(`║  Port    : ${PORT}                         ║`);
     log(`║  Health  : http://localhost:${PORT}/health  ║`);
@@ -400,6 +435,8 @@ server.listen(PORT, '0.0.0.0', () => {
     log('  • achat-groupe-cree, achat-groupe-rejoint');
     log('  • demande-prix-groupe, prix-groupe-propose, prix-groupe-accepte');
     log('  • signalement-conformite, stats-reseau-update');
+    log('  • achat-groupe-finalise, dette-encaissee');
+    log('  • produit-modifie, produit-supprime');
     log('  • nouvelle-activite → admin room (realtime feed)');
     log('  • nouvelle-notification');
     log('  • app-error → monitoring erreurs temps réel\n');

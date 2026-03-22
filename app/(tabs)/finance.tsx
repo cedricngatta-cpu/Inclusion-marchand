@@ -100,7 +100,7 @@ export default function FinanceScreen() {
                     .order('created_at', { ascending: false }),
                 supabase
                     .from('orders')
-                    .select('id, total_amount, created_at, products(name)')
+                    .select('id, total_amount, product_name, created_at')
                     .eq('buyer_store_id', activeProfile.id)
                     .eq('status', 'DELIVERED')
                     .gte('created_at', mStart)
@@ -132,7 +132,7 @@ export default function FinanceScreen() {
             });
             const outs: FinancialEntry[] = (ordRes.data ?? []).map((o: any) => ({
                 id:     'ord_' + o.id,
-                label:  (o.products as any)?.name ?? 'Commande',
+                label:  o.product_name ?? 'Commande',
                 amount: o.total_amount ?? 0,
                 type:   'OUT',
                 date:   o.created_at,
@@ -164,8 +164,7 @@ export default function FinanceScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeProfile?.id]);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useFocusEffect(useCallback(() => { fetchFinance(); }, []));
+    useFocusEffect(useCallback(() => { fetchFinance(); }, [fetchFinance]));
 
     const totalIn  = useMemo(() => entries.filter(e => e.type === 'IN').reduce((s, e) => s + e.amount, 0), [entries]);
     const totalOut = useMemo(() => entries.filter(e => e.type === 'OUT').reduce((s, e) => s + e.amount, 0), [entries]);

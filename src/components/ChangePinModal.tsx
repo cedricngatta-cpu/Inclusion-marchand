@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { Lock, X, ChevronLeft } from 'lucide-react-native';
 import { useAuth } from '@/src/context/AuthContext';
+import { colors } from '@/src/lib/colors';
 
 const BLOCKED_PINS = ['0101', '0000', '1234', '1111', '0000'];
 
@@ -139,14 +140,14 @@ export const ChangePinModal: React.FC<Props> = ({ visible, canCancel = false, on
                                     else if (step === 'new' && canCancel) { setNewPin(''); setStep('current'); }
                                 }}
                             >
-                                <ChevronLeft color="#059669" size={20} />
+                                <ChevronLeft color={colors.primary} size={20} />
                             </TouchableOpacity>
                         ) : (
                             <View style={{ width: 44 }} />
                         )}
 
                         <View style={s.lockIcon}>
-                            <Lock color="#059669" size={22} />
+                            <Lock color={colors.primary} size={22} />
                         </View>
 
                         {canCancel ? (
@@ -284,10 +285,10 @@ const s = StyleSheet.create({
         backgroundColor: 'transparent',
     },
     dotFilled: {
-        backgroundColor: '#059669', borderColor: '#059669',
+        backgroundColor: colors.primary, borderColor: colors.primary,
     },
     errorText: {
-        fontSize: 12, color: '#dc2626', marginBottom: 12, textAlign: 'center',
+        fontSize: 12, color: colors.error, marginBottom: 12, textAlign: 'center',
     },
     keypad: {
         flexDirection: 'row', flexWrap: 'wrap',
@@ -307,11 +308,11 @@ const s = StyleSheet.create({
     },
     submitBtn: {
         width: '100%', height: 52, borderRadius: 10,
-        backgroundColor: '#059669',
+        backgroundColor: colors.primary,
         alignItems: 'center', justifyContent: 'center',
     },
     submitBtnDisabled: {
-        backgroundColor: '#d1fae5',
+        backgroundColor: colors.primaryBg2,
     },
     submitText: {
         fontSize: 14, fontWeight: '800', color: '#fff', letterSpacing: 1,
@@ -323,10 +324,10 @@ const s = StyleSheet.create({
         alignItems: 'center', paddingVertical: 32,
     },
     successIcon: {
-        fontSize: 52, color: '#059669', marginBottom: 12,
+        fontSize: 52, color: colors.primary, marginBottom: 12,
     },
     successTitle: {
-        fontSize: 22, fontWeight: '800', color: '#059669', marginBottom: 4,
+        fontSize: 22, fontWeight: '800', color: colors.primary, marginBottom: 4,
     },
     successSub: {
         fontSize: 14, color: '#64748b',

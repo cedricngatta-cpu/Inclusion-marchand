@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator, RefreshControl,
+    ActivityIndicator, RefreshControl, Platform, useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Activity } from 'lucide-react-native';
@@ -52,6 +52,8 @@ const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
 export default function Activites() {
     const router = useRouter();
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
     const [loading, setLoading]         = useState(true);
@@ -128,7 +130,7 @@ export default function Activites() {
 
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtAc.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
@@ -165,10 +167,10 @@ export default function Activites() {
                 ) : filtered.length === 0 ? (
                     <View style={styles.emptyCard}>
                         <Activity color={colors.slate300} size={40} />
-                        <Text style={styles.emptyText}>AUCUNE ACTIVITÉ TROUVÉE</Text>
+                        <Text style={styles.emptyText}>AUCUNE ACTIVITE TROUVEE</Text>
                     </View>
                 ) : (
-                    <View style={styles.timeline}>
+                    <View style={[styles.timeline, isDesktop && dtAc.timelineCard]}>
                         {filtered.map((enroll, index) => {
                             const sc = STATUS_COLORS[enroll.statut] ?? STATUS_COLORS.en_attente;
                             const isLast = index === filtered.length - 1;
@@ -302,20 +304,20 @@ const styles = StyleSheet.create({
     // Motif refus
     motifBlock: {
         borderLeftWidth: 3,
-        borderLeftColor: '#DC2626',
+        borderLeftColor: colors.error,
         backgroundColor: '#FEF2F2',
         borderRadius: 4,
         paddingHorizontal: 10,
         paddingVertical: 6,
         marginTop: 6,
     },
-    motifLabel: { fontSize: 11, fontWeight: '900', color: '#DC2626', letterSpacing: 1, marginBottom: 2 },
+    motifLabel: { fontSize: 11, fontWeight: '900', color: colors.error, letterSpacing: 1, marginBottom: 2 },
     motifText:  { fontSize: 11, fontWeight: '600', color: '#991B1B', lineHeight: 16 },
 
     // Bouton corriger
     corrigerBtn: {
         marginTop: 10,
-        backgroundColor: '#F59E0B',
+        backgroundColor: colors.amber500,
         borderRadius: 8,
         paddingVertical: 9,
         alignItems: 'center',
@@ -330,4 +332,25 @@ const styles = StyleSheet.create({
         borderStyle: 'dashed', gap: 12,
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+});
+
+const dtAc = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1000,
+        alignSelf: 'center' as const,
+        width: '100%',
+        padding: 32,
+    },
+    timelineCard: {
+        backgroundColor: colors.white,
+        borderRadius: 12,
+        padding: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 3,
+        borderWidth: 1,
+        borderColor: colors.slate100,
+    },
 });

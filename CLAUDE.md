@@ -1,4 +1,4 @@
-# CLAUDE.md — Guide complet Inclusion Marchand Mobile
+# CLAUDE.md — Guide complet Julaba Mobile
 
 ## Projet
 Application mobile Android React Native / Expo SDK 54 pour l'inclusion économique des commerçants informels en Afrique.
@@ -94,15 +94,15 @@ Pré-requis : lancer le seed (`node scripts/seed.js`) avant la simulation.
 ## RÈGLES DE DESIGN OBLIGATOIRES
 
 ### 1. PAS DE CERCLES
-- AUCUN élément circulaire sauf le header vert
+- AUCUN élément circulaire sauf le header
 - Tous les borderRadius : maximum 10-12px
-- SEULE EXCEPTION : coins arrondis en bas du header vert
+- SEULE EXCEPTION : coins arrondis en bas du header (borderBottomLeft/RightRadius)
 
-### 2. Header vert — Design de référence
-- Fond vert #059669
+### 2. Header Jùlaba — Design de référence
+- Fond orange Jùlaba `colors.primary` (#C47316)
 - Icônes en haut dans des carrés blancs arrondis (borderRadius: 10)
 - Bouton retour sur écrans secondaires : flèche blanche dans carré blanc arrondi
-- Tous les écrans suivent le MÊME style de header
+- Tous les écrans suivent le MÊME style de header via `<ScreenHeader />`
 
 ### 3. Espacement
 - Contenu ne chevauche JAMAIS le header
@@ -191,7 +191,7 @@ EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, QR Code
 - Recherche ILIKE pour noms de produits/profils (insensible à la casse et aux pluriels)
 
 ### Bouton micro
-- Carré arrondi 56x56, vert #059669, borderRadius: 10
+- Carré arrondi 56x56, orange `colors.primary` (#C47316), borderRadius: 10
 - Position absolute, bottom: 30, right: 20
 - Présent sur TOUS les écrans
 
@@ -307,14 +307,19 @@ Chaque transaction enregistre le mode de paiement (status) et l'opérateur (oper
 - Déconnexion : router.replace('/login') + clear AsyncStorage + clear stack
 - Bouton retour Android sur login → quitte l'app (BackHandler.exitApp())
 - Verrouillage auto après 60s d'inactivité → PIN requis
+- Protection brute-force : 5 échecs → blocage 5 min, 10 échecs → 30 min
+- PIN temporaire : toujours `'0101'` (déclenche mustChangePin au login)
+- PINs bloqués : '0101', '0000', '1234', '1111' (impossible de les garder)
+- Actions admin vocales protégées par vérification de rôle (SUPERVISOR/COOPERATIVE)
 
 ---
 
 ## OFFLINE-FIRST
 
-- Stockage local : AsyncStorage + expo-sqlite
-- File de synchronisation quand internet revient
-- L'app doit fonctionner sans connexion pour les opérations basiques
+- Stockage local : AsyncStorage (pas d'expo-sqlite)
+- File de synchronisation : `src/lib/offlineQueue.ts` (transactions + stock)
+- Cache offline : ProfileContext, HistoryContext, StockContext, ProductContext, NotificationContext
+- L'app doit fonctionner sans connexion pour les opérations basiques (ventes, stock)
 
 ---
 
@@ -337,23 +342,26 @@ Chaque transaction enregistre le mode de paiement (status) et l'opérateur (oper
 - activity_logs (id, user_id, user_name, action, details, type, created_at)
 - credits_clients (id, marchand_id, client_nom, client_telephone, montant_du, date_credit, date_echeance, statut)
 - achats_groupes (id, cooperative_id, produit_id, producteur_id, nom_produit, prix_normal, prix_negocie, quantite_minimum, quantite_totale, quantite_actuelle, statut, date_limite, description, created_at)
-  → statut values : OUVERT, FERME, ANNULE, LIVRE
+  → statut values : NEGOTIATION, OPEN, COMPLETED, CANCELLED (contrainte SQL — PAS de valeurs FR)
 - achats_groupes_participants (id, achat_groupe_id, marchand_id, marchand_nom, quantite, date_inscription)
 
 ---
 
-## COULEURS
+## COULEURS (voir `src/lib/colors.ts`)
 
-- Vert principal : #059669
-- Vert clair : #ECFDF5
-- Rouge : #DC2626
-- Orange : #F59E0B
-- Bleu : #2563EB
-- Violet : #7C3AED
-- Cyan : #0891B2
-- Gris texte : #6B7280
-- Noir texte : #1F2937
-- Blanc : #FFFFFF
+- Orange principal Jùlaba : #C47316 (`colors.primary`)
+- Orange clair bg : #FFF8F0 (`colors.primaryBg`)
+- Vert succès : #059669 (`colors.success` / `colors.green`)
+- Vert clair : #ECFDF5 (`colors.greenLight`)
+- Rouge : #DC2626 (`colors.error` / `colors.red`)
+- Orange warning : #D97706 (`colors.warning`)
+- Ambre : #F59E0B (`colors.amber500`)
+- Bleu : #2563EB (`colors.info` / `colors.blue`)
+- Violet : #7C3AED (`colors.purple`)
+- Gris texte : #6B7280 (`colors.textSecondary`)
+- Noir texte : #1F2937 (`colors.textPrimary`)
+- Blanc : #FFFFFF (`colors.white`)
+- **RÈGLE** : toujours utiliser `colors.*` au lieu de hex hardcodé
 
 ---
 

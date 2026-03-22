@@ -1,5 +1,5 @@
 // Performances — Coopérative
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator,
@@ -90,8 +90,6 @@ export default function PerformancesScreen() {
             setLoading(false);
         }
     }, []);
-
-    useEffect(() => { fetchPerformances(year, month); }, [fetchPerformances, year, month]);
 
     // Recharge à chaque retour sur l'écran
     useFocusEffect(useCallback(() => { fetchPerformances(year, month); }, [fetchPerformances, year, month]));

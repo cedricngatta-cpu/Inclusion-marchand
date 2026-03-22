@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/src/lib/supabase';
+import { colors } from '@/src/lib/colors';
 import { useProfileContext } from './ProfileContext';
 
 export interface Product {
@@ -65,7 +66,7 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     barcode: p.barcode,
                     imageUrl: p.image_url,
                     color: p.color || '#ecfdf5',
-                    iconColor: p.icon_color || '#059669',
+                    iconColor: p.icon_color || colors.primary,
                     store_id: p.store_id,
                 }));
                 setProducts(mapped);

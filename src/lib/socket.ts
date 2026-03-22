@@ -1,4 +1,4 @@
-// Client Socket.io — Inclusion Marchand Mobile
+// Client Socket.io — Jùlaba
 // Singleton : une seule connexion partagée dans toute l'app
 import { io, Socket } from 'socket.io-client';
 
@@ -58,6 +58,13 @@ const BUSINESS_EVENTS = [
     // Achats groupés
     'achat-groupe-cree',
     'achat-groupe-rejoint',
+    'achat-groupe-finalise',
+    // Négociation prix groupé
+    'demande-prix-groupe',
+    'prix-groupe-propose',
+    'prix-groupe-accepte',
+    // Coopérative
+    'cooperative-inconnue',
     // Conformité & Stats
     'signalement-conformite',
     'stats-reseau-update',
@@ -149,6 +156,8 @@ export const disconnectSocket = (): void => {
     _storeId = null;
     _name    = null;
     _role    = null;
+    // Vider le registre pour éviter les fuites mémoire et callbacks stales
+    Object.keys(registry).forEach(key => delete registry[key]);
     console.log('[Socket] Déconnexion propre');
 };
 

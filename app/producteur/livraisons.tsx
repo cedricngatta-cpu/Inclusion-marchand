@@ -1,8 +1,8 @@
 // Suivi des livraisons — Producteur
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator, RefreshControl,
+    ActivityIndicator, RefreshControl, Platform, useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Truck } from 'lucide-react-native';
@@ -17,9 +17,11 @@ interface DeliveryOrder {
     id: string;
     status: string;
     quantity: number;
+    unit_price: number;
     total_amount: number;
+    product_name: string | null;
     created_at: string;
-    products: { name: string; price: number } | null;
+    buyer_store_id: string | null;
     stores: { name: string; owner_id?: string } | null;
 }
 
@@ -85,6 +87,8 @@ const pb = StyleSheet.create({
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function LivraisonsScreen() {
     const { activeProfile } = useProfileContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [orders, setOrders]   = useState<DeliveryOrder[]>([]);
     const [loading, setLoading] = useState(true);
@@ -98,7 +102,7 @@ export default function LivraisonsScreen() {
         try {
             const { data } = await supabase
                 .from('orders')
-                .select('*, products(name, price), stores!buyer_store_id(name, owner_id)')
+                .select('*, stores!buyer_store_id(name, owner_id)')
                 .eq('seller_store_id', activeProfile.id)
                 .in('status', ['ACCEPTED', 'SHIPPED'])
                 .order('created_at', { ascending: false });
@@ -110,8 +114,6 @@ export default function LivraisonsScreen() {
             setLoading(false);
         }
     }, [activeProfile]);
-
-    useEffect(() => { fetchDeliveries(); }, [fetchDeliveries]);
 
     // Recharge à chaque retour sur l'écran
     useFocusEffect(useCallback(() => { fetchDeliveries(); }, [fetchDeliveries]));
@@ -133,6 +135,7 @@ export default function LivraisonsScreen() {
                 emitEvent('livraison-en-cours', {
                     orderId,
                     sellerStoreId: activeProfile?.id,
+                    buyerStoreId:  order?.buyer_store_id ?? null,
                     buyerUserId:   order?.stores?.owner_id ?? null,
                     driverName:    activeProfile?.name,
                 });
@@ -157,7 +160,7 @@ export default function LivraisonsScreen() {
             {/* ── LISTE ── */}
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtLv.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl
@@ -179,22 +182,23 @@ export default function LivraisonsScreen() {
                         </Text>
                     </View>
                 ) : (
-                    orders.map(order => {
+                  <View style={isDesktop ? dtLv.grid : undefined}>
+                    {orders.map(order => {
                         const sc         = STATUS_COLORS[order.status] ?? STATUS_COLORS.ACCEPTED;
                         const nextStatus = getNextStatus(order.status);
                         const nextLabel  = getNextLabel(order.status);
                         const isLoading  = actionLoading === order.id;
                         const amount     = order.total_amount > 0
                             ? order.total_amount
-                            : (order.products?.price ?? 0) * order.quantity;
+                            : (order.unit_price ?? 0) * order.quantity;
 
                         return (
-                            <View key={order.id} style={styles.deliveryCard}>
+                            <View key={order.id} style={[styles.deliveryCard, isDesktop && dtLv.card]}>
                                 {/* En-tête */}
                                 <View style={styles.cardHeader}>
                                     <View style={styles.cardHeaderLeft}>
                                         <Text style={styles.productName} numberOfLines={1}>
-                                            {order.products?.name ?? 'Produit'}
+                                            {order.product_name ?? 'Produit'}
                                         </Text>
                                         <Text style={styles.buyerName} numberOfLines={1}>
                                             {order.stores?.name ?? 'Acheteur'}
@@ -274,7 +278,8 @@ export default function LivraisonsScreen() {
                                 ) : null}
                             </View>
                         );
-                    })
+                    })}
+                  </View>
                 )}
             </ScrollView>
         </View>
@@ -352,4 +357,29 @@ const styles = StyleSheet.create({
     },
     emptyText:    { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2, textAlign: 'center' },
     emptySubText: { fontSize: 12, fontWeight: '500', color: colors.slate400, textAlign: 'center' },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────
+const dtLv = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as const,
+        width: '100%' as unknown as number,
+        padding: 32,
+    },
+    grid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+    },
+    card: {
+        width: '48%' as unknown as number,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+        borderWidth: 0,
+        borderColor: 'transparent',
+    },
 });

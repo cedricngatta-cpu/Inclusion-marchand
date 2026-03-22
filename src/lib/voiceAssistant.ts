@@ -792,8 +792,6 @@ export async function executeVoiceAction(
                     'en livraison': 'SHIPPED',
                     'expediee':     'SHIPPED',
                     'expédié':      'SHIPPED',
-                    'livree':       'DELIVERED',
-                    'livrée':       'DELIVERED',
                 };
                 const newStatut = statutMap[statutRaw] ?? (statutRaw === 'shipped' ? 'SHIPPED' : 'DELIVERED');
 
@@ -858,6 +856,7 @@ export async function executeVoiceAction(
 
             // ── VALIDER ENRÔLEMENT ─────────────────────────────────────────
             case 'enrolement_valider': {
+                if (ctx.role !== 'COOPERATIVE') return 'Action réservée à la coopérative.';
                 const nom = String(d.nom ?? '').trim();
                 if (!nom) return "Je n'ai pas compris le nom de la personne à valider.";
 
@@ -881,18 +880,26 @@ export async function executeVoiceAction(
                         phone_number: demande.telephone,
                         role:         roleEnrolement,
                         address:      demande.adresse ?? null,
-                        pin:          '1234',
+                        pin:          '0101',
                         agent_id:     demande.agent_id ?? null,
                     }]).select().single();
 
-                    // Créer le store associé si marchand ou producteur
+                    // Créer le store associé si marchand ou producteur (vérif doublon)
                     if (newProf && (roleEnrolement === 'MERCHANT' || roleEnrolement === 'PRODUCER')) {
-                        await supabase.from('stores').insert([{
-                            owner_id:   newProf.id,
-                            name:       demande.nom_boutique ?? demande.nom,
-                            store_type: roleEnrolement === 'MERCHANT' ? 'RETAILER' : 'PRODUCER',
-                            status:     'ACTIVE',
-                        }]);
+                        const { data: existStore } = await supabase
+                            .from('stores')
+                            .select('id')
+                            .eq('owner_id', newProf.id)
+                            .maybeSingle();
+
+                        if (!existStore) {
+                            await supabase.from('stores').insert([{
+                                owner_id:   newProf.id,
+                                name:       demande.nom_boutique ?? demande.nom,
+                                store_type: roleEnrolement === 'MERCHANT' ? 'RETAILER' : 'PRODUCER',
+                                status:     'ACTIVE',
+                            }]);
+                        }
                     }
                 }
 
@@ -902,6 +909,7 @@ export async function executeVoiceAction(
 
             // ── REJETER ENRÔLEMENT ─────────────────────────────────────────
             case 'enrolement_rejeter': {
+                if (ctx.role !== 'COOPERATIVE') return 'Action réservée à la coopérative.';
                 const nom   = String(d.nom ?? '').trim();
                 const motif = String(d.motif ?? '').trim();
                 if (!nom) return "Je n'ai pas compris le nom de la personne à rejeter.";
@@ -936,7 +944,7 @@ export async function executeVoiceAction(
                     quantite_minimum: qteMin || 1,
                     quantite_totale:  0,
                     prix_negocie:     prixNegocie,
-                    statut:           'ouvert',
+                    statut:           'NEGOTIATION',
                     date_limite:      new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
                 }]);
                 if (error) throw error;
@@ -947,6 +955,7 @@ export async function executeVoiceAction(
 
             // ── DÉSACTIVER COMPTE ──────────────────────────────────────────
             case 'compte_desactiver': {
+                if (ctx.role !== 'SUPERVISOR') return 'Action réservée aux administrateurs.';
                 const nom = String(d.nom ?? '').trim();
                 if (!nom) return "Je n'ai pas compris quel compte désactiver.";
 
@@ -961,18 +970,20 @@ export async function executeVoiceAction(
 
             // ── RÉINITIALISER PIN ──────────────────────────────────────────
             case 'pin_reset': {
+                if (ctx.role !== 'SUPERVISOR') return 'Action réservée aux administrateurs.';
                 const nom = String(d.nom ?? '').trim();
                 if (!nom) return "Je n'ai pas compris quel compte réinitialiser.";
 
                 const profil = await findProfileByName(nom, 'id, full_name');
                 if (!profil) return `Aucun compte trouvé pour "${nom}".`;
 
-                await supabase.from('profiles').update({ pin: '1234' }).eq('id', profil.id);
+                await supabase.from('profiles').update({ pin: '0101' }).eq('id', profil.id);
                 return `PIN réinitialisé ! ${profil.full_name} peut se connecter avec le PIN temporaire 1234.`;
             }
 
             // ── CHANGER RÔLE ───────────────────────────────────────────────
             case 'changer_role': {
+                if (ctx.role !== 'SUPERVISOR') return 'Action réservée aux administrateurs.';
                 const nom        = String(d.nom ?? '').trim();
                 const nouveauRole = String(d.nouveau_role ?? d.role ?? '').toUpperCase().trim();
                 if (!nom)         return "Je n'ai pas compris quel compte modifier.";

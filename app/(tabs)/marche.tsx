@@ -26,10 +26,7 @@ interface CatalogueItem {
     delivery_price?: number;
     zone_livraison?: string;
     delai_livraison?: string;
-    livreur_nom?: string;
-    livreur_telephone?: string;
     category: string;
-    unite?: string;
     store_id: string;
     storeName: string;
     storePhone?: string;
@@ -207,7 +204,7 @@ const PAGE_SIZE = 20;
 
 // ── Types Supabase internes ────────────────────────────────────────────────────
 interface StoreRow { id: string; name: string; owner_id?: string; profiles?: { phone_number?: string; address?: string } | null; }
-interface ProdRow  { id: string; name: string; price: number; delivery_price?: number; category: string; store_id: string; image_url?: string; zone_livraison?: string; delai_livraison?: string; livreur_nom?: string; livreur_telephone?: string; description?: string; unite?: string; created_at?: string; }
+interface ProdRow  { id: string; name: string; price: number; delivery_price?: number; category: string; store_id: string; image_url?: string; zone_livraison?: string; delai_livraison?: string; description?: string; created_at?: string; }
 interface StockRow { product_id: string; quantity: number; }
 
 // ── Composant principal ────────────────────────────────────────────────────────
@@ -231,7 +228,7 @@ export default function MarcheScreen() {
     const [showConfirm,  setShowConfirm]  = useState(false);
     const [orderQty,     setOrderQty]     = useState(1);
     const [ordering,     setOrdering]     = useState(false);
-    const [paymentMode,  setPaymentMode]  = useState<'CASH' | 'MOBILE_MONEY' | 'CREDIT'>('CASH');
+    const [paymentMode,  setPaymentMode]  = useState<'CASH' | 'MOBILE_MONEY' | 'CREDIT' | null>('CASH');
     const [momoOperator, setMomoOperator] = useState<'ORANGE' | 'MTN' | 'WAVE' | 'MOOV' | null>(null);
 
     // ── Fetch catalogue (paginé) ─────────────────────────────────────────────
@@ -267,7 +264,7 @@ export default function MarcheScreen() {
             const to   = from + PAGE_SIZE - 1;
             const { data: prodData, error: prodErr } = await supabase
                 .from('products')
-                .select('id, name, price, delivery_price, category, store_id, image_url, zone_livraison, delai_livraison, livreur_nom, livreur_telephone, description, unite, created_at')
+                .select('id, name, price, delivery_price, category, store_id, image_url, description, zone_livraison, delai_livraison, created_at')
                 .in('store_id', storeIds)
                 .order('created_at', { ascending: false })
                 .range(from, to);
@@ -297,10 +294,7 @@ export default function MarcheScreen() {
                 delivery_price:     p.delivery_price ?? undefined,
                 zone_livraison:     p.zone_livraison ?? undefined,
                 delai_livraison:    p.delai_livraison ?? undefined,
-                livreur_nom:        p.livreur_nom ?? undefined,
-                livreur_telephone:  p.livreur_telephone ?? undefined,
                 category:           p.category,
-                unite:              p.unite ?? undefined,
                 store_id:           p.store_id,
                 storeName:          storeMap[p.store_id]?.name ?? 'Producteur',
                 storePhone:         storeMap[p.store_id]?.phone,
@@ -387,28 +381,11 @@ export default function MarcheScreen() {
                 buyer_name:      activeProfile.name,
             };
 
-            console.log('=== ORDER INSERT ===', JSON.stringify({
-                buyer_store_id:  activeProfile.id,
-                seller_store_id: selectedItem.store_id,
-                product_id:      selectedItem.id,
-                product_name:    selectedItem.name,
-                quantity:        orderQty,
-                unit_price:      selectedItem.price,
-                total_amount:    total,
-                status:          'PENDING',
-                payment_mode:    paymentMode,
-                operator:        paymentMode === 'MOBILE_MONEY' ? momoOperator : null,
-                notes:           selectedItem.name,
-                buyer_name:      activeProfile.name,
-            }, null, 2));
-
             const { data: orderData, error: orderErr } = await supabase
                 .from('orders')
                 .insert([payload])
                 .select()
                 .single();
-
-            console.log('=== ORDER RESULT ===', 'error:', JSON.stringify(orderErr));
 
             if (orderErr) {
                 Alert.alert('Erreur commande', orderErr.message);
@@ -428,9 +405,12 @@ export default function MarcheScreen() {
             emitEvent('nouvelle-commande', {
                 sellerStoreId: selectedItem.store_id,
                 sellerUserId:  selectedItem.storeOwnerId ?? null,
+                sellerId:      selectedItem.storeOwnerId ?? null,
                 orderId:       orderData?.id,
                 productName:   selectedItem.name,
                 buyerName:     activeProfile.name,
+                quantity:      orderQty,
+                totalPrice:    total,
             });
 
             setShowConfirm(false);
@@ -579,16 +559,9 @@ export default function MarcheScreen() {
                                         <Package color={colors.slate400} size={14} />
                                         <Text style={styles.detailLabel}>Disponible</Text>
                                         <Text style={styles.detailValue}>
-                                            {selectedItem.stockQty} {selectedItem.unite ?? 'unité(s)'}
+                                            {selectedItem.stockQty} unité(s)
                                         </Text>
                                     </View>
-
-                                    {selectedItem.unite ? (
-                                        <View style={styles.detailRow}>
-                                            <Text style={styles.detailLabel}>Unité</Text>
-                                            <Text style={styles.detailValue}>{selectedItem.unite}</Text>
-                                        </View>
-                                    ) : null}
 
                                     <View style={styles.detailRow}>
                                         <Text style={styles.detailLabel}>Catégorie</Text>
@@ -634,27 +607,6 @@ export default function MarcheScreen() {
                                         </View>
                                     ) : null}
 
-                                    <View style={styles.detailRow}>
-                                        <User color={colors.slate400} size={14} />
-                                        <Text style={styles.detailLabel}>Livreur</Text>
-                                        {selectedItem.livreur_nom ? (
-                                            <Text style={styles.detailValue}>{selectedItem.livreur_nom}</Text>
-                                        ) : (
-                                            <Text style={styles.detailValueMuted}>Non renseigné</Text>
-                                        )}
-                                    </View>
-
-                                    <View style={styles.detailRow}>
-                                        <Phone color={selectedItem.livreur_telephone ? colors.primary : colors.slate400} size={14} />
-                                        <Text style={styles.detailLabel}>Tél. livreur</Text>
-                                        {selectedItem.livreur_telephone ? (
-                                            <TouchableOpacity onPress={() => callPhone(selectedItem.livreur_telephone)} activeOpacity={0.7}>
-                                                <Text style={styles.detailValuePhone}>{selectedItem.livreur_telephone}</Text>
-                                            </TouchableOpacity>
-                                        ) : (
-                                            <Text style={styles.detailValueMuted}>Non renseigné</Text>
-                                        )}
-                                    </View>
                                 </View>
 
                                 {/* ── Section PRODUCTEUR ── */}
@@ -756,7 +708,7 @@ export default function MarcheScreen() {
                                         </TouchableOpacity>
                                     </View>
                                     <Text style={styles.qtyMax}>
-                                        Max disponible : {selectedItem.stockQty} {selectedItem.unite ?? 'unité(s)'}
+                                        Max disponible : {selectedItem.stockQty} unité(s)
                                     </Text>
                                 </View>
 
@@ -1172,7 +1124,7 @@ const dtCard = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        backgroundColor: '#059669',
+        backgroundColor: colors.primary,
         paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 8,

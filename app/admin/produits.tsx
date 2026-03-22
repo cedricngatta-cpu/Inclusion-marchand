@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, FlatList, StyleSheet, ActivityIndicator,
-    TextInput, Alert, RefreshControl, Image,
+    TextInput, Alert, RefreshControl, Image, Platform, useWindowDimensions,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { useFocusEffect } from 'expo-router';
@@ -48,6 +48,9 @@ export default function Produits() {
     const [catFilter, setCatFilter] = useState<CatFilter>('tous');
     const [deleting, setDeleting]       = useState<string | null>(null);
 
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
     const fetchProducts = useCallback(async () => {
         try {
             const [prodRes, stockRes, storeRes] = await Promise.all([
@@ -60,9 +63,13 @@ export default function Produits() {
                 supabase.from('stores').select('id, name, store_type'),
             ]);
 
+            if (prodRes.error) console.warn('[Produits Admin] ⚠️ products:', prodRes.error.message);
+            if (stockRes.error) console.warn('[Produits Admin] ⚠️ stock:', stockRes.error.message);
+            if (storeRes.error) console.warn('[Produits Admin] ⚠️ stores:', storeRes.error.message);
             const prods  = (prodRes.data  ?? []) as Product[];
             const stocks = (stockRes.data ?? []) as { product_id: string; quantity: number }[];
             const stores = (storeRes.data ?? []) as { id: string; name: string; store_type?: string }[];
+            console.log('[Produits Admin] ✅ produits:', prods.length, '| stocks:', stocks.length, '| stores:', stores.length);
 
             const stockMap: Record<string, number>  = {};
             const storeMap: Record<string, { name: string; type: string }> = {};
@@ -83,11 +90,9 @@ export default function Produits() {
         }
     }, []);
 
-    useEffect(() => { setLoading(true); fetchProducts(); }, [fetchProducts]);
-
     const onRefresh = useCallback(() => { setRefreshing(true); fetchProducts(); }, [fetchProducts]);
 
-    useFocusEffect(useCallback(() => { fetchProducts(); }, [fetchProducts]));
+    useFocusEffect(useCallback(() => { setLoading(true); fetchProducts(); }, [fetchProducts]));
 
     // ── Filtrage ───────────────────────────────────────────────────────────────
     const filtered = useMemo(() => {
@@ -149,7 +154,7 @@ export default function Produits() {
                 </View>
 
                 {/* Barre de recherche */}
-                <View style={s.searchBar}>
+                <View style={[s.searchBar, isDesktop && { maxWidth: 500 }]}>
                     <Package color="rgba(255,255,255,0.6)" size={16} />
                     <TextInput
                         style={s.searchInput}
@@ -192,7 +197,7 @@ export default function Produits() {
                 data={loading ? [] : filtered}
                 keyExtractor={(item) => item.id}
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && { maxWidth: 1400, alignSelf: 'center' as const, width: '100%' as any, padding: 32 }]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 refreshControl={
@@ -200,17 +205,75 @@ export default function Produits() {
                 }
                 ListHeaderComponent={loading ? (
                     <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
+                ) : isDesktop && !loading && filtered.length > 0 ? (
+                    <View style={dtP.tableHeader}>
+                        <Text style={[dtP.thText, { flex: 2.5 }]}>NOM</Text>
+                        <Text style={[dtP.thText, { flex: 2 }]}>BOUTIQUE</Text>
+                        <Text style={[dtP.thText, { flex: 1.5 }]}>CATEGORIE</Text>
+                        <Text style={[dtP.thText, { flex: 1, textAlign: 'right' }]}>PRIX</Text>
+                        <Text style={[dtP.thText, { flex: 1, textAlign: 'center' }]}>STOCK</Text>
+                        <Text style={[dtP.thText, { width: 40 }]}>{''}</Text>
+                    </View>
                 ) : null}
                 ListEmptyComponent={!loading ? (
                     <View style={s.emptyCard}>
                         <Package color={colors.slate300} size={40} />
-                        <Text style={s.emptyText}>AUCUN PRODUIT TROUVÉ</Text>
+                        <Text style={s.emptyText}>AUCUN PRODUIT TROUVE</Text>
                     </View>
                 ) : null}
-                renderItem={({ item: p }) => {
+                renderItem={({ item: p, index }) => {
                     const qty        = p.stockQty ?? 0;
                     const prodInStock = qty > 0;
                     const isDeleting = deleting === p.id;
+
+                    if (isDesktop) {
+                        return (
+                            <View style={[dtP.tableRow, index % 2 === 1 && { backgroundColor: colors.slate50 }]}>
+                                <View style={{ flex: 2.5, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                    {p.image_url ? (
+                                        <Image source={{ uri: p.image_url }} style={s.productImage} resizeMode="cover" />
+                                    ) : (
+                                        <View style={s.productImagePlaceholder}>
+                                            <Package color="#94a3b8" size={18} />
+                                        </View>
+                                    )}
+                                    <Text style={s.productName} numberOfLines={1}>{p.name}</Text>
+                                </View>
+                                <Text style={{ flex: 2, fontSize: 12, color: '#64748b' }} numberOfLines={1}>{p.storeName}</Text>
+                                <View style={{ flex: 1.5 }}>
+                                    {p.category ? (
+                                        <View style={[s.catBadge, { alignSelf: 'flex-start' }]}>
+                                            <Text style={s.catBadgeText}>{p.category}</Text>
+                                        </View>
+                                    ) : (
+                                        <Text style={{ fontSize: 11, color: '#94a3b8' }}>--</Text>
+                                    )}
+                                </View>
+                                <Text style={{ flex: 1, fontSize: 13, fontWeight: '900', color: '#1e293b', textAlign: 'right' }}>
+                                    {(p.price ?? 0).toLocaleString('fr-FR')} F
+                                </Text>
+                                <View style={{ flex: 1, alignItems: 'center' }}>
+                                    <View style={[s.stockBadge, { backgroundColor: prodInStock ? '#d1fae5' : '#fee2e2' }]}>
+                                        <Text style={[s.stockBadgeText, { color: prodInStock ? '#065f46' : '#991b1b' }]}>
+                                            {prodInStock ? `${qty} u` : 'Rupture'}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <TouchableOpacity
+                                    style={[s.deleteBtn, { width: 32, height: 32 }]}
+                                    activeOpacity={0.85}
+                                    onPress={() => handleDelete(p)}
+                                    disabled={isDeleting}
+                                >
+                                    {isDeleting
+                                        ? <ActivityIndicator color="#fff" size="small" />
+                                        : <Trash2 color="#fff" size={14} />
+                                    }
+                                </TouchableOpacity>
+                            </View>
+                        );
+                    }
+
                     return (
                         <View style={s.productCard}>
                             {p.image_url ? (
@@ -260,7 +323,7 @@ export default function Produits() {
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#f8fafc' },
+    safe: { flex: 1, backgroundColor: colors.slate50 },
 
     statsRow: { alignItems: 'center' },
     statsText: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.75)', textAlign: 'center' },
@@ -279,9 +342,9 @@ const s = StyleSheet.create({
         borderRadius: 8, borderWidth: 1.5, borderColor: '#e2e8f0',
         backgroundColor: '#fff',
     },
-    filterBtnActive:   { borderColor: '#059669', backgroundColor: '#ecfdf5' },
+    filterBtnActive:   { borderColor: colors.primary, backgroundColor: colors.primaryBg },
     filterLabel:       { fontSize: 11, fontWeight: '700', color: '#64748b' },
-    filterLabelActive: { color: '#059669' },
+    filterLabelActive: { color: colors.primary },
 
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 40, gap: 8 },
@@ -312,7 +375,7 @@ const s = StyleSheet.create({
 
     deleteBtn: {
         width: 32, height: 32, borderRadius: 8,
-        backgroundColor: '#dc2626', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        backgroundColor: colors.error, alignItems: 'center', justifyContent: 'center', flexShrink: 0,
     },
 
     emptyCard: {
@@ -321,4 +384,21 @@ const s = StyleSheet.create({
         borderStyle: 'dashed', gap: 12,
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+});
+
+// ── Desktop table styles ────────────────────────────────────────────────────────
+const dtP = StyleSheet.create({
+    tableHeader: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 14, paddingVertical: 10,
+        backgroundColor: '#f1f5f9', borderTopLeftRadius: 12, borderTopRightRadius: 12,
+        marginBottom: 0,
+    },
+    thText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
+    tableRow: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 14, paddingVertical: 10, gap: 8,
+        backgroundColor: '#fff',
+        borderBottomWidth: 1, borderBottomColor: '#f1f5f9',
+    },
 });

@@ -59,9 +59,9 @@ function ProgressBar({ current, min }: { current: number; min: number }) {
     return (
         <View style={{ gap: 4 }}>
             <View style={pb.track}>
-                <View style={[pb.fill, { width: `${pct}%` as any, backgroundColor: reached ? '#059669' : colors.primary }]} />
+                <View style={[pb.fill, { width: `${pct}%` as any, backgroundColor: reached ? colors.success : colors.primary }]} />
             </View>
-            <Text style={[pb.label, reached && { color: '#059669' }]}>
+            <Text style={[pb.label, reached && { color: colors.success }]}>
                 {current}/{min} unités commandées {reached ? '✓' : ''}
             </Text>
         </View>
@@ -110,7 +110,7 @@ export default function AchatsGroupesMarchandScreen() {
             }
 
             // Vérifier si ce marchand participe déjà
-            const profileId = activeProfile?.id ?? user?.id;
+            const profileId = user?.id;
             const ids       = rows.map(r => r.id);
             const { data: myParts } = (ids.length > 0 && profileId)
                 ? await supabase
@@ -152,8 +152,7 @@ export default function AchatsGroupesMarchandScreen() {
         }
     }, [activeProfile, user]);
 
-    useEffect(() => { setLoading(true); fetchAchats(); }, [fetchAchats]);
-    useFocusEffect(useCallback(() => { fetchAchats(); }, [fetchAchats]));
+    useFocusEffect(useCallback(() => { setLoading(true); fetchAchats(); }, [fetchAchats]));
     const onRefresh = () => { setRefreshing(true); fetchAchats(); };
 
     // ── Rejoindre un achat groupé ─────────────────────────────────────────────
@@ -165,8 +164,8 @@ export default function AchatsGroupesMarchandScreen() {
             return;
         }
 
-        const profileId   = activeProfile?.id ?? user?.id;
-        const marchandNom = activeProfile?.name ?? user?.name ?? 'Marchand';
+        const profileId   = user?.id;
+        const marchandNom = user?.name ?? activeProfile?.name ?? 'Marchand';
 
         if (!profileId) return;
         setJoining(true);

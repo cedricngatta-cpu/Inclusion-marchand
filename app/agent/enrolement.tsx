@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     TextInput, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+    useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { ChevronDown } from 'lucide-react-native';
@@ -27,6 +28,8 @@ export default function Enrolement() {
     const { user } = useAuth();
     const { id } = useLocalSearchParams<{ id?: string }>();
     const isEditMode = !!id;
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     // Champs du formulaire
     const [nom, setNom]             = useState('');
@@ -269,7 +272,7 @@ export default function Enrolement() {
 
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtEn.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
             >
@@ -567,4 +570,12 @@ const styles = StyleSheet.create({
     },
     submitBtnDisabled: { opacity: 0.6 },
     submitBtnLabel:    { fontSize: 13, fontWeight: '900', color: colors.white, letterSpacing: 1 },
+});
+
+const dtEn = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 600,
+        alignSelf: 'center' as const,
+        width: '100%',
+    },
 });

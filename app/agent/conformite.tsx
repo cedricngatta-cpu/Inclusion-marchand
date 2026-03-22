@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    TextInput, Alert, ActivityIndicator,
+    TextInput, Alert, ActivityIndicator, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AlertTriangle } from 'lucide-react-native';
@@ -21,6 +21,8 @@ const PROBLEM_TYPES: ProblemType[] = ['Inactivité', 'Fraude', 'Fausse informati
 export default function Conformite() {
     const router = useRouter();
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [membre, setMembre]           = useState('');
     const [typeProbleme, setTypeProbleme] = useState<ProblemType>('Inactivité');
@@ -78,7 +80,7 @@ export default function Conformite() {
             {/* ── CONTENU ── */}
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtCf.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
             >
@@ -256,5 +258,14 @@ const styles = StyleSheet.create({
     submitBtnDisabled: { opacity: 0.6 },
     submitBtnLabel: {
         fontSize: 13, fontWeight: '900', color: colors.white, letterSpacing: 1,
+    },
+});
+
+const dtCf = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 600,
+        alignSelf: 'center' as const,
+        width: '100%',
+        padding: 32,
     },
 });

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, RefreshControl, TextInput, Alert,
+    Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { ShoppingBag, Users, Clock, MessageSquare } from 'lucide-react-native';
@@ -22,12 +23,13 @@ interface Order {
     id: string;
     status: string;
     quantity: number;
+    unit_price: number;
     total_amount: number;
+    product_name: string | null;
     payment_mode: string | null;
     created_at: string;
     product_id: string | null;
     buyer_store_id: string | null;
-    products: { name: string; price: number } | null;
     stores: { id: string; name: string; owner_id?: string } | null;
 }
 
@@ -79,6 +81,8 @@ export default function CommandesScreen() {
     const router = useRouter();
     const { activeProfile } = useProfileContext();
     const { user }          = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     // Tab principal
     const [activeTab, setActiveTab] = useState<'orders' | 'groupees'>('orders');
@@ -103,7 +107,7 @@ export default function CommandesScreen() {
         try {
             let query = supabase
                 .from('orders')
-                .select('*, products(name, price), stores!buyer_store_id(id, name, owner_id)')
+                .select('*, stores!buyer_store_id(id, name, owner_id)')
                 .eq('seller_store_id', activeProfile.id)
                 .order('created_at', { ascending: false });
             if (filter !== 'ALL') query = query.eq('status', filter);
@@ -189,7 +193,7 @@ export default function CommandesScreen() {
             const eventData = {
                 buyerStoreId,
                 buyerUserId: order.stores?.owner_id ?? null,
-                productName: order.products?.name ?? 'Produit',
+                productName: order.product_name ?? 'Produit',
                 quantity:    order.quantity,
                 orderId:     order.id,
             };
@@ -200,14 +204,14 @@ export default function CommandesScreen() {
                     await supabase.from('activity_logs').insert([{
                         user_id:   user?.id ?? null,
                         user_name: user?.name ?? 'Producteur',
-                        action:    `${actionLabel} : ${order.products?.name ?? 'Produit'} × ${order.quantity} (${(order.total_amount || 0).toLocaleString('fr-FR')} F)`,
+                        action:    `${actionLabel} : ${order.product_name ?? 'Produit'} × ${order.quantity} (${(order.total_amount || 0).toLocaleString('fr-FR')} F)`,
                         type:      'commande',
                     }]);
                 } catch {}
             }
 
             if (status === 'ACCEPTED') {
-                emitEvent('commande-acceptee', { ...eventData, estimatedDelivery: null });
+                emitEvent('commande-acceptee', { ...eventData, estimatedDelivery: null, producerName: user?.name || activeProfile?.name || 'Producteur' });
             } else if (status === 'CANCELLED') {
                 emitEvent('commande-refusee', { ...eventData, reason: 'Non disponible' });
             } else if (status === 'SHIPPED') {
@@ -312,26 +316,43 @@ export default function CommandesScreen() {
 
                 {/* Filtres statut (seulement pour commandes) */}
                 {activeTab === 'orders' && (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
-                        {FILTERS.map(f => (
-                            <TouchableOpacity
-                                key={f.key}
-                                style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
-                                onPress={() => setFilter(f.key)}
-                                activeOpacity={0.8}
-                            >
-                                <Text style={[styles.filterTabText, filter === f.key && styles.filterTabTextActive]}>
-                                    {f.label}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
+                    isDesktop ? (
+                        <View style={dtCmd.filtersRow}>
+                            {FILTERS.map(f => (
+                                <TouchableOpacity
+                                    key={f.key}
+                                    style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
+                                    onPress={() => setFilter(f.key)}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={[styles.filterTabText, filter === f.key && styles.filterTabTextActive]}>
+                                        {f.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
+                            {FILTERS.map(f => (
+                                <TouchableOpacity
+                                    key={f.key}
+                                    style={[styles.filterTab, filter === f.key && styles.filterTabActive]}
+                                    onPress={() => setFilter(f.key)}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={[styles.filterTabText, filter === f.key && styles.filterTabTextActive]}>
+                                        {f.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    )
                 )}
             </ScreenHeader>
 
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtCmd.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 refreshControl={
@@ -355,97 +376,99 @@ export default function CommandesScreen() {
                             </Text>
                         </View>
                     ) : (
-                        orders.map(order => {
-                            const sc         = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
-                            const isPending  = order.status === 'PENDING';
-                            const isAccepted = order.status === 'ACCEPTED';
-                            const isShipping = order.status === 'SHIPPED';
-                            const acceptKey   = order.id + 'ACCEPTED';
-                            const rejectKey   = order.id + 'CANCELLED';
-                            const shippingKey = order.id + 'SHIPPED';
+                        <View style={isDesktop ? dtCmd.cardsGrid : undefined}>
+                            {orders.map(order => {
+                                const sc         = STATUS_COLORS[order.status] ?? STATUS_COLORS.PENDING;
+                                const isPending  = order.status === 'PENDING';
+                                const isAccepted = order.status === 'ACCEPTED';
+                                const isShipping = order.status === 'SHIPPED';
+                                const acceptKey   = order.id + 'ACCEPTED';
+                                const rejectKey   = order.id + 'CANCELLED';
+                                const shippingKey = order.id + 'SHIPPED';
 
-                            return (
-                                <View key={order.id} style={styles.orderCard}>
-                                    <View style={styles.orderHeader}>
-                                        <View style={{ flex: 1, minWidth: 0 }}>
-                                            <Text style={styles.orderProduct} numberOfLines={1}>
-                                                {order.products?.name ?? 'Produit'}
-                                            </Text>
-                                            <Text style={styles.orderBuyer} numberOfLines={1}>
-                                                {order.stores?.name ?? 'Acheteur'}
-                                            </Text>
+                                return (
+                                    <View key={order.id} style={[styles.orderCard, isDesktop && dtCmd.card]}>
+                                        <View style={styles.orderHeader}>
+                                            <View style={{ flex: 1, minWidth: 0 }}>
+                                                <Text style={styles.orderProduct} numberOfLines={1}>
+                                                    {order.product_name ?? 'Produit'}
+                                                </Text>
+                                                <Text style={styles.orderBuyer} numberOfLines={1}>
+                                                    {order.stores?.name ?? 'Acheteur'}
+                                                </Text>
+                                            </View>
+                                            <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
+                                                <Text style={[styles.statusText, { color: sc.text }]}>
+                                                    {STATUS_LABELS[order.status] ?? order.status}
+                                                </Text>
+                                            </View>
                                         </View>
-                                        <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-                                            <Text style={[styles.statusText, { color: sc.text }]}>
-                                                {STATUS_LABELS[order.status] ?? order.status}
-                                            </Text>
-                                        </View>
-                                    </View>
 
-                                    <View style={styles.orderDetails}>
-                                        <View style={styles.detailItem}>
-                                            <Text style={styles.detailLabel}>QUANTITÉ</Text>
-                                            <Text style={styles.detailValue}>{order.quantity} u</Text>
+                                        <View style={styles.orderDetails}>
+                                            <View style={styles.detailItem}>
+                                                <Text style={styles.detailLabel}>QUANTITÉ</Text>
+                                                <Text style={styles.detailValue}>{order.quantity} u</Text>
+                                            </View>
+                                            <View style={styles.detailDivider} />
+                                            <View style={styles.detailItem}>
+                                                <Text style={styles.detailLabel}>MONTANT</Text>
+                                                <Text style={styles.detailValue}>
+                                                    {order.total_amount > 0
+                                                        ? `${order.total_amount.toLocaleString('fr-FR')} F`
+                                                        : order.unit_price
+                                                            ? `${(order.unit_price * order.quantity).toLocaleString('fr-FR')} F`
+                                                            : '–'}
+                                                </Text>
+                                            </View>
+                                            <View style={styles.detailDivider} />
+                                            <View style={styles.detailItem}>
+                                                <Text style={styles.detailLabel}>DATE</Text>
+                                                <Text style={styles.detailValue}>
+                                                    {new Date(order.created_at).toLocaleDateString('fr-FR')}
+                                                </Text>
+                                            </View>
                                         </View>
-                                        <View style={styles.detailDivider} />
-                                        <View style={styles.detailItem}>
-                                            <Text style={styles.detailLabel}>MONTANT</Text>
-                                            <Text style={styles.detailValue}>
-                                                {order.total_amount > 0
-                                                    ? `${order.total_amount.toLocaleString('fr-FR')} F`
-                                                    : order.products?.price
-                                                        ? `${(order.products.price * order.quantity).toLocaleString('fr-FR')} F`
-                                                        : '–'}
-                                            </Text>
-                                        </View>
-                                        <View style={styles.detailDivider} />
-                                        <View style={styles.detailItem}>
-                                            <Text style={styles.detailLabel}>DATE</Text>
-                                            <Text style={styles.detailValue}>
-                                                {new Date(order.created_at).toLocaleDateString('fr-FR')}
-                                            </Text>
-                                        </View>
-                                    </View>
 
-                                    {isPending && (
-                                        <View style={styles.actionRow}>
+                                        {isPending && (
+                                            <View style={styles.actionRow}>
+                                                <TouchableOpacity
+                                                    style={[styles.acceptBtn, actionLoading === acceptKey && { opacity: 0.6 }]}
+                                                    onPress={() => handleUpdateStatus(order, 'ACCEPTED')}
+                                                    disabled={!!actionLoading}
+                                                >
+                                                    {actionLoading === acceptKey
+                                                        ? <ActivityIndicator color={colors.white} size="small" />
+                                                        : <Text style={styles.acceptBtnText}>ACCEPTER</Text>}
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[styles.rejectBtn, actionLoading === rejectKey && { opacity: 0.6 }]}
+                                                    onPress={() => handleUpdateStatus(order, 'CANCELLED')}
+                                                    disabled={!!actionLoading}
+                                                >
+                                                    {actionLoading === rejectKey
+                                                        ? <ActivityIndicator color={colors.error} size="small" />
+                                                        : <Text style={styles.rejectBtnText}>REFUSER</Text>}
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+
+                                        {isAccepted && (
                                             <TouchableOpacity
-                                                style={[styles.acceptBtn, actionLoading === acceptKey && { opacity: 0.6 }]}
-                                                onPress={() => handleUpdateStatus(order, 'ACCEPTED')}
+                                                style={[styles.shippingBtn, actionLoading === shippingKey && { opacity: 0.6 }]}
+                                                onPress={() => handleUpdateStatus(order, 'SHIPPED')}
                                                 disabled={!!actionLoading}
                                             >
-                                                {actionLoading === acceptKey
+                                                {actionLoading === shippingKey
                                                     ? <ActivityIndicator color={colors.white} size="small" />
-                                                    : <Text style={styles.acceptBtnText}>ACCEPTER</Text>}
+                                                    : <Text style={styles.shippingBtnText}>🚚  METTRE EN LIVRAISON</Text>}
                                             </TouchableOpacity>
-                                            <TouchableOpacity
-                                                style={[styles.rejectBtn, actionLoading === rejectKey && { opacity: 0.6 }]}
-                                                onPress={() => handleUpdateStatus(order, 'CANCELLED')}
-                                                disabled={!!actionLoading}
-                                            >
-                                                {actionLoading === rejectKey
-                                                    ? <ActivityIndicator color={colors.error} size="small" />
-                                                    : <Text style={styles.rejectBtnText}>REFUSER</Text>}
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
+                                        )}
 
-                                    {isAccepted && (
-                                        <TouchableOpacity
-                                            style={[styles.shippingBtn, actionLoading === shippingKey && { opacity: 0.6 }]}
-                                            onPress={() => handleUpdateStatus(order, 'SHIPPED')}
-                                            disabled={!!actionLoading}
-                                        >
-                                            {actionLoading === shippingKey
-                                                ? <ActivityIndicator color={colors.white} size="small" />
-                                                : <Text style={styles.shippingBtnText}>🚚  METTRE EN LIVRAISON</Text>}
-                                        </TouchableOpacity>
-                                    )}
-
-                                    {/* Livraison confirmée par le marchand uniquement */}
-                                </View>
-                            );
-                        })
+                                        {/* Livraison confirmée par le marchand uniquement */}
+                                    </View>
+                                );
+                            })}
+                        </View>
                     )
                 )}
 
@@ -462,120 +485,122 @@ export default function CommandesScreen() {
                             </Text>
                         </View>
                     ) : (
-                        demandes.map(demande => {
-                            const hasPrix     = demande.prix_negocie !== null && demande.prix_negocie !== undefined;
-                            const isProposing = actionDemande === demande.id + 'propose';
-                            const inputVal    = prixInputs[demande.id] ?? '';
+                        <View style={isDesktop ? dtCmd.cardsGrid : undefined}>
+                            {demandes.map(demande => {
+                                const hasPrix     = demande.prix_negocie !== null && demande.prix_negocie !== undefined;
+                                const isProposing = actionDemande === demande.id + 'propose';
+                                const inputVal    = prixInputs[demande.id] ?? '';
 
-                            return (
-                                <View key={demande.id} style={styles.demandeCard}>
-                                    {/* En-tête */}
-                                    <View style={styles.demandeHeader}>
-                                        <View style={styles.demandeIconBox}>
-                                            <Users color="#7c3aed" size={18} />
-                                        </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={styles.demandeProduct} numberOfLines={1}>
-                                                {demande.nom_produit}
-                                            </Text>
-                                            <Text style={styles.demandeCoop} numberOfLines={1}>
-                                                Demande de {demande.cooperativeNom}
-                                            </Text>
-                                        </View>
-                                        {hasPrix ? (
-                                            <View style={styles.sentBadge}>
-                                                <Text style={styles.sentBadgeText}>Prix envoyé</Text>
+                                return (
+                                    <View key={demande.id} style={[styles.demandeCard, isDesktop && dtCmd.card]}>
+                                        {/* En-tête */}
+                                        <View style={styles.demandeHeader}>
+                                            <View style={styles.demandeIconBox}>
+                                                <Users color="#7c3aed" size={18} />
                                             </View>
-                                        ) : (
-                                            <View style={styles.pendingBadge}>
-                                                <Text style={styles.pendingBadgeText}>En attente</Text>
-                                            </View>
-                                        )}
-                                    </View>
-
-                                    {/* Infos quantité + date */}
-                                    <View style={styles.demandeInfoRow}>
-                                        <View style={styles.demandeInfoBlock}>
-                                            <Text style={styles.demandeInfoLbl}>QTÉ CIBLE</Text>
-                                            <Text style={styles.demandeInfoVal}>
-                                                {demande.quantite_totale > 0 ? demande.quantite_totale : demande.quantite_minimum} u
-                                            </Text>
-                                        </View>
-                                        <View style={styles.demandeInfoBlock}>
-                                            <Text style={styles.demandeInfoLbl}>MINIMUM</Text>
-                                            <Text style={styles.demandeInfoVal}>{demande.quantite_minimum} u</Text>
-                                        </View>
-                                        <View style={styles.demandeInfoBlock}>
-                                            <Text style={styles.demandeInfoLbl}>PRIX NORMAL</Text>
-                                            <Text style={styles.demandeInfoVal}>
-                                                {demande.prix_normal > 0 ? `${demande.prix_normal.toLocaleString('fr-FR')} F` : '–'}
-                                            </Text>
-                                        </View>
-                                        {demande.date_limite && (
-                                            <View style={styles.demandeInfoBlock}>
-                                                <Text style={styles.demandeInfoLbl}>DATE LIMITE</Text>
-                                                <Text style={styles.demandeInfoVal}>
-                                                    {new Date(demande.date_limite).toLocaleDateString('fr-FR')}
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.demandeProduct} numberOfLines={1}>
+                                                    {demande.nom_produit}
+                                                </Text>
+                                                <Text style={styles.demandeCoop} numberOfLines={1}>
+                                                    Demande de {demande.cooperativeNom}
                                                 </Text>
                                             </View>
+                                            {hasPrix ? (
+                                                <View style={styles.sentBadge}>
+                                                    <Text style={styles.sentBadgeText}>Prix envoyé</Text>
+                                                </View>
+                                            ) : (
+                                                <View style={styles.pendingBadge}>
+                                                    <Text style={styles.pendingBadgeText}>En attente</Text>
+                                                </View>
+                                            )}
+                                        </View>
+
+                                        {/* Infos quantité + date */}
+                                        <View style={styles.demandeInfoRow}>
+                                            <View style={styles.demandeInfoBlock}>
+                                                <Text style={styles.demandeInfoLbl}>QTÉ CIBLE</Text>
+                                                <Text style={styles.demandeInfoVal}>
+                                                    {demande.quantite_totale > 0 ? demande.quantite_totale : demande.quantite_minimum} u
+                                                </Text>
+                                            </View>
+                                            <View style={styles.demandeInfoBlock}>
+                                                <Text style={styles.demandeInfoLbl}>MINIMUM</Text>
+                                                <Text style={styles.demandeInfoVal}>{demande.quantite_minimum} u</Text>
+                                            </View>
+                                            <View style={styles.demandeInfoBlock}>
+                                                <Text style={styles.demandeInfoLbl}>PRIX NORMAL</Text>
+                                                <Text style={styles.demandeInfoVal}>
+                                                    {demande.prix_normal > 0 ? `${demande.prix_normal.toLocaleString('fr-FR')} F` : '–'}
+                                                </Text>
+                                            </View>
+                                            {demande.date_limite && (
+                                                <View style={styles.demandeInfoBlock}>
+                                                    <Text style={styles.demandeInfoLbl}>DATE LIMITE</Text>
+                                                    <Text style={styles.demandeInfoVal}>
+                                                        {new Date(demande.date_limite).toLocaleDateString('fr-FR')}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                        </View>
+
+                                        {/* Message de la coopérative */}
+                                        {!!demande.message_coop && (
+                                            <View style={styles.demandeMsgBox}>
+                                                <MessageSquare color="#7c3aed" size={12} />
+                                                <Text style={styles.demandeMsgText}>{demande.message_coop}</Text>
+                                            </View>
+                                        )}
+
+                                        {/* Si déjà répondu */}
+                                        {hasPrix ? (
+                                            <View style={styles.sentPriceBox}>
+                                                <Text style={styles.sentPriceLabel}>VOTRE PRIX PROPOSÉ</Text>
+                                                <Text style={styles.sentPriceVal}>
+                                                    {(demande.prix_negocie ?? 0).toLocaleString('fr-FR')} F / unité
+                                                </Text>
+                                                <Text style={styles.sentPriceNote}>
+                                                    En attente d'acceptation par la coopérative
+                                                </Text>
+                                            </View>
+                                        ) : (
+                                            /* Saisie du prix */
+                                            <>
+                                                <View>
+                                                    <Text style={styles.prixInputLabel}>VOTRE PRIX GROUPÉ (F / unité)</Text>
+                                                    <TextInput
+                                                        style={styles.prixInput}
+                                                        value={inputVal}
+                                                        onChangeText={v => setPrixInputs(prev => ({ ...prev, [demande.id]: v }))}
+                                                        keyboardType="numeric"
+                                                        placeholder={`Prix normal : ${demande.prix_normal.toLocaleString('fr-FR')} F → proposez moins`}
+                                                        placeholderTextColor={colors.slate300}
+                                                    />
+                                                </View>
+                                                <View style={styles.demandeActions}>
+                                                    <TouchableOpacity
+                                                        style={[styles.proposerBtn, isProposing && { opacity: 0.6 }]}
+                                                        onPress={() => handleProposer(demande)}
+                                                        disabled={isProposing}
+                                                    >
+                                                        {isProposing
+                                                            ? <ActivityIndicator color={colors.white} size="small" />
+                                                            : <Text style={styles.proposerBtnText}>ENVOYER MON PRIX</Text>}
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        style={styles.refuserBtn}
+                                                        onPress={() => handleRefuserDemande(demande)}
+                                                    >
+                                                        <Text style={styles.refuserBtnText}>Refuser</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </>
                                         )}
                                     </View>
-
-                                    {/* Message de la coopérative */}
-                                    {!!demande.message_coop && (
-                                        <View style={styles.demandeMsgBox}>
-                                            <MessageSquare color="#7c3aed" size={12} />
-                                            <Text style={styles.demandeMsgText}>{demande.message_coop}</Text>
-                                        </View>
-                                    )}
-
-                                    {/* Si déjà répondu */}
-                                    {hasPrix ? (
-                                        <View style={styles.sentPriceBox}>
-                                            <Text style={styles.sentPriceLabel}>VOTRE PRIX PROPOSÉ</Text>
-                                            <Text style={styles.sentPriceVal}>
-                                                {(demande.prix_negocie ?? 0).toLocaleString('fr-FR')} F / unité
-                                            </Text>
-                                            <Text style={styles.sentPriceNote}>
-                                                En attente d'acceptation par la coopérative
-                                            </Text>
-                                        </View>
-                                    ) : (
-                                        /* Saisie du prix */
-                                        <>
-                                            <View>
-                                                <Text style={styles.prixInputLabel}>VOTRE PRIX GROUPÉ (F / unité)</Text>
-                                                <TextInput
-                                                    style={styles.prixInput}
-                                                    value={inputVal}
-                                                    onChangeText={v => setPrixInputs(prev => ({ ...prev, [demande.id]: v }))}
-                                                    keyboardType="numeric"
-                                                    placeholder={`Prix normal : ${demande.prix_normal.toLocaleString('fr-FR')} F → proposez moins`}
-                                                    placeholderTextColor={colors.slate300}
-                                                />
-                                            </View>
-                                            <View style={styles.demandeActions}>
-                                                <TouchableOpacity
-                                                    style={[styles.proposerBtn, isProposing && { opacity: 0.6 }]}
-                                                    onPress={() => handleProposer(demande)}
-                                                    disabled={isProposing}
-                                                >
-                                                    {isProposing
-                                                        ? <ActivityIndicator color={colors.white} size="small" />
-                                                        : <Text style={styles.proposerBtnText}>ENVOYER MON PRIX</Text>}
-                                                </TouchableOpacity>
-                                                <TouchableOpacity
-                                                    style={styles.refuserBtn}
-                                                    onPress={() => handleRefuserDemande(demande)}
-                                                >
-                                                    <Text style={styles.refuserBtnText}>Refuser</Text>
-                                                </TouchableOpacity>
-                                            </View>
-                                        </>
-                                    )}
-                                </View>
-                            );
-                        })
+                                );
+                            })}
+                        </View>
                     )
                 )}
             </ScrollView>
@@ -645,7 +670,7 @@ const styles = StyleSheet.create({
     rejectBtnText: { fontSize: 12, fontWeight: '900', color: colors.error, letterSpacing: 1 },
 
     shippingBtn: {
-        backgroundColor: '#2563EB', borderRadius: 10,
+        backgroundColor: colors.info, borderRadius: 10,
         paddingVertical: 12, alignItems: 'center', justifyContent: 'center',
     },
     shippingBtnText: { fontSize: 12, fontWeight: '900', color: colors.white, letterSpacing: 1 },
@@ -669,7 +694,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#fdf4ff', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
     },
     demandeProduct: { fontSize: 14, fontWeight: '700', color: colors.slate800 },
-    demandeCoop:    { fontSize: 11, fontWeight: '600', color: '#7c3aed', marginTop: 2 },
+    demandeCoop:    { fontSize: 11, fontWeight: '600', color: colors.purple, marginTop: 2 },
 
     sentBadge:    { backgroundColor: '#d1fae5', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
     sentBadgeText:{ fontSize: 11, fontWeight: '700', color: '#065f46' },
@@ -697,7 +722,7 @@ const styles = StyleSheet.create({
 
     demandeActions: { flexDirection: 'row', gap: 8 },
     proposerBtn: {
-        flex: 1, backgroundColor: '#7c3aed', borderRadius: 8,
+        flex: 1, backgroundColor: colors.purple, borderRadius: 8,
         paddingVertical: 12, alignItems: 'center', justifyContent: 'center',
     },
     proposerBtnText: { fontSize: 12, fontWeight: '900', color: colors.white, letterSpacing: 0.5 },
@@ -722,4 +747,34 @@ const styles = StyleSheet.create({
     },
     emptyText:    { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2, textAlign: 'center' },
     emptySubText: { fontSize: 12, color: colors.slate400, textAlign: 'center', lineHeight: 18 },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────────
+const dtCmd = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as const,
+        width: '100%' as any,
+        padding: 32,
+    },
+    filtersRow: {
+        flexDirection: 'row',
+        gap: 8,
+        paddingVertical: 4,
+    },
+    cardsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+    },
+    card: {
+        width: '48%' as any,
+        backgroundColor: colors.white,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+    },
 });

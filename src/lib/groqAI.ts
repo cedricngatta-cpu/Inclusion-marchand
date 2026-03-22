@@ -386,7 +386,7 @@ STYLE DE CONVERSATION :
 
     // ── MARCHAND ──────────────────────────────────────────────────────────
     if (role === 'MERCHANT') {
-        return `Tu es l'assistant personnel de ${nom.toUpperCase()}, commerçant sur Inclusion Marchand en Côte d'Ivoire. Tu es son bras droit digital : chaleureux, direct, efficace.
+        return `Tu es l'assistant personnel de ${nom.toUpperCase()}, commerçant sur Jùlaba en Côte d'Ivoire. Tu es son bras droit digital : chaleureux, direct, efficace.
 
 DONNÉES EN TEMPS RÉEL DE SA BOUTIQUE :
 ${donneesContext}
@@ -427,7 +427,7 @@ ${styleCommun}`;
 
     // ── PRODUCTEUR ────────────────────────────────────────────────────────
     if (role === 'PRODUCER') {
-        return `Tu es l'assistant de ${nomSafe.toUpperCase()}, producteur agricole sur Inclusion Marchand en Côte d'Ivoire. Tu l'aides à vendre sa production au meilleur prix.
+        return `Tu es l'assistant de ${nomSafe.toUpperCase()}, producteur agricole sur Jùlaba en Côte d'Ivoire. Tu l'aides à vendre sa production au meilleur prix.
 
 DONNÉES EN TEMPS RÉEL :
 ${donneesContext}
@@ -458,7 +458,7 @@ ${styleCommun}`;
 
     // ── AGENT TERRAIN ─────────────────────────────────────────────────────
     if (role === 'FIELD_AGENT') {
-        return `Tu es l'assistant de ${nomSafe.toUpperCase()}, agent de terrain sur Inclusion Marchand en Côte d'Ivoire. Tu l'aides dans sa mission d'inclusion économique.
+        return `Tu es l'assistant de ${nomSafe.toUpperCase()}, agent de terrain sur Jùlaba en Côte d'Ivoire. Tu l'aides dans sa mission d'inclusion économique.
 
 DONNÉES EN TEMPS RÉEL :
 ${donneesContext}
@@ -484,7 +484,7 @@ ${styleCommun}`;
 
     // ── COOPÉRATIVE ───────────────────────────────────────────────────────
     if (role === 'COOPERATIVE') {
-        return `Tu es l'assistante de ${nomSafe.toUpperCase()}, coopérative sur Inclusion Marchand en Côte d'Ivoire. Tu gères le réseau et pilotes les opérations groupées.
+        return `Tu es l'assistante de ${nomSafe.toUpperCase()}, coopérative sur Jùlaba en Côte d'Ivoire. Tu gères le réseau et pilotes les opérations groupées.
 
 DONNÉES EN TEMPS RÉEL :
 ${donneesContext}
@@ -510,7 +510,7 @@ ${styleCommun}`;
 
     // ── ADMIN / SUPERVISEUR ───────────────────────────────────────────────
     if (role === 'ADMIN' || role === 'SUPERVISOR') {
-        return `Tu es l'assistant du super administrateur ${nomSafe.toUpperCase()} sur Inclusion Marchand en Côte d'Ivoire. Tu as accès à toutes les données du réseau.
+        return `Tu es l'assistant du super administrateur ${nomSafe.toUpperCase()} sur Jùlaba en Côte d'Ivoire. Tu as accès à toutes les données du réseau.
 
 DONNÉES EN TEMPS RÉEL :
 ${donneesContext}
@@ -534,7 +534,7 @@ ${styleCommun}`;
     }
 
     // ── Fallback générique ────────────────────────────────────────────────
-    return `Tu es un assistant intelligent pour ${nomSafe.toUpperCase()} sur l'application Inclusion Marchand en Côte d'Ivoire.
+    return `Tu es un assistant intelligent pour ${nomSafe.toUpperCase()} sur l'application Jùlaba en Côte d'Ivoire.
 
 DONNÉES :
 ${donneesContext}
@@ -800,7 +800,7 @@ export async function fetchScreenDebrief(
         // ── ACHATS GROUPÉS (COOPERATIVE) ──────────────────────────────────
         if (route.includes('achat')) {
             const { data: achats } = await supabase
-                .from('achats_groupes').select('statut').eq('statut', 'ouvert');
+                .from('achats_groupes').select('statut').in('statut', ['OPEN', 'NEGOTIATION']);
             const nb = (achats ?? []).length;
             if (nb === 0) return 'Aucun achat groupé en cours. Tu peux en créer un nouveau.';
             return `${nb} achat${nb > 1 ? 's' : ''} groupé${nb > 1 ? 's' : ''} ouvert${nb > 1 ? 's' : ''}, les marchands peuvent encore rejoindre.`;

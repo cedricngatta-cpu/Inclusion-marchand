@@ -13,7 +13,7 @@ const { createClient } = require('@supabase/supabase-js');
 const io = require('socket.io-client');
 
 // ── Config ──
-const SUPABASE_URL = 'https://dinocjmwktrxqupyjsqn.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://lpowdjvxikqtorhadhyv.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const SOCKET_URL = process.env.SOCKET_URL || 'http://localhost:3001';
 
@@ -306,7 +306,7 @@ async function acte2_publication() {
     description: 'Riz parfumé de qualité supérieure. Livreur : Koné Transport (0700112233).',
     audio_name: 'Riz parfumé 25kg',
     color: '#ecfdf5',
-    icon_color: '#059669',
+    icon_color: '#C47316',
   }).select().single();
   if (err_p1) console.log(`  ❌ INSERT products (p1): ${err_p1.message}${err_p1.hint ? ' — ' + err_p1.hint : ''}`);
   await logActivity(U.producteur.id, U.producteur.full_name, 'Publication : Riz parfumé 25kg → Marché Virtuel (18 000 F)', 'publication');

@@ -13,7 +13,7 @@ export default function TabsLayout() {
             <Stack.Screen name="bilan" />
             <Stack.Screen name="scanner" />
             <Stack.Screen name="carnet" />
-            <Stack.Screen name="credit" />
+
             <Stack.Screen name="marche" />
             <Stack.Screen name="revenus" />
             <Stack.Screen name="wallet" />
@@ -21,6 +21,7 @@ export default function TabsLayout() {
             <Stack.Screen name="conseils" />
             <Stack.Screen name="achats-groupes" />
             <Stack.Screen name="mes-commandes" />
+            <Stack.Screen name="finance" />
         </Stack>
     );
 }

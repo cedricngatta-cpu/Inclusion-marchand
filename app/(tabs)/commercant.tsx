@@ -28,7 +28,7 @@ import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 
 const quickActions = [
-    { id: 'vendre',  name: 'Vendre',     icon: ShoppingBag, bg: '#ecfdf5', color: '#059669', path: '/(tabs)/vendre' },
+    { id: 'vendre',  name: 'Vendre',     icon: ShoppingBag, bg: colors.primaryBg, color: colors.primary, path: '/(tabs)/vendre' },
     { id: 'stock',   name: 'Stock',      icon: Package,     bg: '#fffbeb', color: '#d97706', path: '/(tabs)/stock' },
     { id: 'bilan',   name: 'Bilan',      icon: PieChart,    bg: '#eff6ff', color: '#2563eb', path: '/(tabs)/bilan' },
     { id: 'carnet',  name: 'Carnet',     icon: BookOpen,    bg: '#fff1f2', color: '#e11d48', path: '/(tabs)/carnet' },
@@ -190,42 +190,47 @@ export default function CommercantScreen() {
     // ── Layout desktop — dashboard informatif ────────────────────────────────
     if (isDesktop) {
         const fmt = (n: number) => n.toLocaleString('fr-FR');
+        const dCard: any = {
+            backgroundColor: '#FFF', borderRadius: 12, padding: 24,
+            shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+        };
         return (
             <ScrollView style={{ flex: 1, backgroundColor: '#F9FAFB' }}
-                contentContainerStyle={{ padding: 24 }}
+                contentContainerStyle={{ maxWidth: 1400, alignSelf: 'center' as any, width: '100%' as any, padding: 32 }}
                 showsVerticalScrollIndicator={false}
             >
                 {/* En-tête */}
-                <View style={{ marginBottom: 24 }}>
-                    <Text style={{ fontSize: 22, fontWeight: '900', color: '#1F2937' }}>
-                        Bonjour, {firstName} 👋
+                <View style={{ marginBottom: 28 }}>
+                    <Text style={{ fontSize: 24, fontWeight: '900', color: '#1F2937' }}>
+                        Bonjour, {firstName}
                     </Text>
-                    <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 4 }}>
+                    <Text style={{ fontSize: 14, color: '#6B7280', marginTop: 4 }}>
                         Voici votre tableau de bord du jour
                     </Text>
                 </View>
 
                 {/* LIGNE 1 — 4 KPIs */}
-                <View style={{ flexDirection: 'row', gap: 16, marginBottom: 20 }}>
+                <View style={{ flexDirection: 'row', gap: 20, marginBottom: 24 }}>
                     {[
                         { label: 'CAISSE DU JOUR',     value: `${fmt(balance)} F`, sub: `${ventesCount} vente${ventesCount > 1 ? 's' : ''}`,        subColor: '#6B7280' },
                         { label: 'CA DU MOIS',          value: `${fmt(caMois)} F`,   sub: 'Ce mois-ci',                                               subColor: '#6B7280' },
-                        { label: 'PRODUITS EN STOCK',   value: String(stockCount),   sub: `${ruptureCount} en rupture`,                               subColor: ruptureCount > 0 ? '#DC2626' : '#059669' },
-                        { label: 'COMMANDES B2B',       value: String(commandesCount), sub: `${commandesPending} en attente`,                         subColor: commandesPending > 0 ? '#D97706' : '#059669' },
+                        { label: 'PRODUITS EN STOCK',   value: String(stockCount),   sub: `${ruptureCount} en rupture`,                               subColor: ruptureCount > 0 ? '#DC2626' : colors.success },
+                        { label: 'COMMANDES B2B',       value: String(commandesCount), sub: `${commandesPending} en attente`,                         subColor: commandesPending > 0 ? '#D97706' : colors.success },
                     ].map((kpi, i) => (
-                        <View key={i} style={{ flex: 1, backgroundColor: '#FFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E5E7EB' }}>
+                        <View key={i} style={{ flex: 1, ...dCard }}>
                             <Text style={{ fontSize: 10, fontWeight: '800', color: '#6B7280', letterSpacing: 1 }}>{kpi.label}</Text>
-                            <Text style={{ fontSize: 26, fontWeight: '900', color: '#1F2937', marginTop: 6 }}>{kpi.value}</Text>
-                            <Text style={{ fontSize: 12, color: kpi.subColor, marginTop: 2 }}>{kpi.sub}</Text>
+                            <Text style={{ fontSize: 28, fontWeight: '900', color: '#1F2937', marginTop: 8 }}>{kpi.value}</Text>
+                            <Text style={{ fontSize: 12, color: kpi.subColor, marginTop: 4 }}>{kpi.sub}</Text>
                         </View>
                     ))}
                 </View>
 
                 {/* LIGNE 2 — Dernières ventes + Alertes stock */}
-                <View style={{ flexDirection: 'row', gap: 16, marginBottom: 20 }}>
+                <View style={{ flexDirection: 'row', gap: 20, marginBottom: 24 }}>
                     {/* Dernières ventes */}
-                    <View style={{ flex: 1, backgroundColor: '#FFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E5E7EB' }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#1F2937', marginBottom: 14 }}>Dernières ventes</Text>
+                    <View style={{ flex: 1, ...dCard }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#1F2937', marginBottom: 16 }}>Dernières ventes</Text>
                         {history.length === 0 && (
                             <Text style={{ fontSize: 13, color: '#9CA3AF', textAlign: 'center', paddingVertical: 20 }}>Aucune vente aujourd'hui</Text>
                         )}
@@ -237,7 +242,7 @@ export default function CommercantScreen() {
                                         {tx.clientName && tx.clientName !== 'Client standard' ? tx.clientName : 'Client'} · {new Date(tx.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                                     </Text>
                                 </View>
-                                <Text style={{ fontSize: 14, fontWeight: '800', color: tx.status === 'DETTE' ? '#F97316' : '#059669', marginLeft: 12 }}>
+                                <Text style={{ fontSize: 14, fontWeight: '800', color: tx.status === 'DETTE' ? '#F97316' : colors.success, marginLeft: 12 }}>
                                     {tx.status !== 'DETTE' ? '+' : ''}{fmt(tx.price)} F
                                 </Text>
                             </View>
@@ -245,15 +250,15 @@ export default function CommercantScreen() {
                     </View>
 
                     {/* Alertes stock */}
-                    <View style={{ flex: 1, backgroundColor: '#FFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E5E7EB' }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#1F2937', marginBottom: 14 }}>Alertes stock</Text>
+                    <View style={{ flex: 1, ...dCard }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#1F2937', marginBottom: 16 }}>Alertes stock</Text>
                         {lowStockProducts.length === 0 && (
-                            <Text style={{ fontSize: 13, color: '#059669', textAlign: 'center', paddingVertical: 20 }}>✓ Tout est en ordre</Text>
+                            <Text style={{ fontSize: 13, color: colors.success, textAlign: 'center', paddingVertical: 20 }}>Tout est en ordre</Text>
                         )}
                         {lowStockProducts.map((p, i) => (
                             <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: i < lowStockProducts.length - 1 ? 1 : 0, borderBottomColor: '#F3F4F6' }}>
                                 <Text style={{ fontSize: 13, fontWeight: '600', color: '#1F2937' }} numberOfLines={1}>{p.name}</Text>
-                                <View style={{ backgroundColor: p.quantity === 0 ? '#FEE2E2' : '#FEF3C7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                                <View style={{ backgroundColor: p.quantity === 0 ? '#FEE2E2' : '#FEF3C7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 }}>
                                     <Text style={{ fontSize: 11, fontWeight: '700', color: p.quantity === 0 ? '#DC2626' : '#D97706' }}>
                                         {p.quantity === 0 ? 'RUPTURE' : `${p.quantity} restants`}
                                     </Text>
@@ -264,21 +269,21 @@ export default function CommercantScreen() {
                 </View>
 
                 {/* LIGNE 3 — Répartition paiements + Actions rapides */}
-                <View style={{ flexDirection: 'row', gap: 16 }}>
+                <View style={{ flexDirection: 'row', gap: 20 }}>
                     {/* Répartition paiements */}
-                    <View style={{ flex: 1, backgroundColor: '#FFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E5E7EB' }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#1F2937', marginBottom: 16 }}>Répartition des paiements (aujourd'hui)</Text>
-                        <View style={{ gap: 14 }}>
+                    <View style={{ flex: 1, ...dCard }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#1F2937', marginBottom: 18 }}>Répartition des paiements (aujourd'hui)</Text>
+                        <View style={{ gap: 16 }}>
                             {[
-                                { label: 'Espèces', total: cashTotal, pct: cashPct, color: '#059669' },
+                                { label: 'Espèces', total: cashTotal, pct: cashPct, color: colors.primary },
                                 { label: 'Mobile Money', total: momoTotal, pct: momoPct, color: '#2563EB' },
                             ].map((item, i) => (
                                 <View key={i}>
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                                        <Text style={{ fontSize: 12, color: '#6B7280' }}>{item.label}</Text>
-                                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#1F2937' }}>{fmt(item.total)} F ({item.pct}%)</Text>
+                                        <Text style={{ fontSize: 13, color: '#6B7280' }}>{item.label}</Text>
+                                        <Text style={{ fontSize: 13, fontWeight: '700', color: '#1F2937' }}>{fmt(item.total)} F ({item.pct}%)</Text>
                                     </View>
-                                    <View style={{ height: 8, backgroundColor: '#E5E7EB', borderRadius: 4 }}>
+                                    <View style={{ height: 8, backgroundColor: '#F3F4F6', borderRadius: 4 }}>
                                         <View style={{ height: 8, backgroundColor: item.color, borderRadius: 4, width: `${item.pct}%` as any }} />
                                     </View>
                                 </View>
@@ -287,17 +292,17 @@ export default function CommercantScreen() {
                     </View>
 
                     {/* Actions rapides */}
-                    <View style={{ width: 280, backgroundColor: '#FFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#E5E7EB' }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#1F2937', marginBottom: 14 }}>Actions rapides</Text>
+                    <View style={{ flex: 1, maxWidth: 320, ...dCard }}>
+                        <Text style={{ fontSize: 14, fontWeight: '800', color: '#1F2937', marginBottom: 16 }}>Actions rapides</Text>
                         {[
-                            { label: 'Nouvelle vente',       path: '/(tabs)/vendre',       bg: '#ECFDF5', color: '#059669', Icon: ShoppingBag },
+                            { label: 'Nouvelle vente',       path: '/(tabs)/vendre',       bg: colors.primaryBg, color: colors.primary, Icon: ShoppingBag },
                             { label: 'Commander au marché',   path: '/(tabs)/marche',        bg: '#EFF6FF', color: '#2563EB', Icon: Store },
                             { label: 'Gérer le stock',        path: '/(tabs)/stock',         bg: '#FEF3C7', color: '#D97706', Icon: AlertTriangle },
                             { label: 'Voir le bilan',         path: '/(tabs)/bilan',         bg: '#F5F3FF', color: '#7C3AED', Icon: PieChart },
                         ].map((a, i) => (
                             <TouchableOpacity key={i} onPress={() => router.push(a.path as any)}
-                                activeOpacity={0.8}
-                                style={{ flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: a.bg, borderRadius: 10, marginBottom: i < 3 ? 8 : 0 }}
+                                activeOpacity={0.7}
+                                style={{ flexDirection: 'row', alignItems: 'center', padding: 14, backgroundColor: a.bg, borderRadius: 10, marginBottom: i < 3 ? 10 : 0 }}
                             >
                                 <a.Icon color={a.color} size={18} />
                                 <Text style={{ marginLeft: 10, fontSize: 13, fontWeight: '700', color: a.color }}>{a.label}</Text>

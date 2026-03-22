@@ -18,7 +18,7 @@ const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
 
-const SUPABASE_URL = 'https://dinocjmwktrxqupyjsqn.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://lpowdjvxikqtorhadhyv.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 if (!SUPABASE_KEY) {
@@ -959,7 +959,7 @@ async function main() {
 
   console.log('\n  ╔═══════════════════════════════════════════════════════════╗');
   console.log('  ║                                                           ║');
-  console.log('  ║   🧪  TEST E2E COMPLET — Inclusion Marchand              ║');
+  console.log('  ║   🧪  TEST E2E COMPLET — Jùlaba              ║');
   console.log('  ║                                                           ║');
   console.log('  ║   Parcourt chaque écran, teste chaque fonctionnalité,    ║');
   console.log('  ║   vérifie la persistance et garde un historique.         ║');

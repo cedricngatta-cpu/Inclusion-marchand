@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator, BackHandler,
+    ActivityIndicator, BackHandler, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
@@ -17,7 +17,7 @@ import { useAuth } from '@/src/context/AuthContext';
 import { colors } from '@/src/lib/colors';
 
 // ── Constantes violet ─────────────────────────────────────────────────────────
-const PURPLE  = '#059669';
+const PURPLE  = colors.primary;
 const PURPLEL = 'rgba(255,255,255,0.15)';
 const PURPLELT= 'rgba(255,255,255,0.7)';
 
@@ -45,6 +45,8 @@ const ROLE_ROUTES: Record<string, string> = {
 export default function CooperativeDashboard() {
     const router = useRouter();
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     // Garde de route — redirige si pas COOPERATIVE
     useEffect(() => {
@@ -77,10 +79,10 @@ export default function CooperativeDashboard() {
                     .neq('status', 'DETTE')
                     .gte('created_at', monthStart.toISOString()),
 
-                // Membres
-                supabase
-                    .from('profiles')
-                    .select('*', { count: 'exact', head: true }),
+                // Membres de cette coopérative
+                user?.id
+                    ? supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('cooperative_id', user.id)
+                    : supabase.from('profiles').select('*', { count: 'exact', head: true }),
 
                 // Commandes B2B en attente
                 supabase
@@ -120,9 +122,7 @@ export default function CooperativeDashboard() {
         } finally {
             setLoading(false);
         }
-    }, []);
-
-    useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
+    }, [user?.id]);
 
     useEffect(() => {
         const unsubs = [
@@ -135,8 +135,7 @@ export default function CooperativeDashboard() {
     }, [fetchDashboard]);
 
     // Recharge à chaque retour sur l'écran
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useFocusEffect(useCallback(() => { fetchDashboard(); }, []));
+    useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
 
     // Bouton retour Android sur le dashboard → quitter l'app
     useFocusEffect(useCallback(() => {
@@ -184,7 +183,7 @@ export default function CooperativeDashboard() {
                 <View style={s.kpiRow}>
                     <View style={s.kpiCell}>
                         <View style={s.kpiIconWrap}>
-                            <Users color="#059669" size={16} />
+                            <Users color={colors.primary} size={16} />
                         </View>
                         <Text style={s.kpiValue}>{loading ? '–' : totalMembers}</Text>
                         <Text style={s.kpiLabel}>MEMBRES</Text>
@@ -192,7 +191,7 @@ export default function CooperativeDashboard() {
                     <View style={s.kpiSep} />
                     <View style={s.kpiCell}>
                         <View style={[s.kpiIconWrap, b2bPending > 0 && { backgroundColor: 'rgba(239,68,68,0.3)' }]}>
-                            <Truck color={b2bPending > 0 ? '#ef4444' : '#059669'} size={16} />
+                            <Truck color={b2bPending > 0 ? '#ef4444' : colors.primary} size={16} />
                         </View>
                         <Text style={[s.kpiValue, b2bPending > 0 && { color: '#fca5a5' }]}>
                             {loading ? '–' : b2bPending}
@@ -205,7 +204,10 @@ export default function CooperativeDashboard() {
             {/* ════════════════════════════════ CONTENU ══════════════════════════ */}
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[
+                    s.scrollContent,
+                    isDesktop && dtCp.scrollContent,
+                ]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 overScrollMode="never"
@@ -213,7 +215,7 @@ export default function CooperativeDashboard() {
                 {/* ── Alerte enrôlements en attente ── */}
                 {!loading && pendingEnroll > 0 && (
                     <TouchableOpacity
-                        style={s.alertBanner}
+                        style={[s.alertBanner, isDesktop && dtCp.card]}
                         activeOpacity={0.85}
                         onPress={() => router.push('/cooperative/demandes' as any)}
                     >
@@ -229,80 +231,88 @@ export default function CooperativeDashboard() {
                     </TouchableOpacity>
                 )}
 
-                {/* ── CTA 1 : Gérer les membres ── */}
-                <TouchableOpacity
-                    style={[s.cta, { backgroundColor: PURPLE }]}
-                    activeOpacity={0.88}
-                    onPress={() => router.push('/cooperative/membres' as any)}
-                >
-                    <Users color="#fff" size={20} />
-                    <Text style={s.ctaText}>GÉRER LES MEMBRES</Text>
-                </TouchableOpacity>
+                {/* ── CTAs ── */}
+                <View style={isDesktop ? dtCp.ctaRow : undefined}>
+                    {/* ── CTA 1 : Gérer les membres ── */}
+                    <TouchableOpacity
+                        style={[s.cta, { backgroundColor: PURPLE }, isDesktop && dtCp.ctaItem]}
+                        activeOpacity={0.88}
+                        onPress={() => router.push('/cooperative/membres' as any)}
+                    >
+                        <Users color="#fff" size={20} />
+                        <Text style={s.ctaText}>GÉRER LES MEMBRES</Text>
+                    </TouchableOpacity>
 
-                {/* ── CTA 2 : Achats groupés ── */}
-                <TouchableOpacity
-                    style={[s.cta, { backgroundColor: '#059669' }]}
-                    activeOpacity={0.88}
-                    onPress={() => router.push('/cooperative/achats' as any)}
-                >
-                    <ShoppingBag color="#fff" size={20} />
-                    <Text style={s.ctaText}>ACHATS GROUPÉS</Text>
-                </TouchableOpacity>
+                    {/* ── CTA 2 : Achats groupés ── */}
+                    <TouchableOpacity
+                        style={[s.cta, { backgroundColor: colors.primary }, isDesktop && dtCp.ctaItem]}
+                        activeOpacity={0.88}
+                        onPress={() => router.push('/cooperative/achats' as any)}
+                    >
+                        <ShoppingBag color="#fff" size={20} />
+                        <Text style={s.ctaText}>ACHATS GROUPÉS</Text>
+                    </TouchableOpacity>
+                </View>
 
-                {/* ── Navigation modules ── */}
-                <Text style={s.sectionTitle}>MODULES</Text>
-                {[
-                    { label: 'Validations',         icon: Users,      bg: '#fef3c7', color: '#92400e', path: '/cooperative/demandes' },
-                    { label: 'Analyses de marché',  icon: TrendingUp, bg: '#e0e7ff', color: '#3730a3', path: '/cooperative/analyses' },
-                ].map(item => {
-                    const Icon = item.icon;
-                    return (
-                        <TouchableOpacity
-                            key={item.label}
-                            style={s.moduleCard}
-                            activeOpacity={0.82}
-                            onPress={() => router.push(item.path as any)}
-                        >
-                            <View style={[s.moduleIcon, { backgroundColor: item.bg }]}>
-                                <Icon color={item.color} size={20} />
+                {/* ── Colonnes desktop : modules + activités ── */}
+                <View style={isDesktop ? dtCp.columnsRow : undefined}>
+                    {/* ── Colonne modules ── */}
+                    <View style={isDesktop ? dtCp.column : undefined}>
+                        <Text style={s.sectionTitle}>MODULES</Text>
+                        {[
+                            { label: 'Validations',         icon: Users,      bg: '#fef3c7', color: '#92400e', path: '/cooperative/demandes' },
+                            { label: 'Analyses de marché',  icon: TrendingUp, bg: '#e0e7ff', color: '#3730a3', path: '/cooperative/analyses' },
+                        ].map(item => {
+                            const Icon = item.icon;
+                            return (
+                                <TouchableOpacity
+                                    key={item.label}
+                                    style={[s.moduleCard, isDesktop && dtCp.card]}
+                                    activeOpacity={0.82}
+                                    onPress={() => router.push(item.path as any)}
+                                >
+                                    <View style={[s.moduleIcon, { backgroundColor: item.bg }]}>
+                                        <Icon color={item.color} size={20} />
+                                    </View>
+                                    <Text style={s.moduleLabel}>{item.label}</Text>
+                                    <ChevronRight color="#cbd5e1" size={16} />
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+
+                    {/* ── Colonne activités récentes ── */}
+                    {activities.length > 0 && (
+                        <View style={isDesktop ? dtCp.column : undefined}>
+                            <View style={s.sectionHeader}>
+                                <Text style={s.sectionTitle}>ACTIVITÉS RÉCENTES</Text>
+                                <TouchableOpacity onPress={() => router.push('/cooperative/demandes' as any)}>
+                                    <Text style={s.sectionLink}>VOIR TOUT</Text>
+                                </TouchableOpacity>
                             </View>
-                            <Text style={s.moduleLabel}>{item.label}</Text>
-                            <ChevronRight color="#cbd5e1" size={16} />
-                        </TouchableOpacity>
-                    );
-                })}
 
-                {/* ── Activités récentes ── */}
-                {activities.length > 0 && (
-                    <>
-                        <View style={s.sectionHeader}>
-                            <Text style={s.sectionTitle}>ACTIVITÉS RÉCENTES</Text>
-                            <TouchableOpacity onPress={() => router.push('/cooperative/demandes' as any)}>
-                                <Text style={s.sectionLink}>VOIR TOUT</Text>
-                            </TouchableOpacity>
+                            {activities.map(act => (
+                                <TouchableOpacity
+                                    key={act.id}
+                                    style={[s.activityCard, isDesktop && dtCp.card]}
+                                    activeOpacity={0.85}
+                                    onPress={() => router.push('/cooperative/demandes' as any)}
+                                >
+                                    <View style={[s.activityDot, { backgroundColor: '#ede9fe' }]}>
+                                        <Users color={PURPLE} size={15} />
+                                    </View>
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={s.activityLabel} numberOfLines={1}>{act.label}</Text>
+                                        <Text style={s.activitySub}>{act.sub} · {new Date(act.created_at).toLocaleDateString('fr-FR')}</Text>
+                                    </View>
+                                    <View style={s.pendingBadge}>
+                                        <Text style={s.pendingBadgeText}>À VÉRIFIER</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            ))}
                         </View>
-
-                        {activities.map(act => (
-                            <TouchableOpacity
-                                key={act.id}
-                                style={s.activityCard}
-                                activeOpacity={0.85}
-                                onPress={() => router.push('/cooperative/demandes' as any)}
-                            >
-                                <View style={[s.activityDot, { backgroundColor: '#ede9fe' }]}>
-                                    <Users color={PURPLE} size={15} />
-                                </View>
-                                <View style={{ flex: 1, minWidth: 0 }}>
-                                    <Text style={s.activityLabel} numberOfLines={1}>{act.label}</Text>
-                                    <Text style={s.activitySub}>{act.sub} · {new Date(act.created_at).toLocaleDateString('fr-FR')}</Text>
-                                </View>
-                                <View style={s.pendingBadge}>
-                                    <Text style={s.pendingBadgeText}>À VÉRIFIER</Text>
-                                </View>
-                            </TouchableOpacity>
-                        ))}
-                    </>
-                )}
+                    )}
+                </View>
             </ScrollView>
         </View>
     );
@@ -310,7 +320,7 @@ export default function CooperativeDashboard() {
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#f8fafc' },
+    safe: { flex: 1, backgroundColor: colors.slate50 },
 
     // Hero
     heroBlock:     { alignItems: 'center', gap: 4 },
@@ -397,4 +407,39 @@ const s = StyleSheet.create({
     activitySub:   { fontSize: 11, color: '#94a3b8', marginTop: 2 },
     pendingBadge:  { backgroundColor: '#fef3c7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexShrink: 0 },
     pendingBadgeText: { fontSize: 11, fontWeight: '900', color: '#92400e', letterSpacing: 0.5 },
+});
+
+// ── Styles desktop ──────────────────────────────────────────────────────────
+const dtCp = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center',
+        width: '100%',
+        padding: 32,
+        gap: 24,
+    },
+    card: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+        borderRadius: 12,
+    },
+    ctaRow: {
+        flexDirection: 'row',
+        gap: 16,
+    },
+    ctaItem: {
+        flex: 1,
+        borderRadius: 12,
+    },
+    columnsRow: {
+        flexDirection: 'row',
+        gap: 24,
+    },
+    column: {
+        flex: 1,
+        gap: 12,
+    },
 });

@@ -18,7 +18,7 @@ import { colors } from '@/src/lib/colors';
 
 const CATEGORIES = ['Alimentation', 'Boissons', 'Hygiène', 'Textile', 'Électronique', 'Autre'];
 const BG_COLORS   = ['#ecfdf5', '#eff6ff', '#fff7ed', '#fdf4ff', '#fef2f2', '#f0fdf4'];
-const ICON_COLORS = ['#059669', '#2563eb', '#ea580c', '#7c3aed', '#dc2626', '#16a34a'];
+const ICON_COLORS = [colors.primary, '#2563eb', '#ea580c', '#7c3aed', '#dc2626', '#16a34a'];
 
 const { width: SW } = Dimensions.get('window');
 const FRAME_W = Math.min(SW - 80, 300);
@@ -60,8 +60,8 @@ export default function StockScreen() {
         if (!showScanner) return;
         const loop = Animated.loop(
             Animated.sequence([
-                Animated.timing(scanLineAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
-                Animated.timing(scanLineAnim, { toValue: 0, duration: 0,    useNativeDriver: true }),
+                Animated.timing(scanLineAnim, { toValue: 1, duration: 1800, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(scanLineAnim, { toValue: 0, duration: 0,    useNativeDriver: Platform.OS !== 'web' }),
             ])
         );
         loop.start();
@@ -191,8 +191,8 @@ export default function StockScreen() {
             />
 
             {/* Recherche */}
-            <View style={styles.searchContainer}>
-                <View style={styles.searchWrapper}>
+            <View style={[styles.searchContainer, isDesktop && dtSt.searchContainer]}>
+                <View style={[styles.searchWrapper, isDesktop && dtSt.searchWrapper]}>
                     <Search color={colors.slate400} size={18} />
                     <TextInput
                         style={styles.searchInput}
@@ -202,13 +202,16 @@ export default function StockScreen() {
                         onChangeText={setSearch}
                     />
                 </View>
+                {isDesktop && (
+                    <Text style={dtSt.countText}>{filtered.length} produit{filtered.length > 1 ? 's' : ''}</Text>
+                )}
             </View>
 
             {/* Liste */}
             <ScrollView
                 style={styles.list}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={[{ paddingBottom: 24 }, isDesktop && { paddingHorizontal: 24, paddingTop: 16 }]}
+                contentContainerStyle={[{ paddingBottom: 24 }, isDesktop && dtSt.scrollContent]}
             >
                 {filtered.length === 0 ? (
                     <View style={styles.empty}>
@@ -216,13 +219,56 @@ export default function StockScreen() {
                         <Text style={styles.emptyTitle}>AUCUN PRODUIT</Text>
                         <Text style={styles.emptyText}>Appuyez sur + pour ajouter votre premier produit</Text>
                     </View>
+                ) : isDesktop ? (
+                    <View style={dtSt.tableCard}>
+                        {/* En-tête tableau */}
+                        <View style={dtSt.tableHeader}>
+                            <Text style={[dtSt.thCell, { flex: 2 }]}>Produit</Text>
+                            <Text style={[dtSt.thCell, { flex: 1 }]}>Catégorie</Text>
+                            <Text style={[dtSt.thCell, { flex: 1, textAlign: 'right' }]}>Prix</Text>
+                            <Text style={[dtSt.thCell, { flex: 1, textAlign: 'center' }]}>Stock</Text>
+                            <Text style={[dtSt.thCell, { width: 80, textAlign: 'center' }]}>Actions</Text>
+                        </View>
+                        {filtered.map((product, idx) => {
+                            const stock = getStockLevel(product.id);
+                            return (
+                                <View key={product.id} style={[dtSt.tableRow, idx % 2 === 1 && dtSt.tableRowAlt]}>
+                                    <View style={[dtSt.tdProduct, { flex: 2 }]}>
+                                        {product.imageUrl ? (
+                                            <Image source={{ uri: product.imageUrl }} style={styles.productIcon} />
+                                        ) : (
+                                            <View style={[styles.productIcon, { backgroundColor: product.color }]}>
+                                                <Text style={[styles.productLetter, { color: product.iconColor }]}>
+                                                    {product.name.charAt(0).toUpperCase()}
+                                                </Text>
+                                            </View>
+                                        )}
+                                        <Text style={styles.productName} numberOfLines={1}>{product.name}</Text>
+                                    </View>
+                                    <Text style={[dtSt.tdText, { flex: 1 }]}>{product.category || '—'}</Text>
+                                    <Text style={[dtSt.tdPrice, { flex: 1 }]}>{product.price.toLocaleString()} F</Text>
+                                    <View style={{ flex: 1, alignItems: 'center' }}>
+                                        <View style={[styles.stockBadge, stock < 3 && styles.stockBadgeLow]}>
+                                            <Text style={[styles.stockText, stock < 3 && styles.stockTextLow]}>{stock} unités</Text>
+                                        </View>
+                                    </View>
+                                    <View style={[styles.qtyControls, { width: 80, justifyContent: 'center' }]}>
+                                        <TouchableOpacity style={styles.qtyBtn} onPress={() => updateStock(product.id, -1)}>
+                                            <Text style={styles.qtyBtnText}>−</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={[styles.qtyBtn, styles.qtyBtnAdd]} onPress={() => updateStock(product.id, 1)}>
+                                            <Text style={[styles.qtyBtnText, styles.qtyBtnAddText]}>+</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            );
+                        })}
+                    </View>
                 ) : (
-                    <View style={isDesktop ? dtSt.grid : undefined}>
-                    {filtered.map(product => {
+                    filtered.map(product => {
                         const stock = getStockLevel(product.id);
                         return (
-                            <View key={product.id} style={[styles.productRow, isDesktop && dtSt.productCard]}>
-                                {/* Photo ou initiale */}
+                            <View key={product.id} style={styles.productRow}>
                                 {product.imageUrl ? (
                                     <Image source={{ uri: product.imageUrl }} style={styles.productIcon} />
                                 ) : (
@@ -252,8 +298,7 @@ export default function StockScreen() {
                                 </View>
                             </View>
                         );
-                    })}
-                    </View>
+                    })
                 )}
             </ScrollView>
 
@@ -543,19 +588,35 @@ const styles = StyleSheet.create({
     permBtnText: { color: colors.white, fontWeight: '900', fontSize: 13 },
 });
 
-// ── Styles grille desktop ─────────────────────────────────────────────────
+// ── Styles desktop ─────────────────────────────────────────────────
 const dtSt = StyleSheet.create({
-    grid: {
-        flexDirection: 'row', flexWrap: 'wrap', gap: 12,
+    searchContainer: {
+        maxWidth: 1400, alignSelf: 'center', width: '100%',
+        paddingHorizontal: 32, flexDirection: 'row', alignItems: 'center', gap: 16,
     },
-    productCard: {
-        width: '48.5%',
-        borderBottomWidth: 0,
-        backgroundColor: colors.white,
-        borderRadius: 10,
-        borderWidth: 1, borderColor: colors.slate100,
-        padding: 14,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    searchWrapper: { flex: 1, maxWidth: 500 },
+    countText: { fontSize: 13, fontWeight: '700', color: colors.slate400 },
+    scrollContent: { maxWidth: 1400, alignSelf: 'center', width: '100%', paddingHorizontal: 32, paddingTop: 8 },
+    tableCard: {
+        backgroundColor: '#FFF', borderRadius: 12, overflow: 'hidden',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
     },
+    tableHeader: {
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: '#F9FAFB', paddingHorizontal: 20, paddingVertical: 12,
+        borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+    },
+    thCell: {
+        fontSize: 11, fontWeight: '800', color: '#6B7280', letterSpacing: 1, textTransform: 'uppercase',
+    },
+    tableRow: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 20, paddingVertical: 14,
+        borderBottomWidth: 1, borderBottomColor: '#F9FAFB',
+    },
+    tableRowAlt: { backgroundColor: '#FAFBFC' },
+    tdProduct: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    tdText: { fontSize: 13, color: '#6B7280' },
+    tdPrice: { fontSize: 14, fontWeight: '800', color: '#1F2937', textAlign: 'right' },
 });

@@ -2,8 +2,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, ActivityIndicator,
+    Platform, useWindowDimensions,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import {
     Phone, MapPin, Calendar, ShoppingBag, TrendingUp,
     Package, Store, CheckCircle, Clock, XCircle,
@@ -28,7 +29,7 @@ interface OrderStat {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const AVATAR_COLORS = ['#059669', '#2563eb', '#7c3aed', '#d97706', '#0891b2'];
+const AVATAR_COLORS = [colors.primary, '#2563eb', '#7c3aed', '#d97706', '#0891b2'];
 function getAvatarColor(id: string) {
     let sum = 0;
     for (let i = 0; i < id.length; i++) sum += id.charCodeAt(i);
@@ -49,6 +50,9 @@ function formatMoney(n: number) {
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function MembreDetailScreen() {
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
     const params = useLocalSearchParams<{
         id: string;
         name: string;
@@ -121,7 +125,7 @@ export default function MembreDetailScreen() {
         }
     }, [memberId]);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
+    useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
     // ── Calculs KPI ───────────────────────────────────────────────────────────
     const totalCommandes    = orders.length;
@@ -173,13 +177,16 @@ export default function MembreDetailScreen() {
             ) : (
                 <ScrollView
                     style={styles.scroll}
-                    contentContainerStyle={styles.scrollContent}
+                    contentContainerStyle={[styles.scrollContent, isDesktop && dtMd.scrollContent]}
                     showsVerticalScrollIndicator={false}
                 >
+                    <View style={isDesktop ? dtMd.twoColRow : undefined}>
+                    {/* ── Left column (desktop) ── */}
+                    <View style={isDesktop ? dtMd.leftCol : undefined}>
                     {/* ── Informations de contact ── */}
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>INFORMATIONS</Text>
-                        <View style={styles.infoCard}>
+                        <View style={[styles.infoCard, isDesktop && dtMd.card]}>
                             {!!params.phone && (
                                 <View style={styles.infoRow}>
                                     <View style={[styles.infoIcon, { backgroundColor: '#dbeafe' }]}>
@@ -223,15 +230,15 @@ export default function MembreDetailScreen() {
                     {/* ── KPI Commandes ── */}
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>ACTIVITÉ B2B — COMMANDES</Text>
-                        <View style={styles.kpiGrid}>
+                        <View style={[styles.kpiGrid, isDesktop && dtMd.kpiGrid]}>
                             <View style={[styles.kpiCard, { borderTopColor: colors.primary }]}>
                                 <ShoppingBag color={colors.primary} size={20} />
                                 <Text style={styles.kpiVal}>{totalCommandes}</Text>
                                 <Text style={styles.kpiLbl}>Total reçues</Text>
                             </View>
-                            <View style={[styles.kpiCard, { borderTopColor: '#059669' }]}>
-                                <CheckCircle color="#059669" size={20} />
-                                <Text style={[styles.kpiVal, { color: '#059669' }]}>{commandesLivrees}</Text>
+                            <View style={[styles.kpiCard, { borderTopColor: colors.success }]}>
+                                <CheckCircle color={colors.success} size={20} />
+                                <Text style={[styles.kpiVal, { color: colors.success }]}>{commandesLivrees}</Text>
                                 <Text style={styles.kpiLbl}>Livrées</Text>
                             </View>
                             <View style={[styles.kpiCard, { borderTopColor: '#2563eb' }]}>
@@ -248,7 +255,7 @@ export default function MembreDetailScreen() {
                     </View>
 
                     {/* ── Revenu B2B ── */}
-                    <View style={styles.revenueCard}>
+                    <View style={[styles.revenueCard, isDesktop && dtMd.card]}>
                         <View>
                             <Text style={styles.revenueLabel}>REVENU B2B TOTAL</Text>
                             <Text style={styles.revenueVal}>{formatMoney(revenuB2B)} F</Text>
@@ -260,6 +267,9 @@ export default function MembreDetailScreen() {
                         </View>
                     </View>
 
+                    </View>
+                    {/* ── Right column (desktop) ── */}
+                    <View style={isDesktop ? dtMd.rightCol : undefined}>
                     {/* ── Produits publiés ── */}
                     <View style={styles.section}>
                         <View style={styles.sectionRow}>
@@ -282,7 +292,7 @@ export default function MembreDetailScreen() {
                                     </View>
                                     <View style={styles.stockDivider} />
                                     <View style={styles.stockItem}>
-                                        <Text style={[styles.stockVal, { color: stockTotal > 0 ? '#059669' : '#dc2626' }]}>
+                                        <Text style={[styles.stockVal, { color: stockTotal > 0 ? colors.success : '#dc2626' }]}>
                                             {stockTotal}
                                         </Text>
                                         <Text style={styles.stockLbl}>Unités en stock</Text>
@@ -329,6 +339,8 @@ export default function MembreDetailScreen() {
                                 ))}
                             </>
                         )}
+                    </View>
+                    </View>
                     </View>
                 </ScrollView>
             )}
@@ -428,4 +440,39 @@ const styles = StyleSheet.create({
         borderWidth: 2, borderColor: colors.slate100, borderStyle: 'dashed',
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────
+const dtMd = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1200,
+        alignSelf: 'center' as any,
+        width: '100%' as any,
+        padding: 32,
+    },
+    twoColRow: {
+        flexDirection: 'row',
+        gap: 24,
+    },
+    leftCol: {
+        flex: 1,
+        gap: 16,
+    },
+    rightCol: {
+        flex: 1,
+        gap: 16,
+    },
+    card: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+        borderRadius: 12,
+    },
+    kpiGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
 });

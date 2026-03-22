@@ -1,4 +1,4 @@
-# Serveur Realtime — Inclusion Marchand
+# Serveur Realtime — Julaba
 
 Serveur Socket.io pour la synchronisation en temps réel entre les appareils.
 

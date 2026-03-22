@@ -41,7 +41,7 @@ const TUTORIALS: Tutorial[] = [
         description: 'Guide pas à pas pour encaisser un client rapidement',
         icon: ShoppingBag,
         iconBg: '#ecfdf5',
-        iconColor: '#059669',
+        iconColor: colors.primary,
         duration: '3 min',
         level: 'Débutant',
         steps: [

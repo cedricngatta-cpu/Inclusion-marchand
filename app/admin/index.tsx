@@ -94,6 +94,17 @@ export default function AdminDashboard() {
 
     const fetchDashboard = useCallback(async () => {
         try {
+            // Test de connectivité Supabase
+            const { count: testCount, error: testErr } = await supabase
+                .from('profiles')
+                .select('*', { count: 'exact', head: true });
+            if (testErr) {
+                console.error('[AdminDashboard] ❌ Supabase inaccessible:', testErr.message);
+            } else {
+                console.log('[AdminDashboard] 🔌 Supabase OK — profiles en BDD:', testCount);
+                if (testCount === 0) console.warn('[AdminDashboard] ⚠️ BDD VIDE — exécutez le seed: SUPABASE_SERVICE_KEY=<clé> node scripts/seed.js');
+            }
+
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
             const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
@@ -103,10 +114,10 @@ export default function AdminDashboard() {
                 todayTxRes, monthTxRes, productsRes, ordersRes, pendingRes,
             ] = await Promise.all([
                 supabase.from('profiles').select('*', { count: 'exact', head: true }),
-                supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%merchant%'),
-                supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%producer%'),
-                supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%agent%'),
-                supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%cooperative%'),
+                supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'MERCHANT'),
+                supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'PRODUCER'),
+                supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'FIELD_AGENT'),
+                supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'COOPERATIVE'),
                 supabase.from('transactions').select('price, status').gte('created_at', todayStart.toISOString()),
                 supabase.from('transactions').select('price').gte('created_at', monthStart),
                 supabase.from('products').select('*', { count: 'exact', head: true }),
@@ -114,10 +125,23 @@ export default function AdminDashboard() {
                 supabase.from('demandes_enrolement').select('*', { count: 'exact', head: true }).eq('statut', 'en_attente'),
             ]);
 
+            // Log erreurs Supabase individuelles
+            const qErrors = [
+                totalRes.error && `profiles: ${totalRes.error.message}`,
+                merchantsRes.error && `merchants: ${merchantsRes.error.message}`,
+                producersRes.error && `producers: ${producersRes.error.message}`,
+                todayTxRes.error && `todayTx: ${todayTxRes.error.message}`,
+                monthTxRes.error && `monthTx: ${monthTxRes.error.message}`,
+                productsRes.error && `products: ${productsRes.error.message}`,
+                ordersRes.error && `orders: ${ordersRes.error.message}`,
+                pendingRes.error && `pending: ${pendingRes.error.message}`,
+            ].filter(Boolean);
+            if (qErrors.length > 0) console.warn('[AdminDashboard] ⚠️ Erreurs Supabase:', qErrors.join(' | '));
+
             const todayTxArr = (todayTxRes.data ?? []) as { price: number; status: string }[];
             const monthTxArr = (monthTxRes.data ?? []) as { price: number }[];
 
-            setData({
+            const dashData = {
                 totalUsers:        totalRes.count     ?? 0,
                 merchants:         merchantsRes.count  ?? 0,
                 producers:         producersRes.count  ?? 0,
@@ -130,7 +154,9 @@ export default function AdminDashboard() {
                 productsCount:     productsRes.count   ?? 0,
                 activeOrdersCount: ordersRes.count     ?? 0,
                 pendingEnroll:     pendingRes.count    ?? 0,
-            });
+            };
+            console.log('[AdminDashboard] ✅ KPIs chargés:', JSON.stringify(dashData));
+            setData(dashData);
 
             // Logs d'activité — table optionnelle
             try {
@@ -139,6 +165,7 @@ export default function AdminDashboard() {
                     .select('*')
                     .order('created_at', { ascending: false })
                     .limit(8);
+                console.log('[AdminDashboard] activity_logs:', (logs ?? []).length, 'entrées');
                 setActivityLogs((logs as ActivityLog[]) ?? []);
             } catch {
                 // Fallback : transactions récentes
@@ -166,8 +193,6 @@ export default function AdminDashboard() {
         }
     }, []);
 
-    useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
-
     useEffect(() => {
         const unsubs = [
             onSocketEvent('nouvelle-vente',         () => fetchDashboard()),
@@ -190,8 +215,7 @@ export default function AdminDashboard() {
         return () => unsubs.forEach(fn => fn());
     }, [fetchDashboard]);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useFocusEffect(useCallback(() => { fetchDashboard(); }, []));
+    useFocusEffect(useCallback(() => { fetchDashboard(); }, [fetchDashboard]));
 
     // Bouton retour Android sur le dashboard → quitter l'app (Android uniquement)
     useFocusEffect(useCallback(() => {
@@ -217,7 +241,7 @@ export default function AdminDashboard() {
         },
         {
             label: 'CA DU MOIS',
-            topColor: '#059669',
+            topColor: colors.primary,
             value: loading ? '–' : `${Math.round((d?.monthRevenue ?? 0) / 1000)}k`,
             sub: 'F CFA',
         },
@@ -257,7 +281,7 @@ export default function AdminDashboard() {
     // ── Navigation modules ─────────────────────────────────────────────────────
     const NAV_MODULES = [
         { label: 'Utilisateurs',  bg: '#0891b2', Icon: Users,      route: '/admin/utilisateurs' },
-        { label: 'Enrôlements',   bg: '#059669', Icon: UserPlus,    route: '/admin/enrolements' },
+        { label: 'Enrôlements',   bg: colors.primary, Icon: UserPlus,    route: '/admin/enrolements' },
         { label: 'Transactions',  bg: '#16a34a', Icon: TrendingUp,  route: '/admin/transactions' },
         { label: 'Produits',      bg: '#d97706', Icon: Package,     route: '/admin/produits' },
         { label: 'Commandes',     bg: '#2563eb', Icon: ShoppingBag, route: '/admin/commandes' },
@@ -277,7 +301,7 @@ export default function AdminDashboard() {
             >
                 {/* Hero réseau */}
                 <View style={s.heroBlock}>
-                    <Text style={s.heroNetworkLabel}>RÉSEAU INCLUSION MARCHAND</Text>
+                    <Text style={s.heroNetworkLabel}>RÉSEAU JÙLABA</Text>
                     {loading ? (
                         <ActivityIndicator color={colors.white} style={{ marginVertical: 8 }} />
                     ) : (
@@ -292,7 +316,7 @@ export default function AdminDashboard() {
             {/* ════════════════ CONTENU ════════════════ */}
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={[s.scrollContent, isDesktop && { paddingHorizontal: 24 }]}
+                contentContainerStyle={[s.scrollContent, isDesktop && ds.scrollContentDesktop]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 overScrollMode="never"
@@ -316,9 +340,9 @@ export default function AdminDashboard() {
                 )}
 
                 {/* ── Grille stats 2 col mobile / 3 col desktop ── */}
-                <View style={s.statsGrid}>
+                <View style={[s.statsGrid, isDesktop && ds.statsGridDesktop]}>
                     {statsGrid.map((stat, i) => (
-                        <View key={i} style={[s.statCard, { borderTopColor: stat.topColor }, isDesktop && { width: '31.5%' }]}>
+                        <View key={i} style={[s.statCard, { borderTopColor: stat.topColor }, isDesktop && ds.statCardDesktop]}>
                             <Text style={s.statLabel}>{stat.label}</Text>
                             <Text style={[s.statValue, stat.highlight && { color: '#ef4444' }]}>
                                 {stat.value}
@@ -331,11 +355,11 @@ export default function AdminDashboard() {
                 {/* ── Section modules ── */}
                 <Text style={s.sectionTitle}>MODULES D'ADMINISTRATION</Text>
 
-                <View style={s.navGrid}>
+                <View style={[s.navGrid, isDesktop && ds.navGridDesktop]}>
                     {NAV_MODULES.map(mod => (
                         <TouchableOpacity
                             key={mod.route}
-                            style={[s.navCard, { backgroundColor: mod.bg, width: CARD_W }]}
+                            style={[s.navCard, { backgroundColor: mod.bg, width: CARD_W }, isDesktop && ds.navCardDesktop]}
                             activeOpacity={0.85}
                             onPress={() => router.push(mod.route as any)}
                         >
@@ -348,30 +372,34 @@ export default function AdminDashboard() {
                 {/* ── Activité récente ── */}
                 <Text style={s.sectionTitle}>ACTIVITÉ RÉCENTE</Text>
 
-                {loading ? (
-                    <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} />
-                ) : activityLogs.length === 0 ? (
-                    <View style={s.emptyCard}>
-                        <Activity color={colors.slate300} size={36} />
-                        <Text style={s.emptyText}>AUCUNE ACTIVITÉ RÉCENTE</Text>
-                    </View>
-                ) : (
-                    activityLogs.map(log => {
-                        const tc = TYPE_COLORS[log.type] ?? TYPE_COLORS.default;
-                        return (
-                            <View key={log.id} style={s.activityRow}>
-                                <View style={[s.activityIcon, { backgroundColor: tc.bg }]}>
-                                    <Activity color={tc.icon} size={16} />
-                                </View>
-                                <View style={s.activityInfo}>
-                                    <Text style={s.activityAction} numberOfLines={1}>{log.action}</Text>
-                                    <Text style={s.activityUser} numberOfLines={1}>{log.user_name}</Text>
-                                </View>
-                                <Text style={s.activityTime}>{relativeTime(log.created_at)}</Text>
-                            </View>
-                        );
-                    })
-                )}
+                <View style={isDesktop ? ds.activityCardDesktop : undefined}>
+                    {loading ? (
+                        <ActivityIndicator color={colors.primary} style={{ marginTop: 12 }} />
+                    ) : activityLogs.length === 0 ? (
+                        <View style={s.emptyCard}>
+                            <Activity color={colors.slate300} size={36} />
+                            <Text style={s.emptyText}>AUCUNE ACTIVITÉ RÉCENTE</Text>
+                        </View>
+                    ) : (
+                        <View style={isDesktop ? ds.activityListDesktop : undefined}>
+                            {activityLogs.map(log => {
+                                const tc = TYPE_COLORS[log.type] ?? TYPE_COLORS.default;
+                                return (
+                                    <View key={log.id} style={s.activityRow}>
+                                        <View style={[s.activityIcon, { backgroundColor: tc.bg }]}>
+                                            <Activity color={tc.icon} size={16} />
+                                        </View>
+                                        <View style={s.activityInfo}>
+                                            <Text style={s.activityAction} numberOfLines={1}>{log.action}</Text>
+                                            <Text style={s.activityUser} numberOfLines={1}>{log.user_name}</Text>
+                                        </View>
+                                        <Text style={s.activityTime}>{relativeTime(log.created_at)}</Text>
+                                    </View>
+                                );
+                            })}
+                        </View>
+                    )}
+                </View>
             </ScrollView>
         </View>
     );
@@ -466,4 +494,63 @@ const s = StyleSheet.create({
         borderStyle: 'dashed', gap: 8,
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
+});
+
+// ── Styles Desktop ──────────────────────────────────────────────────────────
+const ds = StyleSheet.create({
+    scrollContentDesktop: {
+        maxWidth: 1400,
+        alignSelf: 'center',
+        width: '100%',
+        padding: 32,
+        gap: 24,
+    },
+    statsGridDesktop: {
+        flexDirection: 'row',
+        flexWrap: 'nowrap',
+        gap: 14,
+    },
+    statCardDesktop: {
+        flex: 1,
+        width: 'auto',
+        padding: 18,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+    },
+    navGridDesktop: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+    },
+    navCardDesktop: {
+        flex: 1,
+        minWidth: 180,
+        maxWidth: '24%',
+        width: 'auto',
+        height: 100,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+    },
+    activityCardDesktop: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        padding: 20,
+        maxHeight: 600,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+    },
+    activityListDesktop: {
+        gap: 10,
+    },
 });

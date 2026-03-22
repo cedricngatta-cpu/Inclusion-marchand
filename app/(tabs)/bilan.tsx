@@ -1,6 +1,6 @@
 // Écran Bilan — migré depuis Next.js /bilan/page.tsx
-import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useState, useCallback, useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Platform, useWindowDimensions } from 'react-native';
 import { Wallet, TrendingUp, RotateCcw, ShoppingBag, Package, Smartphone } from 'lucide-react-native';
 import { useHistoryContext } from '@/src/context/HistoryContext';
 import { useProductContext } from '@/src/context/ProductContext';
@@ -15,6 +15,8 @@ export default function BilanScreen() {
     const { history, balance, clearHistory, refreshHistory } = useHistoryContext();
     const { products, refreshProducts } = useProductContext();
     const { stock, refreshStock } = useStockContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     // Recharger toutes les données à chaque retour sur le bilan
     useFocusEffect(useCallback(() => {
@@ -26,22 +28,32 @@ export default function BilanScreen() {
     const { user } = useAuth();
     const [showBalance, setShowBalance] = useState(true);
 
-    const today = new Date().setHours(0, 0, 0, 0);
-    const todayTx = history.filter(t => t.timestamp >= today);
-    const todaySales = todayTx.filter(t => t.type === 'VENTE' && t.status !== 'DETTE').reduce((acc, t) => acc + t.price, 0);
-    const todayDebts = history.filter(t => t.status === 'DETTE').reduce((acc, t) => acc + t.price, 0);
-    const stockValue = products.reduce((acc, p) => acc + p.price * (stock[p.id] || 0), 0);
+    const stats = useMemo(() => {
+        const today = new Date().setHours(0, 0, 0, 0);
+        const todayTx = history.filter(t => t.timestamp >= today);
+        const todaySales = todayTx.filter(t => t.type === 'VENTE' && t.status !== 'DETTE').reduce((acc, t) => acc + t.price, 0);
+        const todayDebts = history.filter(t => t.status === 'DETTE').reduce((acc, t) => acc + t.price, 0);
+        const stockValue = products.reduce((acc, p) => acc + p.price * (stock[p.id] || 0), 0);
 
-    // Répartition Mobile Money
-    const momoTx = history.filter(t => t.status === 'MOMO');
-    const momoTotal = momoTx.reduce((acc, t) => acc + t.price, 0);
-    const momoByOp = {
-        ORANGE: momoTx.filter(t => t.operator === 'ORANGE').reduce((a, t) => a + t.price, 0),
-        MTN:    momoTx.filter(t => t.operator === 'MTN').reduce((a, t) => a + t.price, 0),
-        WAVE:   momoTx.filter(t => t.operator === 'WAVE').reduce((a, t) => a + t.price, 0),
-        MOOV:   momoTx.filter(t => t.operator === 'MOOV').reduce((a, t) => a + t.price, 0),
-    };
-    const cashTotal = history.filter(t => t.status === 'PAYÉ').reduce((acc, t) => acc + t.price, 0);
+        // Répartition Mobile Money — single pass
+        let momoTotal = 0;
+        let cashTotal = 0;
+        const momoByOp = { ORANGE: 0, MTN: 0, WAVE: 0, MOOV: 0 };
+        for (const t of history) {
+            if (t.status === 'MOMO') {
+                momoTotal += t.price;
+                if (t.operator && t.operator in momoByOp) {
+                    momoByOp[t.operator as keyof typeof momoByOp] += t.price;
+                }
+            } else if (t.status === 'PAYÉ') {
+                cashTotal += t.price;
+            }
+        }
+
+        return { todaySales, todayDebts, stockValue, momoTotal, momoByOp, cashTotal };
+    }, [history, products, stock]);
+
+    const { todaySales, todayDebts, stockValue, momoTotal, momoByOp, cashTotal } = stats;
 
     const handleReset = () => {
         Alert.alert(
@@ -60,7 +72,7 @@ export default function BilanScreen() {
         { label: 'VALEUR STOCK', value: stockValue, color: '#2563eb', icon: Package, bg: '#eff6ff' },
         { label: 'CAISSE TOTALE', value: balance, color: colors.primary, icon: Wallet, bg: '#ecfdf5' },
         { label: 'MOBILE MONEY', value: momoTotal, color: '#0891b2', icon: Smartphone, bg: '#e0f2fe' },
-        { label: 'ESPÈCES', value: cashTotal, color: '#059669', icon: Wallet, bg: '#ecfdf5' },
+        { label: 'ESPÈCES', value: cashTotal, color: colors.primary, icon: Wallet, bg: colors.primaryBg },
     ];
 
     return (
@@ -83,15 +95,15 @@ export default function BilanScreen() {
                 </View>
             </ScreenHeader>
 
-            <ScrollView style={styles.body} contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.body} contentContainerStyle={[{ padding: 16, gap: 16, paddingBottom: 40 }, isDesktop && dtBl.content]} showsVerticalScrollIndicator={false}>
                 {/* Grille stats */}
-                <View style={styles.statsGrid}>
+                <View style={[styles.statsGrid, isDesktop && dtBl.statsGrid]}>
                     {STATS.map(stat => (
-                        <View key={stat.label} style={[styles.statCard, { backgroundColor: stat.bg }]}>
+                        <View key={stat.label} style={[styles.statCard, isDesktop && dtBl.statCard, { backgroundColor: stat.bg }]}>
                             <View style={[styles.statIconBox, { backgroundColor: stat.bg }]}>
                                 <stat.icon color={stat.color} size={22} />
                             </View>
-                            <Text style={[styles.statValue, { color: stat.color }]}>
+                            <Text style={[styles.statValue, isDesktop && dtBl.statValue, { color: stat.color }]}>
                                 {showBalance ? stat.value.toLocaleString() : '•••'} F
                             </Text>
                             <Text style={styles.statLabel}>{stat.label}</Text>
@@ -99,71 +111,74 @@ export default function BilanScreen() {
                     ))}
                 </View>
 
-                {/* Répartition Mobile Money */}
-                {momoTotal > 0 && (
-                    <View style={styles.momoCard}>
-                        <Text style={styles.momoTitle}>RÉPARTITION MOBILE MONEY</Text>
-                        {([
-                            { key: 'ORANGE', label: 'Orange Money', color: '#FF6600', bg: '#FFF3E6' },
-                            { key: 'MTN',    label: 'MTN MoMo',    color: '#996600', bg: '#FFFDE6' },
-                            { key: 'WAVE',   label: 'Wave',         color: '#0A8FA8', bg: '#E6F9FC' },
-                            { key: 'MOOV',   label: 'Moov Money',  color: '#0066CC', bg: '#E6F0FF' },
-                        ] as const).map(op => {
-                            const val = momoByOp[op.key];
-                            if (val === 0) return null;
-                            const pct = momoTotal > 0 ? Math.round((val / momoTotal) * 100) : 0;
-                            return (
-                                <View key={op.key} style={styles.momoRow}>
-                                    <View style={[styles.momoOpBadge, { backgroundColor: op.bg }]}>
-                                        <Text style={[styles.momoOpText, { color: op.color }]}>{op.label}</Text>
+                {/* LIGNE 2 desktop — MoMo + Historique côte à côte */}
+                <View style={isDesktop ? dtBl.row : undefined}>
+                    {/* Répartition Mobile Money */}
+                    {momoTotal > 0 && (
+                        <View style={[styles.momoCard, isDesktop && dtBl.card]}>
+                            <Text style={styles.momoTitle}>RÉPARTITION MOBILE MONEY</Text>
+                            {([
+                                { key: 'ORANGE', label: 'Orange Money', color: '#FF6600', bg: '#FFF3E6' },
+                                { key: 'MTN',    label: 'MTN MoMo',    color: '#996600', bg: '#FFFDE6' },
+                                { key: 'WAVE',   label: 'Wave',         color: '#0A8FA8', bg: '#E6F9FC' },
+                                { key: 'MOOV',   label: 'Moov Money',  color: '#0066CC', bg: '#E6F0FF' },
+                            ] as const).map(op => {
+                                const val = momoByOp[op.key];
+                                if (val === 0) return null;
+                                const pct = momoTotal > 0 ? Math.round((val / momoTotal) * 100) : 0;
+                                return (
+                                    <View key={op.key} style={styles.momoRow}>
+                                        <View style={[styles.momoOpBadge, { backgroundColor: op.bg }]}>
+                                            <Text style={[styles.momoOpText, { color: op.color }]}>{op.label}</Text>
+                                        </View>
+                                        <View style={styles.momoBar}>
+                                            <View style={[styles.momoBarFill, { width: `${pct}%` as any, backgroundColor: op.color }]} />
+                                        </View>
+                                        <Text style={[styles.momoVal, { color: op.color }]}>{val.toLocaleString()} F</Text>
                                     </View>
-                                    <View style={styles.momoBar}>
-                                        <View style={[styles.momoBarFill, { width: `${pct}%` as any, backgroundColor: op.color }]} />
-                                    </View>
-                                    <Text style={[styles.momoVal, { color: op.color }]}>{val.toLocaleString()} F</Text>
-                                </View>
-                            );
-                        })}
-                    </View>
-                )}
-
-                {/* Historique */}
-                <View style={styles.historyCard}>
-                    <View style={styles.historyHeader}>
-                        <Text style={styles.historyTitle}>HISTORIQUE RÉCENT</Text>
-                        <Text style={styles.historyCount}>{history.length} transactions</Text>
-                    </View>
-                    {history.slice(0, 10).map((t, i) => (
-                        <View key={t.id} style={[styles.txRow, i > 0 && styles.txBorder]}>
-                            <View style={[styles.txIcon, t.type === 'VENTE' ? styles.txIconSale : styles.txIconDelivery]}>
-                                {t.type === 'VENTE' ? <ShoppingBag color="#059669" size={15} /> : <Package color="#2563eb" size={15} />}
-                            </View>
-                            <View style={styles.txInfo}>
-                                <Text style={styles.txName} numberOfLines={1}>{t.productName}</Text>
-                                <Text style={styles.txDate}>
-                                    {new Date(t.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                                    {t.clientName ? ` • ${t.clientName}` : ''}
-                                </Text>
-                            </View>
-                            <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                                <Text style={[styles.txAmount, t.status === 'DETTE' && styles.txDebt, t.status === 'MOMO' && styles.txMomo]}>
-                                    {t.type === 'VENTE' && t.status !== 'DETTE' ? '+' : ''}{t.price.toLocaleString()}F
-                                </Text>
-                                {t.status === 'MOMO' && t.operator && (
-                                    <Text style={styles.txOperatorBadge}>{t.operator}</Text>
-                                )}
-                            </View>
-                        </View>
-                    ))}
-                    {history.length === 0 && (
-                        <View style={styles.empty}>
-                            <Text style={styles.emptyText}>AUCUNE TRANSACTION</Text>
+                                );
+                            })}
                         </View>
                     )}
+
+                    {/* Historique */}
+                    <View style={[styles.historyCard, isDesktop && dtBl.card]}>
+                        <View style={styles.historyHeader}>
+                            <Text style={styles.historyTitle}>HISTORIQUE RÉCENT</Text>
+                            <Text style={styles.historyCount}>{history.length} transactions</Text>
+                        </View>
+                        {history.slice(0, isDesktop ? 15 : 10).map((t, i) => (
+                            <View key={t.id} style={[styles.txRow, i > 0 && styles.txBorder]}>
+                                <View style={[styles.txIcon, t.type === 'VENTE' ? styles.txIconSale : styles.txIconDelivery]}>
+                                    {t.type === 'VENTE' ? <ShoppingBag color={colors.primary} size={15} /> : <Package color="#2563eb" size={15} />}
+                                </View>
+                                <View style={styles.txInfo}>
+                                    <Text style={styles.txName} numberOfLines={1}>{t.productName}</Text>
+                                    <Text style={styles.txDate}>
+                                        {new Date(t.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                        {t.clientName ? ` • ${t.clientName}` : ''}
+                                    </Text>
+                                </View>
+                                <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                                    <Text style={[styles.txAmount, t.status === 'DETTE' && styles.txDebt, t.status === 'MOMO' && styles.txMomo]}>
+                                        {t.type === 'VENTE' && t.status !== 'DETTE' ? '+' : ''}{t.price.toLocaleString()}F
+                                    </Text>
+                                    {t.status === 'MOMO' && t.operator && (
+                                        <Text style={styles.txOperatorBadge}>{t.operator}</Text>
+                                    )}
+                                </View>
+                            </View>
+                        ))}
+                        {history.length === 0 && (
+                            <View style={styles.empty}>
+                                <Text style={styles.emptyText}>AUCUNE TRANSACTION</Text>
+                            </View>
+                        )}
+                    </View>
                 </View>
 
                 {/* Bouton Reset */}
-                <TouchableOpacity style={styles.resetBtn} onPress={handleReset}>
+                <TouchableOpacity style={[styles.resetBtn, isDesktop && dtBl.resetBtn]} onPress={handleReset}>
                     <RotateCcw color={colors.error} size={16} />
                     <Text style={styles.resetBtnText}>REMETTRE À ZÉRO</Text>
                 </TouchableOpacity>
@@ -223,4 +238,29 @@ const styles = StyleSheet.create({
         borderWidth: 2, borderColor: '#fecaca', backgroundColor: '#fff1f2',
     },
     resetBtnText: { fontSize: 12, fontWeight: '900', color: colors.error, letterSpacing: 1 },
+});
+
+// ── Styles desktop ─────────────────────────────────────────────────
+const dtBl = StyleSheet.create({
+    content: {
+        maxWidth: 1400, alignSelf: 'center', width: '100%',
+        padding: 32, gap: 24,
+    },
+    statsGrid: { flexDirection: 'row', gap: 20 },
+    statCard: {
+        flex: 1, width: 'auto',
+        borderRadius: 12, padding: 20,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 10, elevation: 3,
+    },
+    statValue: { fontSize: 22 },
+    row: { flexDirection: 'row', gap: 20 },
+    card: {
+        flex: 1,
+        borderWidth: 0,
+        borderRadius: 12,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+    },
+    resetBtn: { maxWidth: 300, alignSelf: 'center' },
 });

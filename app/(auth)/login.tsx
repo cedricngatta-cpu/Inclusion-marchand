@@ -7,11 +7,12 @@ import {
     Modal, ActivityIndicator, useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Phone, Lock, ChevronRight, AlertCircle, X } from 'lucide-react-native';
+import { Phone, Lock, ChevronRight, AlertCircle, X, ArrowLeft } from 'lucide-react-native';
 import { useAuth } from '@/src/context/AuthContext';
 import { colors } from '@/src/lib/colors';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import PinInput from '@/src/components/PinInput';
+import JulabaLogo from '@/src/components/JulabaLogo';
 import { supabase } from '@/src/lib/supabase';
 
 // Limiteur de tentatives : max 3 réinitialisations par numéro
@@ -19,7 +20,7 @@ const forgotAttempts: Record<string, number> = {};
 
 export default function LoginScreen() {
     const router = useRouter();
-    const { login, isAuthenticated, user } = useAuth();
+    const { login, isAuthenticated, isLoading, user } = useAuth();
     const { width } = useWindowDimensions();
     const isDesktop = Platform.OS === 'web' && width > 768;
 
@@ -48,7 +49,9 @@ export default function LoginScreen() {
     }, [isAuthenticated, user]);
 
     // Bouton retour Android : si étape PIN → revenir au téléphone, sinon quitter l'app
+    // IMPORTANT : ce useEffect DOIT être AVANT le early return pour respecter les Rules of Hooks
     useEffect(() => {
+        if (isAuthenticated && user) return; // pas de BackHandler si on est en train de rediriger
         const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
             if (step === 'PIN') {
                 animateTransition(() => { setStep('PHONE'); });
@@ -58,12 +61,22 @@ export default function LoginScreen() {
             return true;
         });
         return () => backHandler.remove();
-    }, [step]);
+    }, [step, isAuthenticated, user]);
+
+    // Écran de chargement pendant la vérification auth, ou si déjà connecté (évite le flash)
+    if (isLoading || (isAuthenticated && user)) {
+        return (
+            <View style={{ flex: 1, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                <JulabaLogo width={120} />
+                <ActivityIndicator color="#fff" size="large" style={{ marginTop: 24 }} />
+            </View>
+        );
+    }
 
     const animateTransition = (callback: () => void) => {
         Animated.sequence([
-            Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
-            Animated.timing(fadeAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
+            Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: Platform.OS !== 'web' }),
+            Animated.timing(fadeAnim, { toValue: 1, duration: 150, useNativeDriver: Platform.OS !== 'web' }),
         ]).start();
         transTimer.current = setTimeout(callback, 150);
     };
@@ -152,16 +165,18 @@ export default function LoginScreen() {
             <View style={dt.container}>
                 {/* Panneau gauche — branding vert */}
                 <View style={dt.left}>
-                    <Lock color="#fff" size={48} />
-                    <Text style={dt.brandName}>Inclusion Marchand</Text>
+                    <JulabaLogo width={120} />
                     <Text style={dt.brandSlogan}>
                         Plateforme d'inclusion financière{'\n'}pour les commerçants informels
                     </Text>
-                    <Text style={dt.copyright}>© 2026 Inclusion Marchand — Côte d'Ivoire</Text>
+                    <Text style={dt.copyright}>© 2026 Jùlaba — Côte d'Ivoire</Text>
                 </View>
 
                 {/* Panneau droit — formulaire */}
                 <View style={dt.right}>
+                    <TouchableOpacity style={dt.backBtn} onPress={() => router.push('/' as any)} activeOpacity={0.8}>
+                        <ArrowLeft color={colors.slate600} size={20} />
+                    </TouchableOpacity>
                     <View style={dt.formCard}>
                         {step === 'PIN' ? (
                             <PinInput
@@ -230,7 +245,7 @@ export default function LoginScreen() {
                                     <Text style={styles.forgotSuccessIcon}>✓</Text>
                                     <Text style={styles.forgotSuccessTitle}>PIN réinitialisé</Text>
                                     <Text style={styles.forgotSuccessText}>
-                                        Votre PIN temporaire est <Text style={{ fontWeight: '900', color: '#059669' }}>0101</Text>.{'\n'}
+                                        Votre PIN temporaire est <Text style={{ fontWeight: '900', color: colors.primary }}>0101</Text>.{'\n'}
                                         Connectez-vous et créez un nouveau PIN.
                                     </Text>
                                     <TouchableOpacity style={styles.forgotBtn} onPress={() => { setForgotVisible(false); setForgotDone(false); setPhoneNumber(forgotPhone); animateTransition(() => { setStep('PIN'); setError(''); }); }}>
@@ -295,10 +310,15 @@ export default function LoginScreen() {
                         keyboardShouldPersistTaps="handled"
                         showsVerticalScrollIndicator={false}
                     >
+                        {/* Bouton retour */}
+                        <TouchableOpacity style={styles.backBtn} onPress={() => router.push('/' as any)} activeOpacity={0.8}>
+                            <ArrowLeft color={colors.primary} size={20} />
+                        </TouchableOpacity>
+
                         {/* Logo / Header */}
                         <View style={styles.header}>
                             <View style={styles.logoBox}>
-                                <Lock color={colors.white} size={32} />
+                                <JulabaLogo width={48} />
                             </View>
                             <Text style={styles.title}>Bienvenue</Text>
                             <Text style={styles.subtitle}>CONNECTEZ-VOUS POUR CONTINUER</Text>
@@ -378,7 +398,7 @@ export default function LoginScreen() {
                                     <Text style={styles.forgotSuccessIcon}>✓</Text>
                                     <Text style={styles.forgotSuccessTitle}>PIN réinitialisé</Text>
                                     <Text style={styles.forgotSuccessText}>
-                                        Votre PIN temporaire est <Text style={{ fontWeight: '900', color: '#059669' }}>0101</Text>.{'\n'}
+                                        Votre PIN temporaire est <Text style={{ fontWeight: '900', color: colors.primary }}>0101</Text>.{'\n'}
                                         Connectez-vous et créez un nouveau PIN.
                                     </Text>
                                     <TouchableOpacity
@@ -444,6 +464,13 @@ const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: colors.white },
     kav:  { flex: 1 },
     scroll: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 40 },
+    backBtn: {
+        position: 'absolute', top: 16, left: 0,
+        width: 40, height: 40, borderRadius: 10,
+        backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3,
+        zIndex: 10,
+    },
 
     // Header
     header: { alignItems: 'center', marginBottom: 40 },
@@ -506,16 +533,16 @@ const styles = StyleSheet.create({
         borderRadius: 10, paddingHorizontal: 14, paddingVertical: 14, marginBottom: 8,
     },
     forgotTextInput: { flex: 1, fontSize: 16, fontWeight: '700', color: '#1e293b', outlineWidth: 0 } as any,
-    forgotErrorText: { fontSize: 12, color: '#dc2626', marginBottom: 12 },
+    forgotErrorText: { fontSize: 12, color: colors.error, marginBottom: 12 },
     forgotBtn: {
-        height: 52, borderRadius: 10, backgroundColor: '#059669',
+        height: 52, borderRadius: 10, backgroundColor: colors.primary,
         alignItems: 'center', justifyContent: 'center', marginTop: 8,
     },
-    forgotBtnDisabled: { backgroundColor: '#d1fae5' },
+    forgotBtnDisabled: { backgroundColor: colors.primaryBg2 },
     forgotBtnText: { fontSize: 13, fontWeight: '800', color: '#fff', letterSpacing: 1 },
     forgotSuccess: { alignItems: 'center', paddingVertical: 16 },
-    forgotSuccessIcon: { fontSize: 48, color: '#059669', marginBottom: 8 },
-    forgotSuccessTitle: { fontSize: 20, fontWeight: '800', color: '#059669', marginBottom: 8 },
+    forgotSuccessIcon: { fontSize: 48, color: colors.primary, marginBottom: 8 },
+    forgotSuccessTitle: { fontSize: 20, fontWeight: '800', color: colors.primary, marginBottom: 8 },
     forgotSuccessText: { fontSize: 14, color: '#64748b', textAlign: 'center', lineHeight: 22, marginBottom: 20 },
 
     // Erreur (mobile)
@@ -534,7 +561,7 @@ const dt = StyleSheet.create({
     // Panneau gauche vert
     left: {
         flex: 1,
-        backgroundColor: '#059669',
+        backgroundColor: colors.primary,
         alignItems: 'center',
         justifyContent: 'center',
         padding: 48,
@@ -572,27 +599,34 @@ const dt = StyleSheet.create({
         justifyContent: 'center',
         padding: 48,
     },
+    backBtn: {
+        position: 'absolute', top: 24, left: 24,
+        width: 40, height: 40, borderRadius: 10,
+        backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3,
+        zIndex: 10,
+    },
     formCard:  { width: '100%', maxWidth: 400 },
-    formTitle: { fontSize: 28, fontWeight: '900', color: '#1F2937', letterSpacing: -0.5 },
-    formSub:   { fontSize: 13, color: '#6B7280', letterSpacing: 1, marginTop: 6 },
-    label:     { fontSize: 12, fontWeight: '700', color: '#6B7280' },
+    formTitle: { fontSize: 28, fontWeight: '900', color: colors.textPrimary, letterSpacing: -0.5 },
+    formSub:   { fontSize: 13, color: colors.textSecondary, letterSpacing: 1, marginTop: 6 },
+    label:     { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
 
     // Champ de saisie desktop
     inputWrapper: {
         flexDirection: 'row', alignItems: 'center',
-        borderWidth: 1.5, borderColor: '#E5E7EB',
-        borderRadius: 10, backgroundColor: '#F9FAFB',
+        borderWidth: 1.5, borderColor: colors.slate200,
+        borderRadius: 10, backgroundColor: colors.slate50,
         paddingHorizontal: 12,
     },
     inputIconBox: {
         width: 34, height: 34, borderRadius: 8,
-        backgroundColor: '#F3F4F6',
+        backgroundColor: colors.slate100,
         alignItems: 'center', justifyContent: 'center',
         marginRight: 10,
     },
     inputField: {
         flex: 1, fontSize: 16, fontWeight: '600',
-        color: '#1F2937', paddingVertical: 14,
+        color: colors.textPrimary, paddingVertical: 14,
         outlineWidth: 0,
         outlineColor: 'transparent',
         outlineStyle: 'none',
@@ -600,14 +634,14 @@ const dt = StyleSheet.create({
 
     // Bouton SUIVANT desktop
     btnPrimary: {
-        backgroundColor: '#059669', borderRadius: 10,
+        backgroundColor: colors.primary, borderRadius: 10,
         paddingVertical: 16,
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     },
     btnPrimaryText: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 2 },
 
     // Lien compte
-    linkBtnText: { fontSize: 12, fontWeight: '700', color: '#059669', letterSpacing: 2, textTransform: 'uppercase' },
+    linkBtnText: { fontSize: 12, fontWeight: '700', color: colors.primary, letterSpacing: 2, textTransform: 'uppercase' },
 
     // Modal desktop (centré, pas bottom-sheet)
     modalOverlay: {

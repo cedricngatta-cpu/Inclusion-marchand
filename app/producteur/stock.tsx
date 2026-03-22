@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    TextInput, ActivityIndicator, RefreshControl,
+    TextInput, ActivityIndicator, RefreshControl, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Package, Plus, Minus, Search } from 'lucide-react-native';
@@ -32,6 +32,8 @@ export default function StockScreen() {
     const router = useRouter();
     const { activeProfile } = useProfileContext();
     const { stock, updateStock, refreshStock } = useStockContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [products, setProducts]     = useState<ProductInfo[]>([]);
     const [search, setSearch]         = useState('');
@@ -120,7 +122,7 @@ export default function StockScreen() {
             {/* ── CONTENU ── */}
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtStk.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 refreshControl={
@@ -145,7 +147,7 @@ export default function StockScreen() {
                 </View>
 
                 {/* Barre de recherche */}
-                <View style={styles.searchBox}>
+                <View style={[styles.searchBox, isDesktop && dtStk.searchBox]}>
                     <Search color={colors.slate400} size={16} style={{ marginLeft: 14 }} />
                     <TextInput
                         style={styles.searchInput}
@@ -172,7 +174,68 @@ export default function StockScreen() {
                             </Text>
                         )}
                     </View>
+                ) : isDesktop ? (
+                    /* -- Desktop : tableau -- */
+                    <View style={dtStk.tableCard}>
+                        {/* En-tete tableau */}
+                        <View style={dtStk.tableHeader}>
+                            <Text style={[dtStk.th, { flex: 2 }]}>Produit</Text>
+                            <Text style={[dtStk.th, { flex: 1.2 }]}>Categorie</Text>
+                            <Text style={[dtStk.th, { flex: 1, textAlign: 'right' }]}>Prix</Text>
+                            <Text style={[dtStk.th, { flex: 1, textAlign: 'center' }]}>Stock</Text>
+                            <Text style={[dtStk.th, { flex: 1.2, textAlign: 'center' }]}>Actions</Text>
+                        </View>
+                        {filtered.map((item, idx) => {
+                            const badge  = getStockBadge(item.quantity);
+                            const adjKey = adjusting?.startsWith(item.id);
+                            return (
+                                <View key={item.id} style={[dtStk.tableRow, idx % 2 === 1 && dtStk.tableRowAlt]}>
+                                    <View style={[dtStk.td, { flex: 2, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10 }]}>
+                                        <View style={styles.stockIcon}>
+                                            <Package color="#4f46e5" size={16} />
+                                        </View>
+                                        <Text style={styles.stockName} numberOfLines={1}>{item.name}</Text>
+                                    </View>
+                                    <Text style={[dtStk.tdText, { flex: 1.2 }]} numberOfLines={1}>{item.category}</Text>
+                                    <Text style={[dtStk.tdText, { flex: 1, textAlign: 'right', fontWeight: '700', color: colors.slate800 }]}>
+                                        {item.price.toLocaleString('fr-FR')} F
+                                    </Text>
+                                    <View style={[dtStk.td, { flex: 1, alignItems: 'center' as const }]}>
+                                        <View style={[styles.stockBadge, { backgroundColor: badge.bg }]}>
+                                            <Text style={[styles.stockBadgeText, { color: badge.text }]}>
+                                                {item.quantity} - {badge.label}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <View style={[dtStk.td, { flex: 1.2, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8 }]}>
+                                        <TouchableOpacity
+                                            style={[styles.qtyBtn, item.quantity === 0 && styles.qtyBtnDisabled]}
+                                            onPress={() => adjustQty(item.id, -1)}
+                                            disabled={item.quantity === 0 || !!adjKey}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Minus color={item.quantity === 0 ? colors.slate300 : colors.slate600} size={14} />
+                                        </TouchableOpacity>
+                                        {adjKey ? (
+                                            <ActivityIndicator color={colors.primary} size="small" />
+                                        ) : (
+                                            <Text style={dtStk.qtyInline}>{item.quantity}</Text>
+                                        )}
+                                        <TouchableOpacity
+                                            style={styles.qtyBtn}
+                                            onPress={() => adjustQty(item.id, +1)}
+                                            disabled={!!adjKey}
+                                            activeOpacity={0.8}
+                                        >
+                                            <Plus color={colors.primary} size={14} />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            );
+                        })}
+                    </View>
                 ) : (
+                    /* -- Mobile : cartes -- */
                     filtered.map(item => {
                         const badge  = getStockBadge(item.quantity);
                         const adjKey = adjusting?.startsWith(item.id);
@@ -186,14 +249,14 @@ export default function StockScreen() {
                                     </View>
                                     <View style={{ flex: 1, minWidth: 0 }}>
                                         <Text style={styles.stockName} numberOfLines={1}>{item.name}</Text>
-                                        <Text style={styles.stockCat}>{item.category} • {item.price.toLocaleString('fr-FR')} F</Text>
+                                        <Text style={styles.stockCat}>{item.category} . {item.price.toLocaleString('fr-FR')} F</Text>
                                     </View>
                                     <View style={[styles.stockBadge, { backgroundColor: badge.bg }]}>
                                         <Text style={[styles.stockBadgeText, { color: badge.text }]}>{badge.label}</Text>
                                     </View>
                                 </View>
 
-                                {/* Contrôle quantité */}
+                                {/* Controle quantite */}
                                 <View style={styles.qtyRow}>
                                     <TouchableOpacity
                                         style={[styles.qtyBtn, item.quantity === 0 && styles.qtyBtnDisabled]}
@@ -210,7 +273,7 @@ export default function StockScreen() {
                                         ) : (
                                             <Text style={styles.qtyValue}>{item.quantity}</Text>
                                         )}
-                                        <Text style={styles.qtyUnit}>unités</Text>
+                                        <Text style={styles.qtyUnit}>unites</Text>
                                     </View>
 
                                     <TouchableOpacity
@@ -328,4 +391,71 @@ const styles = StyleSheet.create({
     },
     emptyText:    { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2, textAlign: 'center' },
     emptySubText: { fontSize: 12, fontWeight: '500', color: colors.slate400, textAlign: 'center' },
+});
+
+// -- Desktop styles --
+const dtStk = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as const,
+        width: '100%' as any,
+        padding: 32,
+    },
+    searchBox: {
+        maxWidth: 500,
+    },
+    tableCard: {
+        backgroundColor: colors.white,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.slate100,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    tableHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.slate50,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.slate200,
+    },
+    th: {
+        fontSize: 11,
+        fontWeight: '900',
+        color: colors.slate500,
+        letterSpacing: 1,
+        textTransform: 'uppercase' as const,
+    },
+    tableRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.slate100,
+    },
+    tableRowAlt: {
+        backgroundColor: '#f8fafc',
+    },
+    td: {
+        justifyContent: 'center' as const,
+    },
+    tdText: {
+        fontSize: 13,
+        fontWeight: '600' as const,
+        color: colors.slate600,
+    },
+    qtyInline: {
+        fontSize: 16,
+        fontWeight: '900',
+        color: colors.slate800,
+        minWidth: 30,
+        textAlign: 'center' as const,
+    },
 });

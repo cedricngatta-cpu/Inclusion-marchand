@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     ActivityIndicator, Modal, TextInput, Alert, RefreshControl,
-    KeyboardAvoidingView, Platform,
+    KeyboardAvoidingView, Platform, useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import {
@@ -87,9 +87,9 @@ function ProgressBar({ current, min }: { current: number; min: number }) {
     return (
         <View style={pb.wrap}>
             <View style={pb.track}>
-                <View style={[pb.fill, { width: `${pct}%` as any, backgroundColor: reached ? '#059669' : colors.primary }]} />
+                <View style={[pb.fill, { width: `${pct}%` as any, backgroundColor: reached ? colors.success : colors.primary }]} />
             </View>
-            <Text style={[pb.label, reached && { color: '#059669' }]}>
+            <Text style={[pb.label, reached && { color: colors.success }]}>
                 {current}/{min} unités {reached ? '✓ Seuil atteint' : ''}
             </Text>
         </View>
@@ -105,6 +105,8 @@ const pb = StyleSheet.create({
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function AchatsGroupesScreen() {
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [achats,       setAchats]       = useState<AchatGroupe[]>([]);
     const [loading,      setLoading]      = useState(true);
@@ -136,10 +138,12 @@ export default function AchatsGroupesScreen() {
     // ── Fetch ─────────────────────────────────────────────────────────────────
     const fetchAchats = useCallback(async () => {
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('achats_groupes')
                 .select('*')
                 .order('created_at', { ascending: false });
+            if (user?.id) query = query.eq('cooperative_id', user.id);
+            const { data, error } = await query;
             if (error) throw error;
 
             const rows = (data as AchatGroupe[]) ?? [];
@@ -175,10 +179,9 @@ export default function AchatsGroupesScreen() {
             setLoading(false);
             setRefreshing(false);
         }
-    }, []);
+    }, [user?.id]);
 
-    useEffect(() => { setLoading(true); fetchAchats(); }, [fetchAchats]);
-    useFocusEffect(useCallback(() => { fetchAchats(); }, [fetchAchats]));
+    useFocusEffect(useCallback(() => { setLoading(true); fetchAchats(); }, [fetchAchats]));
 
     // Écouter la réponse du producteur
     useEffect(() => {
@@ -444,7 +447,7 @@ export default function AchatsGroupesScreen() {
 
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && dtAch.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
             >
@@ -461,7 +464,8 @@ export default function AchatsGroupesScreen() {
                         </Text>
                     </View>
                 ) : (
-                    filtered.map(achat => {
+                    <View style={isDesktop ? dtAch.cardsGrid : undefined}>
+                    {filtered.map(achat => {
                         const sc      = STATUS_CONFIG[achat.statut] ?? STATUS_CONFIG.NEGOTIATION;
                         const eco     = economie(achat.prix_normal, achat.prix_negocie);
                         const reached = achat.quantite_actuelle >= achat.quantite_minimum;
@@ -470,7 +474,7 @@ export default function AchatsGroupesScreen() {
                         const hasPrix = achat.prix_negocie !== null && achat.prix_negocie !== undefined;
 
                         return (
-                            <View key={achat.id} style={s.card}>
+                            <View key={achat.id} style={[s.card, isDesktop && dtAch.card]}>
                                 {/* En-tête */}
                                 <View style={s.cardHeader}>
                                     <View style={{ flex: 1 }}>
@@ -649,7 +653,8 @@ export default function AchatsGroupesScreen() {
                                 )}
                             </View>
                         );
-                    })
+                    })}
+                    </View>
                 )}
             </ScrollView>
 
@@ -664,8 +669,8 @@ export default function AchatsGroupesScreen() {
                     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                     style={{ flex: 1 }}
                 >
-                <View style={m.overlay}>
-                    <View style={m.sheet}>
+                <View style={[m.overlay, isDesktop && dtAch.modalOverlay]}>
+                    <View style={[m.sheet, isDesktop && dtAch.modalSheet]}>
                         <View style={m.sheetHeader}>
                             <Text style={m.sheetTitle}>DEMANDE DE PRIX GROUPÉ</Text>
                             <TouchableOpacity
@@ -1002,4 +1007,39 @@ const m = StyleSheet.create({
     },
     partTotalLabel: { fontSize: 11, fontWeight: '900', color: colors.slate400, letterSpacing: 1 },
     partTotalVal:   { fontSize: 16, fontWeight: '900', color: colors.primary },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────
+const dtAch = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as any,
+        width: '100%' as any,
+        padding: 32,
+    },
+    cardsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+    },
+    card: {
+        width: '48%' as any,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 4,
+    },
+    modalOverlay: {
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalSheet: {
+        maxWidth: 600,
+        width: '100%' as any,
+        borderRadius: 12,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        maxHeight: '85%' as any,
+    },
 });

@@ -60,39 +60,47 @@ const TX_FILTERS: { key: TxFilter; label: string }[] = [
     { key: 'momo',   label: 'Mobile Money' },
 ];
 
-// ── Carte transaction (mémoïsée) ──────────────────────────────────────────────
-const TxCard = React.memo(({ tx, isDesktop }: { tx: Transaction; isDesktop?: boolean }) => {
+// ── Carte transaction (memoisee) ──────────────────────────────────────────────
+const TxCard = React.memo(({ tx, isDesktop, index }: { tx: Transaction; isDesktop?: boolean; index?: number }) => {
     const tc = getTxColor(tx);
     const sc = STATUS_COLORS[tx.status] ?? STATUS_COLORS[tx.type] ?? { bg: '#f1f5f9', text: '#475569' };
     const opColor = tx.operator ? OPERATOR_COLORS[tx.operator] : null;
 
+    // Mode paiement label
+    const paymentLabel = tx.status === 'MOMO' || tx.type === 'MOMO'
+        ? (tx.operator ?? 'Mobile Money')
+        : tx.status === 'DETTE' || tx.type === 'DETTE'
+            ? 'Dette'
+            : 'Especes';
+
     if (isDesktop) {
         return (
-            <View style={[s.txCard, dtT.tableRow]}>
+            <View style={[dtT.tableRowData, (index ?? 0) % 2 === 1 && dtT.tableRowAlt]}>
                 <View style={[s.txIcon, { backgroundColor: tc.bg }, dtT.colIcon]}>
                     <ShoppingBag color={tc.icon} size={16} />
                 </View>
                 <Text style={[s.txProduct, dtT.colProduct]} numberOfLines={1}>{tx.productName}</Text>
                 <Text style={[s.txClient, dtT.colStore]} numberOfLines={1}>{tx.storeName}</Text>
-                <Text style={[s.txClient, dtT.colClient]} numberOfLines={1}>
-                    {tx.client_name ?? '—'}
-                </Text>
-                <Text style={[s.txDate, dtT.colDate]} numberOfLines={1}>
-                    {new Date(tx.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                </Text>
+                <View style={dtT.colType}>
+                    <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
+                        <Text style={[s.statusText, { color: sc.text }]}>{tx.status ?? tx.type ?? '--'}</Text>
+                    </View>
+                </View>
                 <Text style={[s.txAmount, dtT.colAmount]} numberOfLines={1}>
                     {(tx.price ?? 0).toLocaleString('fr-FR')} F
                 </Text>
-                <View style={dtT.colBadges}>
-                    <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
-                        <Text style={[s.statusText, { color: sc.text }]}>{tx.status ?? tx.type ?? '–'}</Text>
-                    </View>
-                    {opColor && (
+                <View style={dtT.colPayment}>
+                    {opColor ? (
                         <View style={[s.statusBadge, { backgroundColor: opColor.bg }]}>
                             <Text style={[s.statusText, { color: opColor.text }]}>{tx.operator}</Text>
                         </View>
+                    ) : (
+                        <Text style={[s.txClient, { fontSize: 11 }]}>{paymentLabel}</Text>
                     )}
                 </View>
+                <Text style={[s.txDate, dtT.colDate]} numberOfLines={1}>
+                    {new Date(tx.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </Text>
             </View>
         );
     }
@@ -105,7 +113,7 @@ const TxCard = React.memo(({ tx, isDesktop }: { tx: Transaction; isDesktop?: boo
             <View style={s.txInfo}>
                 <Text style={s.txProduct} numberOfLines={1}>{tx.productName}</Text>
                 <Text style={s.txClient} numberOfLines={1}>
-                    {tx.client_name ?? 'Client inconnu'} · {tx.storeName}
+                    {tx.client_name ?? 'Client inconnu'} -- {tx.storeName}
                 </Text>
                 <Text style={s.txDate}>
                     {new Date(tx.created_at).toLocaleDateString('fr-FR', {
@@ -117,7 +125,7 @@ const TxCard = React.memo(({ tx, isDesktop }: { tx: Transaction; isDesktop?: boo
                 <Text style={s.txAmount}>{(tx.price ?? 0).toLocaleString('fr-FR')} F</Text>
                 <View style={[s.statusBadge, { backgroundColor: sc.bg }]}>
                     <Text style={[s.statusText, { color: sc.text }]}>
-                        {tx.status ?? tx.type ?? '–'}
+                        {tx.status ?? tx.type ?? '--'}
                     </Text>
                 </View>
                 {opColor && (
@@ -158,6 +166,7 @@ export default function Transactions() {
             if (error) throw error;
 
             const rows = (data as Transaction[]) ?? [];
+            console.log('[Transactions Admin] ✅ page', pageNum, ':', rows.length, 'lignes');
             setHasMore(rows.length === PAGE_SIZE);
 
             // Noms de produits/boutiques
@@ -208,11 +217,9 @@ export default function Transactions() {
         fetchTransactions(0, false);
     }, [fetchTransactions]);
 
-    useEffect(() => { setLoading(true); resetAndFetch(); }, [resetAndFetch]);
-
     const onRefresh = useCallback(() => { setRefreshing(true); resetAndFetch(); }, [resetAndFetch]);
 
-    useFocusEffect(useCallback(() => { resetAndFetch(); }, [resetAndFetch]));
+    useFocusEffect(useCallback(() => { setLoading(true); resetAndFetch(); }, [resetAndFetch]));
 
     // ── Filtrage ───────────────────────────────────────────────────────────────
     const filtered = useMemo(() => {
@@ -233,7 +240,7 @@ export default function Transactions() {
                 data={loading ? [] : filtered}
                 keyExtractor={(item) => item.id}
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && dtT.desktopContent]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 overScrollMode="never"
@@ -245,61 +252,83 @@ export default function Transactions() {
                         {/* ── KPI Volume total ── */}
                         <View style={s.kpiCard}>
                             <View style={s.kpiIconWrap}>
-                                <TrendingUp color="#059669" size={24} />
+                                <TrendingUp color={colors.primary} size={24} />
                             </View>
                             <View style={s.kpiTextBlock}>
                                 <Text style={s.kpiLabel}>VOLUME TOTAL</Text>
                                 <Text style={s.kpiValue}>
-                                    {loading ? '–' : totalVolume.toLocaleString('fr-FR')} F
+                                    {loading ? '--' : totalVolume.toLocaleString('fr-FR')} F
                                 </Text>
                                 <Text style={s.kpiSub}>{totalCount} transaction{totalCount > 1 ? 's' : ''}</Text>
                             </View>
                         </View>
 
                         {/* ── Filtres ── */}
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
-                            {TX_FILTERS.map(f => (
-                                <TouchableOpacity
-                                    key={f.key}
-                                    style={[s.filterBtn, txFilter === f.key && s.filterBtnActive]}
-                                    activeOpacity={0.82}
-                                    onPress={() => setTxFilter(f.key)}
-                                >
-                                    <Text style={[s.filterLabel, txFilter === f.key && s.filterLabelActive]}>
-                                        {f.label}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
+                        {isDesktop ? (
+                            <View style={[s.filterRow, { marginBottom: 12 }]}>
+                                {TX_FILTERS.map(f => (
+                                    <TouchableOpacity
+                                        key={f.key}
+                                        style={[s.filterBtn, txFilter === f.key && s.filterBtnActive]}
+                                        activeOpacity={0.82}
+                                        onPress={() => setTxFilter(f.key)}
+                                    >
+                                        <Text style={[s.filterLabel, txFilter === f.key && s.filterLabelActive]}>
+                                            {f.label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        ) : (
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterRow}>
+                                {TX_FILTERS.map(f => (
+                                    <TouchableOpacity
+                                        key={f.key}
+                                        style={[s.filterBtn, txFilter === f.key && s.filterBtnActive]}
+                                        activeOpacity={0.82}
+                                        onPress={() => setTxFilter(f.key)}
+                                    >
+                                        <Text style={[s.filterLabel, txFilter === f.key && s.filterLabelActive]}>
+                                            {f.label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        )}
 
-                        {/* ── En-tête tableau (desktop) ── */}
-                        {isDesktop && !loading && (
-                            <View style={dtT.tableHeader}>
-                                <View style={dtT.colIcon} />
-                                <Text style={[dtT.thText, dtT.colProduct]}>PRODUIT</Text>
-                                <Text style={[dtT.thText, dtT.colStore]}>BOUTIQUE</Text>
-                                <Text style={[dtT.thText, dtT.colClient]}>CLIENT</Text>
-                                <Text style={[dtT.thText, dtT.colDate]}>DATE</Text>
-                                <Text style={[dtT.thText, dtT.colAmount]}>MONTANT</Text>
-                                <Text style={[dtT.thText, dtT.colBadges]}>STATUT</Text>
+                        {/* ── En-tete tableau desktop ── */}
+                        {isDesktop && !loading && filtered.length > 0 && (
+                            <View style={dtT.tableHeaderWrap}>
+                                <View style={dtT.tableHeader}>
+                                    <View style={dtT.colIcon} />
+                                    <Text style={[dtT.thText, dtT.colProduct]}>PRODUIT</Text>
+                                    <Text style={[dtT.thText, dtT.colStore]}>BOUTIQUE</Text>
+                                    <Text style={[dtT.thText, dtT.colType]}>TYPE</Text>
+                                    <Text style={[dtT.thText, dtT.colAmount]}>MONTANT</Text>
+                                    <Text style={[dtT.thText, dtT.colPayment]}>MODE PAIEMENT</Text>
+                                    <Text style={[dtT.thText, dtT.colDate]}>DATE</Text>
+                                </View>
                             </View>
                         )}
 
-                        {loading && <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />}
                     </>
                 }
                 onEndReached={fetchMore}
                 onEndReachedThreshold={0.3}
-                ListEmptyComponent={!loading ? (
-                    <View style={s.emptyCard}>
-                        <ShoppingBag color={colors.slate300} size={40} />
-                        <Text style={s.emptyText}>AUCUNE TRANSACTION</Text>
-                    </View>
-                ) : null}
-                ListFooterComponent={loadingMore ? (
+                ListEmptyComponent={
+                    loading ? (
+                        <ActivityIndicator color={colors.primary} style={{ marginTop: 32 }} />
+                    ) : (
+                        <View style={s.emptyCard}>
+                            <ShoppingBag color={colors.slate300} size={40} />
+                            <Text style={s.emptyText}>AUCUNE TRANSACTION</Text>
+                        </View>
+                    )
+                }
+                ListFooterComponent={loadingMore && !loading ? (
                     <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
                 ) : null}
-                renderItem={({ item: tx }) => <TxCard tx={tx} isDesktop={isDesktop} />}
+                renderItem={({ item: tx, index }) => <TxCard tx={tx} isDesktop={isDesktop} index={index} />}
             />
         </View>
     );
@@ -307,14 +336,14 @@ export default function Transactions() {
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#f8fafc' },
+    safe: { flex: 1, backgroundColor: colors.slate50 },
 
     scroll:        { flex: 1 },
     scrollContent: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40, gap: 8 },
 
     // KPI
     kpiCard: {
-        backgroundColor: '#059669', borderRadius: 10, padding: 20,
+        backgroundColor: colors.primary, borderRadius: 10, padding: 20,
         flexDirection: 'row', alignItems: 'center', gap: 16,
         marginBottom: 14,
     },
@@ -335,9 +364,9 @@ const s = StyleSheet.create({
         borderRadius: 8, borderWidth: 1.5, borderColor: '#e2e8f0',
         backgroundColor: '#fff',
     },
-    filterBtnActive:   { borderColor: '#059669', backgroundColor: '#ecfdf5' },
+    filterBtnActive:   { borderColor: colors.primary, backgroundColor: colors.primaryBg },
     filterLabel:       { fontSize: 11, fontWeight: '700', color: '#64748b' },
-    filterLabelActive: { color: '#059669' },
+    filterLabelActive: { color: colors.primary },
 
     // Carte tx
     txCard: {
@@ -370,20 +399,62 @@ const s = StyleSheet.create({
 
 // ── Desktop table styles ────────────────────────────────────────────────────────
 const dtT = StyleSheet.create({
+    desktopContent: {
+        maxWidth: 1400,
+        alignSelf: 'center',
+        width: '100%',
+        padding: 32,
+        gap: 0,
+    },
+    tableCard: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 3,
+    },
+    tableHeaderWrap: {
+        backgroundColor: '#fff',
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+        elevation: 2,
+    },
     tableHeader: {
         flexDirection: 'row', alignItems: 'center',
-        paddingHorizontal: 12, paddingVertical: 8,
-        backgroundColor: '#f1f5f9', borderRadius: 10,
-        marginBottom: 4,
+        paddingHorizontal: 16, paddingVertical: 12,
+        backgroundColor: '#f1f5f9',
+        borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
     },
-    tableRow: { paddingVertical: 10 },
+    tableRowData: {
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 16, paddingVertical: 10,
+        backgroundColor: '#fff',
+        borderLeftWidth: 0, borderRightWidth: 0,
+        borderBottomWidth: 1, borderBottomColor: '#f1f5f9',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    tableRowAlt: {
+        backgroundColor: colors.slate50,
+    },
     thText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
-    // Colonnes
+    // Colonnes : Produit, Boutique, Type, Montant, Mode paiement, Date
     colIcon:    { width: 36, height: 36, marginRight: 12, borderRadius: 8, flexShrink: 0 },
     colProduct: { flex: 2, fontSize: 13, fontWeight: '700', color: '#1e293b', paddingRight: 8 },
     colStore:   { flex: 1.5, fontSize: 11, color: '#64748b', paddingRight: 8 },
-    colClient:  { flex: 1.5, fontSize: 11, color: '#64748b', paddingRight: 8 },
+    colType:    { flex: 1, paddingRight: 8, alignItems: 'flex-start' as const },
+    colAmount:  { flex: 1.2, fontSize: 13, fontWeight: '900', color: '#1e293b', textAlign: 'right' as const, paddingRight: 12 },
+    colPayment: { flex: 1.2, paddingRight: 8, alignItems: 'flex-start' as const },
     colDate:    { flex: 1, fontSize: 11, color: '#94a3b8', paddingRight: 8 },
-    colAmount:  { width: 110, fontSize: 13, fontWeight: '900', color: '#1e293b', textAlign: 'right', paddingRight: 12 },
-    colBadges:  { width: 120, flexDirection: 'row', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' },
 });

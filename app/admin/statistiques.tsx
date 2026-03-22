@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, ActivityIndicator, RefreshControl,
+    Platform, useWindowDimensions,
 } from 'react-native';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import { useFocusEffect } from 'expo-router';
@@ -65,6 +66,9 @@ export default function Statistiques() {
     const [loading, setLoading]         = useState(true);
     const [refreshing, setRefreshing]   = useState(false);
 
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
     const fetchStats = useCallback(async (y: number, m: number) => {
         setLoading(true);
         try {
@@ -97,13 +101,18 @@ export default function Statistiques() {
             ]);
 
             const txArr = (txRes.data ?? []) as { price: number }[];
-            setKpis({
+            if (txRes.error) console.warn('[Statistiques] ⚠️ transactions:', txRes.error.message);
+            if (ordersRes.error) console.warn('[Statistiques] ⚠️ orders:', ordersRes.error.message);
+            if (membersRes.error) console.warn('[Statistiques] ⚠️ profiles:', membersRes.error.message);
+            const kpiData = {
                 txCount:         txArr.length,
                 txRevenue:       txArr.reduce((s, t) => s + (t.price ?? 0), 0),
                 deliveredOrders: ordersRes.count ?? 0,
                 newMembers:      membersRes.count ?? 0,
                 newProducts:     productsRes.count ?? 0,
-            });
+            };
+            console.log(`[Statistiques] ✅ ${y}-${m + 1}:`, JSON.stringify(kpiData));
+            setKpis(kpiData);
 
             // ── Ventes par jour du mois ───────────────────────────────────────
             const { data: dailyTxData } = await supabase
@@ -178,13 +187,13 @@ export default function Statistiques() {
 
             // ── Répartition membres ───────────────────────────────────────────
             const [mRes, proRes, aRes, cRes] = await Promise.all([
-                supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%merchant%'),
-                supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%producer%'),
-                supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%agent%'),
-                supabase.from('profiles').select('*', { count: 'exact', head: true }).ilike('role', '%cooperative%'),
+                supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'MERCHANT'),
+                supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'PRODUCER'),
+                supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'FIELD_AGENT'),
+                supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'COOPERATIVE'),
             ]);
             setRoleCounts([
-                { label: 'Marchands',   count: mRes.count   ?? 0, color: '#059669' },
+                { label: 'Marchands',   count: mRes.count   ?? 0, color: colors.primary },
                 { label: 'Producteurs', count: proRes.count ?? 0, color: '#2563eb' },
                 { label: 'Agents',      count: aRes.count   ?? 0, color: '#d97706' },
                 { label: 'Coopératives',count: cRes.count   ?? 0, color: '#7c3aed' },
@@ -196,8 +205,6 @@ export default function Statistiques() {
             setRefreshing(false);
         }
     }, []);
-
-    useEffect(() => { fetchStats(year, month); }, [fetchStats, year, month]);
 
     const onRefresh = useCallback(() => { setRefreshing(true); fetchStats(year, month); }, [fetchStats, year, month]);
 
@@ -223,8 +230,8 @@ export default function Statistiques() {
             Icon: ShoppingBag,
             value: kpis ? String(kpis.txCount) : '–',
             sub:   kpis ? `${kpis.txRevenue.toLocaleString('fr-FR')} F` : '',
-            color: '#059669',
-            bg:    '#d1fae5',
+            color: colors.primary,
+            bg:    '#FDEBD0',
         },
         {
             label: 'COMMANDES LIVRÉES',
@@ -277,7 +284,7 @@ export default function Statistiques() {
 
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && { maxWidth: 1400, alignSelf: 'center', width: '100%', padding: 32, gap: 24 }]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 overScrollMode="never"
@@ -291,7 +298,7 @@ export default function Statistiques() {
                     <>
                         {/* ── Section 0 : Courbe ventes par jour ── */}
                         <Text style={s.sectionTitle}>VENTES PAR JOUR</Text>
-                        <View style={s.chartCard}>
+                        <View style={[s.chartCard, isDesktop && dtSt.cardShadow]}>
                             {dailyData.every(d => d.total === 0) ? (
                                 <View style={s.chartEmpty}>
                                     <Text style={s.chartEmptyText}>Aucune vente ce mois</Text>
@@ -344,9 +351,9 @@ export default function Statistiques() {
 
                         {/* ── Section 1 : KPIs du mois ── */}
                         <Text style={s.sectionTitle}>KPIs DU MOIS</Text>
-                        <View style={s.kpiGrid}>
+                        <View style={[s.kpiGrid, isDesktop && dtSt.kpiRow]}>
                             {KPI_CARDS.map(k => (
-                                <View key={k.label} style={s.kpiCard}>
+                                <View key={k.label} style={[s.kpiCard, isDesktop && dtSt.kpiCardDesktop]}>
                                     <View style={[s.kpiIconWrap, { backgroundColor: k.bg }]}>
                                         <k.Icon color={k.color} size={20} />
                                     </View>
@@ -357,73 +364,78 @@ export default function Statistiques() {
                             ))}
                         </View>
 
-                        {/* ── Section 2 : Top 5 Marchands ── */}
-                        <Text style={s.sectionTitle}>TOP 5 MARCHANDS</Text>
-                        {topStores.length === 0 ? (
-                            <View style={s.emptySmall}>
-                                <Text style={s.emptySmallText}>Aucune donnée ce mois</Text>
-                            </View>
-                        ) : (
-                            <View style={s.rankCard}>
-                                {topStores.map((store, idx) => {
-                                    const barPct = Math.max(4, Math.round((store.revenue / maxRevenue) * 100));
-                                    return (
-                                        <View key={store.store_id} style={s.rankRow}>
-                                            <View style={[s.rankBadge, { backgroundColor: RANK_COLORS[idx] }]}>
-                                                <Text style={s.rankBadgeText}>{idx + 1}</Text>
-                                            </View>
-                                            <View style={s.rankInfo}>
-                                                <Text style={s.rankName} numberOfLines={1}>{store.storeName}</Text>
-                                                <View style={s.barTrack}>
-                                                    <View style={[s.barFill, {
-                                                        backgroundColor: colors.primary,
-                                                        width: `${barPct}%`,
-                                                    }]} />
+                        {/* ── Sections 2+3 : Top Marchands + Top Produits (cote a cote sur desktop) ── */}
+                        <View style={isDesktop ? dtSt.twoCol : undefined}>
+                            <View style={isDesktop ? dtSt.colHalf : undefined}>
+                                <Text style={s.sectionTitle}>TOP 5 MARCHANDS</Text>
+                                {topStores.length === 0 ? (
+                                    <View style={s.emptySmall}>
+                                        <Text style={s.emptySmallText}>Aucune donnee ce mois</Text>
+                                    </View>
+                                ) : (
+                                    <View style={[s.rankCard, isDesktop && dtSt.cardShadow]}>
+                                        {topStores.map((store, idx) => {
+                                            const barPct = Math.max(4, Math.round((store.revenue / maxRevenue) * 100));
+                                            return (
+                                                <View key={store.store_id} style={s.rankRow}>
+                                                    <View style={[s.rankBadge, { backgroundColor: RANK_COLORS[idx] }]}>
+                                                        <Text style={s.rankBadgeText}>{idx + 1}</Text>
+                                                    </View>
+                                                    <View style={s.rankInfo}>
+                                                        <Text style={s.rankName} numberOfLines={1}>{store.storeName}</Text>
+                                                        <View style={s.barTrack}>
+                                                            <View style={[s.barFill, {
+                                                                backgroundColor: colors.primary,
+                                                                width: `${barPct}%`,
+                                                            }]} />
+                                                        </View>
+                                                    </View>
+                                                    <Text style={s.rankAmount}>
+                                                        {store.revenue.toLocaleString('fr-FR')} F
+                                                    </Text>
                                                 </View>
-                                            </View>
-                                            <Text style={s.rankAmount}>
-                                                {store.revenue.toLocaleString('fr-FR')} F
-                                            </Text>
-                                        </View>
-                                    );
-                                })}
+                                            );
+                                        })}
+                                    </View>
+                                )}
                             </View>
-                        )}
 
-                        {/* ── Section 3 : Top 5 Produits ── */}
-                        <Text style={s.sectionTitle}>TOP 5 PRODUITS VENDUS</Text>
-                        {topProducts.length === 0 ? (
-                            <View style={s.emptySmall}>
-                                <Text style={s.emptySmallText}>Aucune donnée ce mois</Text>
-                            </View>
-                        ) : (
-                            <View style={s.rankCard}>
-                                {topProducts.map((prod, idx) => {
-                                    const barPct = Math.max(4, Math.round((prod.units / maxUnits) * 100));
-                                    return (
-                                        <View key={prod.product_id} style={s.rankRow}>
-                                            <View style={[s.rankBadge, { backgroundColor: RANK_COLORS[idx] }]}>
-                                                <Text style={s.rankBadgeText}>{idx + 1}</Text>
-                                            </View>
-                                            <View style={s.rankInfo}>
-                                                <Text style={s.rankName} numberOfLines={1}>{prod.productName}</Text>
-                                                <View style={s.barTrack}>
-                                                    <View style={[s.barFill, {
-                                                        backgroundColor: '#2563eb',
-                                                        width: `${barPct}%`,
-                                                    }]} />
+                            <View style={isDesktop ? dtSt.colHalf : undefined}>
+                                <Text style={s.sectionTitle}>TOP 5 PRODUITS VENDUS</Text>
+                                {topProducts.length === 0 ? (
+                                    <View style={s.emptySmall}>
+                                        <Text style={s.emptySmallText}>Aucune donnee ce mois</Text>
+                                    </View>
+                                ) : (
+                                    <View style={[s.rankCard, isDesktop && dtSt.cardShadow]}>
+                                        {topProducts.map((prod, idx) => {
+                                            const barPct = Math.max(4, Math.round((prod.units / maxUnits) * 100));
+                                            return (
+                                                <View key={prod.product_id} style={s.rankRow}>
+                                                    <View style={[s.rankBadge, { backgroundColor: RANK_COLORS[idx] }]}>
+                                                        <Text style={s.rankBadgeText}>{idx + 1}</Text>
+                                                    </View>
+                                                    <View style={s.rankInfo}>
+                                                        <Text style={s.rankName} numberOfLines={1}>{prod.productName}</Text>
+                                                        <View style={s.barTrack}>
+                                                            <View style={[s.barFill, {
+                                                                backgroundColor: '#2563eb',
+                                                                width: `${barPct}%`,
+                                                            }]} />
+                                                        </View>
+                                                    </View>
+                                                    <Text style={s.rankAmount}>{prod.units} u</Text>
                                                 </View>
-                                            </View>
-                                            <Text style={s.rankAmount}>{prod.units} u</Text>
-                                        </View>
-                                    );
-                                })}
+                                            );
+                                        })}
+                                    </View>
+                                )}
                             </View>
-                        )}
+                        </View>
 
-                        {/* ── Section 4 : Répartition membres ── */}
-                        <Text style={s.sectionTitle}>RÉPARTITION MEMBRES</Text>
-                        <View style={s.rankCard}>
+                        {/* ── Section 4 : Repartition membres ── */}
+                        <Text style={s.sectionTitle}>REPARTITION MEMBRES</Text>
+                        <View style={[s.rankCard, isDesktop && dtSt.cardShadow]}>
                             {roleCounts.map(role => {
                                 const barPct = Math.max(4, Math.round((role.count / maxRoleCount) * 100));
                                 return (
@@ -542,4 +554,28 @@ const s = StyleSheet.create({
         alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9',
     },
     emptySmallText: { fontSize: 12, color: '#94a3b8', fontWeight: '600' },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────────
+const dtSt = StyleSheet.create({
+    kpiRow: {
+        flexDirection: 'row', flexWrap: 'nowrap', gap: 16,
+    },
+    kpiCardDesktop: {
+        flex: 1, width: undefined as any,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+        borderRadius: 12,
+    },
+    twoCol: {
+        flexDirection: 'row', gap: 20,
+    },
+    colHalf: {
+        flex: 1, gap: 10,
+    },
+    cardShadow: {
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+        borderRadius: 12,
+    },
 });

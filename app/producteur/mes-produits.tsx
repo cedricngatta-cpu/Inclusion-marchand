@@ -4,6 +4,7 @@ import React, { useState, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     TextInput, Alert, ActivityIndicator, Image, Modal,
+    Platform, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -45,6 +46,8 @@ interface Produit {
 export default function MesProduits() {
     const router = useRouter();
     const { activeProfile } = useProfileContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const [produits, setProduits]   = useState<Produit[]>([]);
     const [loading, setLoading]     = useState(true);
@@ -273,7 +276,10 @@ export default function MesProduits() {
             ) : (
                 <ScrollView
                     style={s.scroll}
-                    contentContainerStyle={s.scrollContent}
+                    contentContainerStyle={[
+                        s.scrollContent,
+                        isDesktop && dtMp.scrollContent,
+                    ]}
                     showsVerticalScrollIndicator={false}
                     bounces={false}
                     overScrollMode="never"
@@ -296,10 +302,14 @@ export default function MesProduits() {
                             <Text style={s.countLabel}>
                                 {produits.length} produit{produits.length > 1 ? 's' : ''} publié{produits.length > 1 ? 's' : ''}
                             </Text>
+                            <View style={isDesktop ? dtMp.grid : undefined}>
                             {produits.map(p => (
                                 <TouchableOpacity
                                     key={p.id}
-                                    style={s.productCard}
+                                    style={[
+                                        s.productCard,
+                                        isDesktop && dtMp.productCard,
+                                    ]}
                                     activeOpacity={0.85}
                                     onPress={() => openEdit(p)}
                                 >
@@ -343,6 +353,7 @@ export default function MesProduits() {
                                     </View>
                                 </TouchableOpacity>
                             ))}
+                            </View>
                         </>
                     )}
                 </ScrollView>
@@ -351,10 +362,13 @@ export default function MesProduits() {
             {/* ════ MODAL ÉDITION ════ */}
             <Modal
                 visible={editModal}
-                animationType="slide"
-                presentationStyle="pageSheet"
+                animationType={isDesktop ? 'fade' : 'slide'}
+                presentationStyle={isDesktop ? 'overFullScreen' : 'pageSheet'}
+                transparent={isDesktop}
                 onRequestClose={() => setEditModal(false)}
             >
+                <View style={isDesktop ? dtMp.modalOverlay : { flex: 1 }}>
+                <View style={isDesktop ? dtMp.modalContainer : { flex: 1 }}>
                 <SafeAreaView style={s.modalSafe} edges={['top', 'bottom']}>
                     {/* Header modal */}
                     <View style={s.modalHeader}>
@@ -564,6 +578,8 @@ export default function MesProduits() {
                         </TouchableOpacity>
                     </ScrollView>
                 </SafeAreaView>
+                </View>
+                </View>
             </Modal>
         </View>
     );
@@ -702,4 +718,42 @@ const s = StyleSheet.create({
         borderWidth: 2, borderColor: '#fee2e2', backgroundColor: '#fff5f5',
     },
     deleteFullBtnText: { fontSize: 13, fontWeight: '900', color: colors.error, letterSpacing: 1 },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────
+const dtMp = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center',
+        width: '100%',
+        padding: 32,
+    },
+    grid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+    },
+    productCard: {
+        width: '31%' as any,
+        flexDirection: 'column',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+        borderRadius: 12,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalContainer: {
+        maxWidth: 600,
+        width: '90%',
+        maxHeight: '90%',
+        borderRadius: 12,
+        overflow: 'hidden',
+    },
 });

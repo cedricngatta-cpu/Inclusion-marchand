@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator, RefreshControl,
+    ActivityIndicator, RefreshControl, Platform, useWindowDimensions,
 } from 'react-native';
 import { BarChart2 } from 'lucide-react-native';
 import { ScreenHeader } from '@/src/components/ui';
@@ -38,7 +38,7 @@ const PERIOD_TABS = [
     { key: '3m',  label: '3 mois' },
 ];
 const SHORT_DAYS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
-const BAR_COLORS = ['#059669', '#2563eb', '#7c3aed', '#d97706', '#dc2626'];
+const BAR_COLORS = [colors.primary, colors.info, '#7c3aed', '#d97706', colors.error];
 
 function getPeriodStart(key: string): string {
     const now = new Date();
@@ -50,12 +50,15 @@ function getPeriodStart(key: string): string {
 function toDateStr(iso: string) { return iso.slice(0, 10); }
 
 const ROLE_MAP: Record<string, { key: string; label: string; color: string }> = {
-    producer: { key: 'producer', label: 'Producteurs', color: '#059669' },
+    producer: { key: 'producer', label: 'Producteurs', color: colors.primary },
 };
 const EXCLUDED_ROLES = ['field_agent', 'agent', 'agent_terrain', 'supervisor', 'admin', 'cooperative', 'merchant'];
 
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function AnalysesScreen() {
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
+
     const [period, setPeriod]         = useState('7d');
     const [txRows, setTxRows]         = useState<TxRow[]>([]);
     const [orderRows, setOrderRows]   = useState<OrderRow[]>([]);
@@ -265,7 +268,7 @@ export default function AnalysesScreen() {
 
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtAn.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 refreshControl={
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
@@ -277,32 +280,35 @@ export default function AnalysesScreen() {
                 ) : (
                     <>
                         {/* ── KPIs ── */}
-                        <View style={styles.kpiRow}>
-                            <View style={styles.kpiCard}>
+                        <View style={[styles.kpiRow, isDesktop && dtAn.kpiRow]}>
+                            <View style={[styles.kpiCard, isDesktop && dtAn.kpiCard]}>
                                 <Text style={styles.kpiValue}>{totalTxCount}</Text>
                                 <Text style={styles.kpiLabel}>Ventes réseau</Text>
                             </View>
-                            <View style={styles.kpiCard}>
+                            <View style={[styles.kpiCard, isDesktop && dtAn.kpiCard]}>
                                 <Text style={styles.kpiValue}>
                                     {totalTxRevenue >= 1000 ? `${Math.round(totalTxRevenue / 1000)}k` : totalTxRevenue.toLocaleString('fr-FR')}
                                 </Text>
                                 <Text style={styles.kpiLabel}>Revenus ventes (F)</Text>
                             </View>
-                            <View style={[styles.kpiCard, { borderTopColor: '#2563eb' }]}>
-                                <Text style={[styles.kpiValue, { color: '#2563eb' }]}>{totalB2BCount}</Text>
+                            <View style={[styles.kpiCard, isDesktop && dtAn.kpiCard, { borderTopColor: colors.info }]}>
+                                <Text style={[styles.kpiValue, { color: colors.info }]}>{totalB2BCount}</Text>
                                 <Text style={styles.kpiLabel}>Commandes B2B</Text>
                             </View>
-                            <View style={[styles.kpiCard, { borderTopColor: '#2563eb' }]}>
-                                <Text style={[styles.kpiValue, { color: '#2563eb' }]}>
+                            <View style={[styles.kpiCard, isDesktop && dtAn.kpiCard, { borderTopColor: colors.info }]}>
+                                <Text style={[styles.kpiValue, { color: colors.info }]}>
                                     {totalB2BRevenue >= 1000 ? `${Math.round(totalB2BRevenue / 1000)}k` : totalB2BRevenue.toLocaleString('fr-FR')}
                                 </Text>
                                 <Text style={styles.kpiLabel}>Volume B2B (F)</Text>
                             </View>
                         </View>
 
-                                        {/* ── TOP PRODUCTEURS B2B ── */}
+                        {/* ── Charts row (desktop: side-by-side) ── */}
+                        <View style={isDesktop ? dtAn.chartsRow : undefined}>
+                        <View style={isDesktop ? dtAn.chartCol : undefined}>
+                        {/* ── TOP PRODUCTEURS B2B ── */}
                         <Text style={styles.sectionTitle}>TOP PRODUCTEURS — VENTES B2B</Text>
-                        <View style={styles.chartCard}>
+                        <View style={[styles.chartCard, isDesktop && dtAn.chartCard]}>
                             {producerStats.length === 0 ? (
                                 <View style={styles.emptyInline}>
                                     <BarChart2 color={colors.slate300} size={28} />
@@ -321,20 +327,22 @@ export default function AnalysesScreen() {
                                         <View style={styles.hBarTrack}>
                                             <View style={[styles.hBarFill, {
                                                 width: `${(pr.b2bRevenue / maxProducerRevenue) * 100}%` as any,
-                                                backgroundColor: '#2563eb',
+                                                backgroundColor: colors.info,
                                             }]} />
                                         </View>
                                     </View>
-                                    <Text style={[styles.storeRevenue, { color: '#2563eb' }]}>
+                                    <Text style={[styles.storeRevenue, { color: colors.info }]}>
                                         {pr.b2bRevenue >= 1000 ? `${Math.round(pr.b2bRevenue / 1000)}k` : pr.b2bRevenue.toLocaleString('fr-FR')}
                                     </Text>
                                 </View>
                             ))}
                         </View>
 
+                        </View>
+                        <View style={isDesktop ? dtAn.chartCol : undefined}>
                         {/* ── VENTES PAR JOUR ── */}
-                        <Text style={styles.sectionTitle}>VENTES RÉSEAU — 7 DERNIERS JOURS</Text>
-                        <View style={styles.chartCard}>
+                        <Text style={[styles.sectionTitle, isDesktop && { marginTop: 0 }]}>VENTES RÉSEAU — 7 DERNIERS JOURS</Text>
+                        <View style={[styles.chartCard, isDesktop && dtAn.chartCard]}>
                             <View style={styles.vBarsContainer}>
                                 {dailyStats.map((day, idx) => {
                                     const h = (day.revenue / maxDayRevenue) * 100;
@@ -355,10 +363,12 @@ export default function AnalysesScreen() {
                                 })}
                             </View>
                         </View>
+                        </View>
+                        </View>
 
                         {/* ── RÉPARTITION MEMBRES ── */}
                         <Text style={styles.sectionTitle}>RÉPARTITION DES MEMBRES</Text>
-                        <View style={styles.chartCard}>
+                        <View style={[styles.chartCard, isDesktop && dtAn.chartCard]}>
                             {roleStats.length === 0 ? (
                                 <Text style={styles.noDataText}>Aucun membre enregistré</Text>
                             ) : roleStats.map(row => (
@@ -442,4 +452,46 @@ const styles = StyleSheet.create({
 
     emptyInline: { alignItems: 'center', paddingVertical: 12, gap: 8 },
     noDataText:  { fontSize: 11, color: colors.slate400, textAlign: 'center' },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────
+const dtAn = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as any,
+        width: '100%' as any,
+        padding: 32,
+        gap: 24,
+    },
+    kpiRow: {
+        flexDirection: 'row',
+        flexWrap: 'nowrap',
+        gap: 16,
+    },
+    kpiCard: {
+        flex: 1,
+        width: 'auto' as any,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+        borderRadius: 12,
+    },
+    chartsRow: {
+        flexDirection: 'row',
+        gap: 20,
+    },
+    chartCol: {
+        flex: 1,
+        gap: 12,
+    },
+    chartCard: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+        borderRadius: 12,
+    },
 });

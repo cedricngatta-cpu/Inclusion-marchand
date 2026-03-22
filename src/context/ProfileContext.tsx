@@ -1,6 +1,7 @@
 // Contexte profil boutique — migré depuis Next.js
 // localStorage → AsyncStorage, navigator.onLine → NetInfo
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/src/lib/supabase';
 import { storage } from '@/src/lib/storage';
@@ -40,6 +41,14 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const refreshProfiles = useCallback(async function refresh() {
         if (!user) return;
 
+        // Charger le cache offline d'abord
+        const cached = await AsyncStorage.getItem(`profiles_${user.id}`);
+        if (cached) {
+            const cachedProfiles = JSON.parse(cached);
+            setProfiles(cachedProfiles);
+            // Continuer avec le fetch Supabase pour la fraîcheur
+        }
+
         let query = supabase.from('stores').select('*, profiles:owner_id(full_name, role)');
         if (user.role !== 'SUPERVISOR') {
             query = query.eq('owner_id', user.id);
@@ -49,15 +58,43 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const netState = await NetInfo.fetch();
 
         if (data && data.length === 0 && (user.role === 'MERCHANT' || user.role === 'PRODUCER') && netState.isConnected) {
-            const defaultName = user.role === 'PRODUCER' ? 'Ma Ferme' : 'Ma Boutique';
-            const defaultType = user.role === 'PRODUCER' ? 'PRODUCER' : 'RETAILER';
-            await supabase.from('stores').insert([{
-                owner_id: user.id,
-                name: defaultName,
-                store_type: defaultType,
-                status: 'ACTIVE',
-            }]);
-            await refresh();
+            // Vérifier si le store existe déjà (évite 409 Conflict en boucle)
+            const { data: existing } = await supabase
+                .from('stores')
+                .select('*')
+                .eq('owner_id', user.id)
+                .maybeSingle();
+
+            if (!existing) {
+                const defaultName = user.role === 'PRODUCER' ? 'Ma Ferme' : 'Ma Boutique';
+                const defaultType = user.role === 'PRODUCER' ? 'PRODUCER' : 'RETAILER';
+                await supabase.from('stores').insert([{
+                    owner_id: user.id,
+                    name: defaultName,
+                    store_type: defaultType,
+                    status: 'ACTIVE',
+                }]);
+            }
+            // Recharger une seule fois (pas de récursion infinie)
+            const { data: refreshed } = await supabase
+                .from('stores')
+                .select('*, profiles:owner_id(full_name, role)')
+                .eq('owner_id', user.id);
+            if (refreshed && refreshed.length > 0) {
+                const mapped: StoreProfile[] = refreshed.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    merchantName: (s.profiles as any)?.full_name || 'Inconnu',
+                    ownerRole: (s.profiles as any)?.role || 'MERCHANT',
+                    status: s.status || 'ACTIVE',
+                    createdAt: new Date(s.created_at).getTime(),
+                    logo: s.logo_url,
+                    store_type: (s.store_type as StoreType) || 'RETAILER',
+                }));
+                setProfiles(mapped);
+                await AsyncStorage.setItem(`profiles_${user.id}`, JSON.stringify(mapped));
+                setActiveProfileId(mapped[0].id);
+            }
             return;
         }
 
@@ -73,6 +110,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 store_type: (s.store_type as StoreType) || 'RETAILER',
             }));
             setProfiles(mapped);
+            await AsyncStorage.setItem(`profiles_${user.id}`, JSON.stringify(mapped));
 
             const savedActiveId = await storage.getItem('active_profile_id');
             if (savedActiveId && mapped.some(p => p.id === savedActiveId)) {

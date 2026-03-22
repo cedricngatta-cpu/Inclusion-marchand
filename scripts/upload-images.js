@@ -18,7 +18,7 @@ const { createClient } = require('@supabase/supabase-js');
 const fs   = require('fs');
 const path = require('path');
 
-const SUPABASE_URL = 'https://dinocjmwktrxqupyjsqn.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://lpowdjvxikqtorhadhyv.supabase.co';
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_KEY;
 
 if (!SERVICE_KEY) {

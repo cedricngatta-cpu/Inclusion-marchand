@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator,
+    ActivityIndicator, Platform, useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Phone, MapPin, Store } from 'lucide-react-native';
@@ -52,7 +52,7 @@ function getInitials(nom?: string) {
     return f + l;
 }
 
-const AVATAR_COLORS = ['#059669', '#2563eb', '#7c3aed', '#d97706', '#dc2626'];
+const AVATAR_COLORS = [colors.primary, '#2563eb', '#7c3aed', '#d97706', colors.error];
 function getAvatarColor(id: string) {
     let sum = 0;
     for (let i = 0; i < id.length; i++) sum += id.charCodeAt(i);
@@ -62,6 +62,8 @@ function getAvatarColor(id: string) {
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function DemandesScreen() {
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
     const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
     const [activeFilter, setActiveFilter] = useState<string>('ALL');
     const [loading, setLoading]           = useState(true);
@@ -90,8 +92,6 @@ export default function DemandesScreen() {
             setLoading(false);
         }
     }, [user]);
-
-    useEffect(() => { fetchDemandes(); }, [fetchDemandes]);
 
     // Écouter les nouveaux enrôlements en temps réel
     useEffect(() => {
@@ -142,7 +142,7 @@ export default function DemandesScreen() {
                     await supabase.from('profiles').upsert({
                         full_name:      d.nom,
                         phone_number:   d.telephone,
-                        pin:            '1234',          // PIN temporaire — à changer à la première connexion
+                        pin:            '0101',          // PIN temporaire — déclenche mustChangePin au login
                         role:           d.type === 'MERCHANT' ? 'MERCHANT' : 'PRODUCER',
                         cooperative_id: d.cooperative_id,
                     }, { onConflict: 'phone_number', ignoreDuplicates: false });
@@ -195,25 +195,41 @@ export default function DemandesScreen() {
                     </View>
                 ) : undefined}
             >
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
-                    {FILTER_TABS.map(tab => (
-                        <TouchableOpacity
-                            key={tab.key}
-                            style={[styles.tab, activeFilter === tab.key && styles.tabActive]}
-                            onPress={() => setActiveFilter(tab.key)}
-                        >
-                            <Text style={[styles.tabText, activeFilter === tab.key && styles.tabTextActive]}>
-                                {tab.label}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
+                {isDesktop ? (
+                    <View style={dtDm.tabsRow}>
+                        {FILTER_TABS.map(tab => (
+                            <TouchableOpacity
+                                key={tab.key}
+                                style={[styles.tab, activeFilter === tab.key && styles.tabActive]}
+                                onPress={() => setActiveFilter(tab.key)}
+                            >
+                                <Text style={[styles.tabText, activeFilter === tab.key && styles.tabTextActive]}>
+                                    {tab.label}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                ) : (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
+                        {FILTER_TABS.map(tab => (
+                            <TouchableOpacity
+                                key={tab.key}
+                                style={[styles.tab, activeFilter === tab.key && styles.tabActive]}
+                                onPress={() => setActiveFilter(tab.key)}
+                            >
+                                <Text style={[styles.tabText, activeFilter === tab.key && styles.tabTextActive]}>
+                                    {tab.label}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                )}
             </ScreenHeader>
 
             {/* ── CONTENU ── */}
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtDm.scrollContent]}
                 showsVerticalScrollIndicator={false}
             >
                 {loading ? (
@@ -223,81 +239,83 @@ export default function DemandesScreen() {
                         <Text style={styles.emptyText}>AUCUNE DEMANDE</Text>
                     </View>
                 ) : (
-                    filtered.map(enroll => {
-                        const sc   = STATUS_CONFIG[enroll.statut] ?? STATUS_CONFIG.en_attente;
-                        const rc   = ROLE_CONFIG[enroll.type ?? ''] ?? { bg: colors.slate100, text: colors.slate600 };
-                        const init = getInitials(enroll.nom);
-                        const av   = getAvatarColor(enroll.id);
+                    <View style={isDesktop ? dtDm.cardsGrid : undefined}>
+                        {filtered.map(enroll => {
+                            const sc   = STATUS_CONFIG[enroll.statut] ?? STATUS_CONFIG.en_attente;
+                            const rc   = ROLE_CONFIG[enroll.type ?? ''] ?? { bg: colors.slate100, text: colors.slate600 };
+                            const init = getInitials(enroll.nom);
+                            const av   = getAvatarColor(enroll.id);
 
-                        return (
-                            <View key={enroll.id} style={styles.card}>
-                                {/* Ligne haut */}
-                                <View style={styles.cardTop}>
-                                    <View style={[styles.avatar, { backgroundColor: av }]}>
-                                        <Text style={styles.avatarText}>{init}</Text>
-                                    </View>
-                                    <View style={{ flex: 1, marginLeft: 12 }}>
-                                        <Text style={styles.cardName}>
-                                            {enroll.nom ?? '–'}
-                                        </Text>
-                                        <View style={styles.badgeRow}>
-                                            <View style={[styles.badge, { backgroundColor: rc.bg }]}>
-                                                <Text style={[styles.badgeText, { color: rc.text }]}>
-                                                    {enroll.type ?? 'INCONNU'}
-                                                </Text>
+                            return (
+                                <View key={enroll.id} style={[styles.card, isDesktop && dtDm.card]}>
+                                    {/* Ligne haut */}
+                                    <View style={styles.cardTop}>
+                                        <View style={[styles.avatar, { backgroundColor: av }]}>
+                                            <Text style={styles.avatarText}>{init}</Text>
+                                        </View>
+                                        <View style={{ flex: 1, marginLeft: 12 }}>
+                                            <Text style={styles.cardName}>
+                                                {enroll.nom ?? '--'}
+                                            </Text>
+                                            <View style={styles.badgeRow}>
+                                                <View style={[styles.badge, { backgroundColor: rc.bg }]}>
+                                                    <Text style={[styles.badgeText, { color: rc.text }]}>
+                                                        {enroll.type ?? 'INCONNU'}
+                                                    </Text>
+                                                </View>
                                             </View>
                                         </View>
+                                        <View style={[styles.badge, { backgroundColor: sc.bg }]}>
+                                            <Text style={[styles.badgeText, { color: sc.text }]}>{sc.label}</Text>
+                                        </View>
                                     </View>
-                                    <View style={[styles.badge, { backgroundColor: sc.bg }]}>
-                                        <Text style={[styles.badgeText, { color: sc.text }]}>{sc.label}</Text>
-                                    </View>
-                                </View>
 
-                                {/* Détails */}
-                                <View style={styles.detailsBlock}>
-                                    {enroll.telephone && (
-                                        <View style={styles.detailRow}>
-                                            <Phone color={colors.slate400} size={13} />
-                                            <Text style={styles.detailText}>{enroll.telephone}</Text>
-                                        </View>
-                                    )}
-                                    {enroll.nom_boutique && (
-                                        <View style={styles.detailRow}>
-                                            <Store color={colors.slate400} size={13} />
-                                            <Text style={styles.detailText}>{enroll.nom_boutique}</Text>
-                                        </View>
-                                    )}
-                                    {enroll.adresse && (
-                                        <View style={styles.detailRow}>
-                                            <MapPin color={colors.slate400} size={13} />
-                                            <Text style={styles.detailText}>{enroll.adresse}</Text>
-                                        </View>
-                                    )}
-                                    <Text style={styles.dateText}>
-                                        Soumis le {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
-                                    </Text>
-                                </View>
-
-                                {/* Actions en attente */}
-                                {enroll.statut === 'en_attente' && (
-                                    <View style={styles.actionRow}>
-                                        <TouchableOpacity
-                                            style={styles.validateBtn}
-                                            onPress={() => handleUpdateStatus(enroll, 'valide')}
-                                        >
-                                            <Text style={styles.validateBtnText}>CONFIRMER CE MEMBRE</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={styles.rejectBtn}
-                                            onPress={() => handleUpdateStatus(enroll, 'rejete')}
-                                        >
-                                            <Text style={styles.rejectBtnText}>CE N'EST PAS UN DE NOS MEMBRES</Text>
-                                        </TouchableOpacity>
+                                    {/* Details */}
+                                    <View style={styles.detailsBlock}>
+                                        {enroll.telephone && (
+                                            <View style={styles.detailRow}>
+                                                <Phone color={colors.slate400} size={13} />
+                                                <Text style={styles.detailText}>{enroll.telephone}</Text>
+                                            </View>
+                                        )}
+                                        {enroll.nom_boutique && (
+                                            <View style={styles.detailRow}>
+                                                <Store color={colors.slate400} size={13} />
+                                                <Text style={styles.detailText}>{enroll.nom_boutique}</Text>
+                                            </View>
+                                        )}
+                                        {enroll.adresse && (
+                                            <View style={styles.detailRow}>
+                                                <MapPin color={colors.slate400} size={13} />
+                                                <Text style={styles.detailText}>{enroll.adresse}</Text>
+                                            </View>
+                                        )}
+                                        <Text style={styles.dateText}>
+                                            Soumis le {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
+                                        </Text>
                                     </View>
-                                )}
-                            </View>
-                        );
-                    })
+
+                                    {/* Actions en attente */}
+                                    {enroll.statut === 'en_attente' && (
+                                        <View style={styles.actionRow}>
+                                            <TouchableOpacity
+                                                style={styles.validateBtn}
+                                                onPress={() => handleUpdateStatus(enroll, 'valide')}
+                                            >
+                                                <Text style={styles.validateBtnText}>CONFIRMER CE MEMBRE</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={styles.rejectBtn}
+                                                onPress={() => handleUpdateStatus(enroll, 'rejete')}
+                                            >
+                                                <Text style={styles.rejectBtnText}>CE N'EST PAS UN DE NOS MEMBRES</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
+                                </View>
+                            );
+                        })}
+                    </View>
                 )}
             </ScrollView>
         </View>
@@ -382,4 +400,31 @@ const styles = StyleSheet.create({
         borderStyle: 'dashed',
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2 },
+});
+
+// ── Desktop styles ──────────────────────────────────────────────────────────
+const dtDm = StyleSheet.create({
+    tabsRow: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center',
+        width: '100%',
+        padding: 32,
+    },
+    cardsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 16,
+    },
+    card: {
+        width: '48%' as any,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 4,
+    },
 });

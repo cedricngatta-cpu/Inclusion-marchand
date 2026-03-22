@@ -1,6 +1,6 @@
 // Layout racine — point d'entrée expo-router
 import React, { useEffect } from 'react';
-import { View, Text, Platform, useWindowDimensions, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, Platform, useWindowDimensions, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Stack, usePathname, useRouter } from 'expo-router';
 import {
     Home, ShoppingBag, Package, Store, Truck, TrendingUp,
@@ -12,7 +12,9 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '@/src/context/AuthContext';
+import JulabaLogo from '@/src/components/JulabaLogo';
 import { setupGlobalErrorHandler, reportRenderError } from '@/src/lib/errorReporter';
+import { colors } from '@/src/lib/colors';
 
 // Capture les erreurs JS imprévues pour éviter un écran blanc sans info
 class ErrorBoundary extends React.Component<
@@ -29,10 +31,10 @@ class ErrorBoundary extends React.Component<
         if (this.state.hasError) {
             return (
                 <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#DC2626', textAlign: 'center' }}>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: colors.error, textAlign: 'center' }}>
                         Une erreur inattendue s'est produite.
                     </Text>
-                    <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 8, textAlign: 'center' }}>
+                    <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 8, textAlign: 'center' }}>
                         Redémarrez l'application.
                     </Text>
                 </View>
@@ -70,7 +72,7 @@ function getRoleLabel(role: string): string {
 
 function getMenuItems(role: string): SidebarItem[] {
     const s = 20;
-    const ic = '#6B7280';
+    const ic = colors.textSecondary;
     const common: SidebarItem[] = [
         { label: 'Notifications', href: '/(tabs)/notifications', path: '/notifications', icon: <Bell size={s} color={ic} /> },
         { label: 'Profil',        href: '/(tabs)/profil',         path: '/profil',         icon: <User size={s} color={ic} /> },
@@ -141,17 +143,17 @@ function WebSidebar() {
     };
 
     const items = getMenuItems(user.role);
-    const ACTIVE = '#059669';
+    const ACTIVE = colors.primary;
 
     return (
         <View style={sidebarSt.sidebar}>
             {/* Logo & identité */}
             <View style={sidebarSt.logoArea}>
-                <View style={sidebarSt.logoSquare}>
-                    <Text style={sidebarSt.logoText}>IM</Text>
+                <View style={[sidebarSt.logoSquare, { overflow: 'hidden' }]}>
+                    <JulabaLogo width={28} />
                 </View>
                 <View style={{ flex: 1 }}>
-                    <Text style={sidebarSt.appName} numberOfLines={1}>Inclusion Marchand</Text>
+                    <Text style={sidebarSt.appName} numberOfLines={1}>Jùlaba</Text>
                     <Text style={sidebarSt.roleLabel} numberOfLines={1}>{getRoleLabel(user.role)}</Text>
                 </View>
             </View>
@@ -170,8 +172,8 @@ function WebSidebar() {
                             onPress={() => router.push(item.href as any)}
                             activeOpacity={0.7}
                         >
-                            {React.cloneElement(item.icon as React.ReactElement, {
-                                color: active ? ACTIVE : '#6B7280',
+                            {React.cloneElement(item.icon as React.ReactElement<{ color: string }>, {
+                                color: active ? ACTIVE : colors.textSecondary,
                             })}
                             <Text style={[sidebarSt.menuLabel, active && sidebarSt.menuLabelActive]}>
                                 {item.label}
@@ -186,7 +188,7 @@ function WebSidebar() {
                 <Text style={sidebarSt.footerName} numberOfLines={1}>{user.name}</Text>
                 <Text style={sidebarSt.footerPhone} numberOfLines={1}>{user.phoneNumber}</Text>
                 <TouchableOpacity style={sidebarSt.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
-                    <LogOut size={15} color="#DC2626" />
+                    <LogOut size={15} color={colors.error} />
                     <Text style={sidebarSt.logoutText}>Déconnexion</Text>
                 </TouchableOpacity>
             </View>
@@ -199,7 +201,7 @@ const sidebarSt = StyleSheet.create({
         width: 250,
         backgroundColor: '#FFFFFF',
         borderRightWidth: 1,
-        borderRightColor: '#E5E7EB',
+        borderRightColor: colors.slate200,
         flexDirection: 'column',
     },
     logoArea: {
@@ -209,18 +211,18 @@ const sidebarSt = StyleSheet.create({
         paddingHorizontal: 16,
         paddingVertical: 20,
         borderBottomWidth: 1,
-        borderBottomColor: '#F3F4F6',
+        borderBottomColor: colors.slate100,
     },
     logoSquare: {
         width: 40, height: 40,
-        backgroundColor: '#059669',
+        backgroundColor: colors.primary,
         borderRadius: 10,
         alignItems: 'center', justifyContent: 'center',
         flexShrink: 0,
     },
     logoText:   { fontSize: 16, fontWeight: '900', color: '#FFFFFF' },
-    appName:    { fontSize: 13, fontWeight: '700', color: '#1F2937' },
-    roleLabel:  { fontSize: 11, color: '#6B7280', marginTop: 1 },
+    appName:    { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
+    roleLabel:  { fontSize: 11, color: colors.textSecondary, marginTop: 1 },
     menuScroll: { flex: 1 },
     menuItem: {
         flexDirection: 'row',
@@ -233,20 +235,20 @@ const sidebarSt = StyleSheet.create({
         borderRadius: 8,
     },
     menuItemActive: {
-        backgroundColor: '#ECFDF5',
+        backgroundColor: colors.primaryBg,
         borderLeftWidth: 3,
-        borderLeftColor: '#059669',
+        borderLeftColor: colors.primary,
         paddingLeft: 13,
     },
-    menuLabel:       { fontSize: 13, fontWeight: '500', color: '#374151', flex: 1 },
-    menuLabelActive: { color: '#059669', fontWeight: '600' },
+    menuLabel:       { fontSize: 13, fontWeight: '500', color: colors.slate700, flex: 1 },
+    menuLabelActive: { color: colors.primary, fontWeight: '600' },
     footer: {
         padding: 16,
         borderTopWidth: 1,
-        borderTopColor: '#F3F4F6',
+        borderTopColor: colors.slate100,
     },
-    footerName:  { fontSize: 13, fontWeight: '700', color: '#1F2937' },
-    footerPhone: { fontSize: 11, color: '#6B7280', marginTop: 2, marginBottom: 10 },
+    footerName:  { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
+    footerPhone: { fontSize: 11, color: colors.textSecondary, marginTop: 2, marginBottom: 10 },
     logoutBtn: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -256,22 +258,34 @@ const sidebarSt = StyleSheet.create({
         backgroundColor: '#FEF2F2',
         borderRadius: 8,
     },
-    logoutText: { fontSize: 12, fontWeight: '600', color: '#DC2626' },
+    logoutText: { fontSize: 12, fontWeight: '600', color: colors.error },
 });
 
 // ── Wrapper responsive : sidebar desktop, transparent sur mobile ──────────────
 function ResponsiveWrapper({ children }: { children: React.ReactNode }) {
     const { width } = useWindowDimensions();
-    const { user, isLocked } = useAuth();
+    const { user, isLoading, isLocked } = useAuth();
     const pathname = usePathname();
     const isDesktop = Platform.OS === 'web' && width > 768;
 
-    // Pas de sidebar : mobile, non connecté, pages d'auth, ou écran verrouillé
-    const isAuthRoute = pathname.startsWith('/(auth)') || pathname === '/login' || pathname === '/signup';
-
-    if (isDesktop && user && !isAuthRoute && !isLocked) {
+    // Écran de chargement initial — évite le flash sidebar + login
+    if (isDesktop && isLoading) {
         return (
-            <View style={{ flex: 1, flexDirection: 'row', backgroundColor: '#F9FAFB' }}>
+            <View style={{ flex: 1, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+                <JulabaLogo width={120} />
+                <ActivityIndicator color="#fff" size="large" style={{ marginTop: 24 }} />
+            </View>
+        );
+    }
+
+    // Pas de sidebar : mobile, non connecté, pages d'auth/landing, ou écran verrouillé
+    const isNoSidebarRoute = pathname.startsWith('/(auth)')
+        || pathname === '/login' || pathname === '/signup'
+        || pathname === '/';
+
+    if (isDesktop && user && !isNoSidebarRoute && !isLocked) {
+        return (
+            <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.slate50 }}>
                 <WebSidebar />
                 <View style={{ flex: 1, overflow: 'hidden' }}>
                     {children}
@@ -311,6 +325,12 @@ function AppWithVoice() {
 export default function RootLayout() {
     useEffect(() => {
         setupGlobalErrorHandler();
+        // Supprime l'outline focus sur tous les inputs web/PWA
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            const style = document.createElement('style');
+            style.textContent = 'input,textarea,select,div[contenteditable]{outline:none!important;outline-width:0!important;outline-style:none!important;}input:focus,textarea:focus,select:focus{outline:none!important;}';
+            document.head.appendChild(style);
+        }
     }, []);
 
     return (

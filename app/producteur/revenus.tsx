@@ -1,7 +1,8 @@
 // Revenus — Producteur
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity, ActivityIndicator,
+    Platform, useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { ChevronLeft, ChevronRight, TrendingUp, Package } from 'lucide-react-native';
@@ -16,8 +17,8 @@ interface RevenueOrder {
     status: string;
     quantity: number;
     total_amount: number;
+    product_name: string | null;
     created_at: string;
-    products: { name: string } | null;
     stores: { name: string } | null;
 }
 
@@ -36,6 +37,8 @@ const MONTHS_FR = [
 // ── Composant principal ────────────────────────────────────────────────────────
 export default function RevenusScreen() {
     const { activeProfile } = useProfileContext();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     const now = new Date();
     const [year, setYear]   = useState(now.getFullYear());
@@ -54,7 +57,7 @@ export default function RevenusScreen() {
 
             const { data } = await supabase
                 .from('orders')
-                .select('*, products(name), stores!buyer_store_id(name)')
+                .select('*, stores!buyer_store_id(name)')
                 .eq('seller_store_id', activeProfile.id)
                 .eq('status', 'DELIVERED')
                 .gte('created_at', startOfMonth)
@@ -68,8 +71,6 @@ export default function RevenusScreen() {
             setLoading(false);
         }
     }, [activeProfile, year, month]);
-
-    useEffect(() => { fetchRevenue(); }, [fetchRevenue]);
 
     // Recharge à chaque retour sur l'écran
     useFocusEffect(useCallback(() => { fetchRevenue(); }, [fetchRevenue]));
@@ -93,7 +94,7 @@ export default function RevenusScreen() {
 
     // Revenus par produit
     const byProduct = orders.reduce<Record<string, ProductRevenue>>((acc, o) => {
-        const name   = o.products?.name ?? 'Produit inconnu';
+        const name   = o.product_name ?? 'Produit inconnu';
         const amount = o.total_amount > 0 ? o.total_amount : 0;
         if (!acc[name]) acc[name] = { name, total: 0, count: 0 };
         acc[name].total += amount;
@@ -150,10 +151,10 @@ export default function RevenusScreen() {
                 </View>
             </ScreenHeader>
 
-            {/* ── CONTENU ── */}
+            {/* -- CONTENU -- */}
             <ScrollView
                 style={styles.scroll}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, isDesktop && dtRev.scrollContent]}
                 showsVerticalScrollIndicator={false}
             >
                 {loading ? (
@@ -163,7 +164,7 @@ export default function RevenusScreen() {
                         <TrendingUp color={colors.slate300} size={48} />
                         <Text style={styles.emptyText}>AUCUN REVENU CE MOIS</Text>
                         <Text style={styles.emptySubText}>
-                            Les revenus des commandes livrées apparaîtront ici.
+                            Les revenus des commandes livrees apparaitront ici.
                         </Text>
                     </View>
                 ) : (
@@ -195,33 +196,76 @@ export default function RevenusScreen() {
                         )}
 
                         {/* Liste commandes */}
-                        <Text style={styles.sectionTitle}>DÉTAIL DES COMMANDES</Text>
-                        {orders.map(order => {
-                            const amount = order.total_amount > 0 ? order.total_amount : 0;
-                            return (
-                                <View key={order.id} style={styles.orderCard}>
-                                    <View style={styles.orderInfo}>
-                                        <Text style={styles.orderProduct} numberOfLines={1}>
-                                            {order.products?.name ?? 'Produit'}
-                                        </Text>
-                                        <Text style={styles.orderBuyer} numberOfLines={1}>
-                                            {order.stores?.name ?? 'Acheteur'}
-                                        </Text>
-                                        <Text style={styles.orderMeta}>
-                                            {order.quantity} unité(s) • {new Date(order.created_at).toLocaleDateString('fr-FR')}
-                                        </Text>
-                                    </View>
-                                    <View style={styles.orderRight}>
-                                        <Text style={styles.orderAmount}>
-                                            {amount > 0 ? `+${amount.toLocaleString('fr-FR')} F` : '–'}
-                                        </Text>
-                                        <View style={styles.deliveredBadge}>
-                                            <Text style={styles.deliveredBadgeText}>Livrée</Text>
+                        <Text style={styles.sectionTitle}>DETAIL DES COMMANDES</Text>
+
+                        {isDesktop ? (
+                            /* -- Desktop : tableau -- */
+                            <View style={dtRev.tableCard}>
+                                <View style={dtRev.tableHeader}>
+                                    <Text style={[dtRev.th, { flex: 2 }]}>Produit</Text>
+                                    <Text style={[dtRev.th, { flex: 1.5 }]}>Acheteur</Text>
+                                    <Text style={[dtRev.th, { flex: 1, textAlign: 'center' }]}>Quantite</Text>
+                                    <Text style={[dtRev.th, { flex: 1 }]}>Date</Text>
+                                    <Text style={[dtRev.th, { flex: 1, textAlign: 'right' }]}>Montant</Text>
+                                    <Text style={[dtRev.th, { flex: 0.8, textAlign: 'center' }]}>Statut</Text>
+                                </View>
+                                {orders.map((order, idx) => {
+                                    const amount = order.total_amount > 0 ? order.total_amount : 0;
+                                    return (
+                                        <View key={order.id} style={[dtRev.tableRow, idx % 2 === 1 && dtRev.tableRowAlt]}>
+                                            <Text style={[dtRev.td, { flex: 2, fontWeight: '700', color: colors.slate800 }]} numberOfLines={1}>
+                                                {order.product_name ?? 'Produit'}
+                                            </Text>
+                                            <Text style={[dtRev.td, { flex: 1.5 }]} numberOfLines={1}>
+                                                {order.stores?.name ?? 'Acheteur'}
+                                            </Text>
+                                            <Text style={[dtRev.td, { flex: 1, textAlign: 'center' }]}>
+                                                {order.quantity} unite(s)
+                                            </Text>
+                                            <Text style={[dtRev.td, { flex: 1 }]}>
+                                                {new Date(order.created_at).toLocaleDateString('fr-FR')}
+                                            </Text>
+                                            <Text style={[dtRev.td, { flex: 1, textAlign: 'right', fontWeight: '900', color: colors.primary }]}>
+                                                {amount > 0 ? `+${amount.toLocaleString('fr-FR')} F` : '--'}
+                                            </Text>
+                                            <View style={[dtRev.tdCenter, { flex: 0.8 }]}>
+                                                <View style={styles.deliveredBadge}>
+                                                    <Text style={styles.deliveredBadgeText}>Livree</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+                                    );
+                                })}
+                            </View>
+                        ) : (
+                            /* -- Mobile : cartes -- */
+                            orders.map(order => {
+                                const amount = order.total_amount > 0 ? order.total_amount : 0;
+                                return (
+                                    <View key={order.id} style={styles.orderCard}>
+                                        <View style={styles.orderInfo}>
+                                            <Text style={styles.orderProduct} numberOfLines={1}>
+                                                {order.product_name ?? 'Produit'}
+                                            </Text>
+                                            <Text style={styles.orderBuyer} numberOfLines={1}>
+                                                {order.stores?.name ?? 'Acheteur'}
+                                            </Text>
+                                            <Text style={styles.orderMeta}>
+                                                {order.quantity} unite(s) - {new Date(order.created_at).toLocaleDateString('fr-FR')}
+                                            </Text>
+                                        </View>
+                                        <View style={styles.orderRight}>
+                                            <Text style={styles.orderAmount}>
+                                                {amount > 0 ? `+${amount.toLocaleString('fr-FR')} F` : '--'}
+                                            </Text>
+                                            <View style={styles.deliveredBadge}>
+                                                <Text style={styles.deliveredBadgeText}>Livree</Text>
+                                            </View>
                                         </View>
                                     </View>
-                                </View>
-                            );
-                        })}
+                                );
+                            })
+                        )}
                     </>
                 )}
             </ScrollView>
@@ -331,4 +375,62 @@ const styles = StyleSheet.create({
     },
     emptyText:    { fontSize: 11, fontWeight: '900', color: colors.slate300, letterSpacing: 2, textAlign: 'center' },
     emptySubText: { fontSize: 12, fontWeight: '500', color: colors.slate400, textAlign: 'center' },
+});
+
+// -- Desktop styles --
+const dtRev = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as const,
+        width: '100%' as any,
+        padding: 32,
+    },
+    tableCard: {
+        backgroundColor: colors.white,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.slate100,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    tableHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.slate50,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.slate200,
+    },
+    th: {
+        fontSize: 11,
+        fontWeight: '900',
+        color: colors.slate500,
+        letterSpacing: 1,
+        textTransform: 'uppercase' as const,
+    },
+    tableRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.slate100,
+    },
+    tableRowAlt: {
+        backgroundColor: '#f8fafc',
+    },
+    td: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.slate600,
+    },
+    tdCenter: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
 });

@@ -16,7 +16,7 @@ const COLORS_FILE = path.join(ROOT, 'src', 'lib', 'colors.ts');
 
 // Palette approuvée (valeurs hex autorisées)
 const APPROVED_COLORS = new Set([
-  '#059669','#10b981','#047857','#ECFDF5','#D1FAE5',
+  '#C47316','#D4882E','#A36012','#FFF8F0','#FDEBD0',
   '#FFFFFF','#000000','#F9FAFB','#F3F4F6','#E5E7EB',
   '#D1D5DB','#9CA3AF','#6B7280','#4B5563','#374151',
   '#1F2937','#111827','#DC2626','#D97706','#2563EB',
@@ -367,11 +367,11 @@ function auditHeaders(file, lines) {
   }
 
   // Header vert — si le header est inline, vérifier la couleur
-  const hasGreenHeader = /#059669/.test(content);
-  const inlineHeaderBg = /backgroundColor\s*:\s*['"](?!#059669)[^'"]+['"]/g;
+  const hasGreenHeader = /#C47316/.test(content);
+  const inlineHeaderBg = /backgroundColor\s*:\s*['"](?!#C47316)[^'"]+['"]/g;
   lines.forEach((line, i) => {
     if (/header.*backgroundColor|backgroundColor.*header/i.test(line)) {
-      if (!/#059669/.test(line)) {
+      if (!/#C47316/.test(line)) {
         addIssue(file, 'HEADERS', 'warning', i + 1,
           `Header avec couleur non verte : ${line.trim().slice(0, 80)}`);
       }
@@ -586,7 +586,7 @@ function printReport() {
 
   console.log('');
   console.log(bold('╔══════════════════════════════════════════════════════════════╗'));
-  console.log(bold('║         AUDIT DESIGN — Inclusion Marchand Mobile            ║'));
+  console.log(bold('║         AUDIT DESIGN — Jùlaba Mobile            ║'));
   console.log(bold(`║  ${date.padEnd(60)}║`));
   console.log(bold('╚══════════════════════════════════════════════════════════════╝'));
   console.log('');

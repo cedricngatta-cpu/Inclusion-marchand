@@ -15,7 +15,7 @@ Tu es l'agent de mémoire du projet. Tu gardes la trace de tout ce qui a été f
 
 ### Architecture
 - App mobile React Native / Expo SDK 54 (compatible Expo Go 54.0.6)
-- Backend : Supabase (PostgreSQL) — projet ref: dinocjmwktrxqupyjsqn
+- Backend : Supabase (PostgreSQL) — projet ref: lpowdjvxikqtorhadhyv
 - Realtime : Socket.io (serveur Node.js Express sur port 3001)
 - IA vocale : Groq API (Llama 3.3 70B + Whisper large v3 turbo)
 - TTS : expo-speech (fr-FR)

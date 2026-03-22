@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Génération des assets visuels — Inclusion Marchand Mobile
+// Génération des assets visuels — Jùlaba Mobile
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // Prérequis : npm install --save-dev jimp@0.22.12
@@ -20,7 +20,7 @@ const path = require('path');
 const ASSETS = path.join(__dirname, '..', 'assets');
 
 // ── Couleurs (RGBA int) ────────────────────────────────────────────────────
-const GREEN       = 0x059669FF;  // vert principal
+const ORANGE      = 0xC47316FF;  // orange Jùlaba
 const WHITE       = 0xFFFFFFFF;
 const TRANSPARENT = 0x00000000;
 
@@ -117,7 +117,7 @@ function drawShopSymbol(img, centerX, centerY, size, colorInt) {
 
 async function generateIcon() {
     const S   = 1024;
-    const img = new Jimp(S, S, GREEN);
+    const img = new Jimp(S, S, ORANGE);
 
     // Badge blanc arrondi centré (zone logo)
     const bw = Math.floor(S * 0.56);
@@ -135,7 +135,7 @@ async function generateIcon() {
         font,
         0,
         Math.floor(S * 0.71),
-        { text: 'Inclusion Marchand', alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
+        { text: 'Jùlaba', alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
         S,
         80,
     );
@@ -145,7 +145,7 @@ async function generateIcon() {
 }
 
 async function generateSplash() {
-    // Image transparente — Expo affiche `backgroundColor` (#059669) en fond
+    // Image transparente — Expo affiche `backgroundColor` (#C47316) en fond
     const S   = 512;
     const img = new Jimp(S, S, TRANSPARENT);
 
@@ -158,7 +158,7 @@ async function generateSplash() {
         font32,
         0,
         Math.floor(S * 0.68),
-        { text: 'Inclusion Marchand', alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
+        { text: 'Jùlaba', alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
         S,
         48,
     );
@@ -189,7 +189,7 @@ async function generateAndroidForeground() {
         font,
         0,
         Math.floor(S * 0.68),
-        { text: 'Inclusion Marchand', alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
+        { text: 'Jùlaba', alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
         S,
         80,
     );
@@ -210,7 +210,7 @@ async function generateAndroidMonochrome() {
         font,
         0,
         Math.floor(S * 0.68),
-        { text: 'Inclusion Marchand', alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
+        { text: 'Jùlaba', alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER },
         S,
         80,
     );
@@ -221,7 +221,7 @@ async function generateAndroidMonochrome() {
 
 async function generateFavicon() {
     const S   = 196;
-    const img = new Jimp(S, S, GREEN);
+    const img = new Jimp(S, S, ORANGE);
 
     drawShopSymbol(img, S / 2, S / 2 - 8, Math.floor(S * 0.50), WHITE);
 
@@ -232,7 +232,7 @@ async function generateFavicon() {
 // ── Entrée ─────────────────────────────────────────────────────────────────
 
 async function main() {
-    console.log('\n🎨  Génération des assets visuels — Inclusion Marchand\n');
+    console.log('\n🎨  Génération des assets visuels — Jùlaba\n');
     await generateIcon();
     await generateSplash();
     await generateAndroidForeground();

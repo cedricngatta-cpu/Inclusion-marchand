@@ -368,7 +368,7 @@ function printReport(routeMap, calls, brokenLinks, orphans, notifIssues) {
 
   console.log('');
   console.log(bold('╔══════════════════════════════════════════════════════════════╗'));
-  console.log(bold('║       AUDIT NAVIGATION — Inclusion Marchand Mobile          ║'));
+  console.log(bold('║       AUDIT NAVIGATION — Jùlaba Mobile          ║'));
   console.log(bold(`║  ${date.padEnd(60)}║`));
   console.log(bold('╚══════════════════════════════════════════════════════════════╝'));
   console.log('');

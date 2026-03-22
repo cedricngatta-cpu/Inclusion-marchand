@@ -50,8 +50,8 @@ function PulsingBars({ active }: { active: boolean }) {
         const anims = bars.map((b, i) =>
             Animated.loop(Animated.sequence([
                 Animated.delay(i * 120),
-                Animated.timing(b, { toValue: 1,   duration: 300, useNativeDriver: true }),
-                Animated.timing(b, { toValue: 0.4, duration: 300, useNativeDriver: true }),
+                Animated.timing(b, { toValue: 1,   duration: 300, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(b, { toValue: 0.4, duration: 300, useNativeDriver: Platform.OS !== 'web' }),
             ]))
         );
         anims.forEach(a => a.start());
@@ -132,7 +132,6 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
         // Timeout global de 20s — jamais de chargement infini
         const globalTimeout = setTimeout(() => {
-            console.log('TIMEOUT generateWelcome — 20s dépassés');
             const fallback = `Bonjour ${userName.split(' ')[0]} ! Connexion lente. Mode local activé.`;
             setMode('local');
             addAssistantMessage(fallback, { isWelcome: true });
@@ -623,7 +622,7 @@ const styles = StyleSheet.create({
         shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.2, shadowRadius: 4,
     },
-    micActive:   { backgroundColor: '#dc2626' },
-    micSpeaking: { backgroundColor: '#7c3aed' },
+    micActive:   { backgroundColor: colors.error },
+    micSpeaking: { backgroundColor: colors.purple },
     micHint:     { fontSize: 11, color: '#94a3b8', fontWeight: '600' },
 });

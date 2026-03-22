@@ -1,7 +1,7 @@
 {
-  "name": "inclusion-marchand-server",
+  "name": "julaba-server",
   "version": "1.0.0",
-  "description": "Serveur Socket.io realtime — Inclusion Marchand",
+  "description": "Serveur Socket.io realtime — Julaba",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

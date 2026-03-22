@@ -1,9 +1,10 @@
 // Bandeau "Hors ligne" — affiché en overlay quand pas de connexion
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WifiOff, Wifi } from 'lucide-react-native';
 import { useNetwork } from '@/src/context/NetworkContext';
+import { colors } from '@/src/lib/colors';
 
 export default function OfflineBanner() {
     const { isOnline, pendingCount }  = useNetwork();
@@ -21,7 +22,7 @@ export default function OfflineBanner() {
             setVisible(true);
             Animated.spring(translateY, {
                 toValue: 0,
-                useNativeDriver: true,
+                useNativeDriver: Platform.OS !== 'web',
                 tension: 80,
                 friction: 10,
             }).start();
@@ -32,7 +33,7 @@ export default function OfflineBanner() {
                 Animated.timing(translateY, {
                     toValue: -80,
                     duration: 350,
-                    useNativeDriver: true,
+                    useNativeDriver: Platform.OS !== 'web',
                 }).start(() => {
                     setVisible(false);
                     setReconnected(false);
@@ -91,7 +92,7 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     bannerOffline: { backgroundColor: '#b45309' },
-    bannerOnline:  { backgroundColor: '#059669' },
+    bannerOnline:  { backgroundColor: colors.primary },
     text: {
         color: '#fff',
         fontSize: 11,

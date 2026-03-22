@@ -1,5 +1,5 @@
 // Contexte notifications — rôle-specific, Supabase persistant + AsyncStorage offline-first
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { storage } from '@/src/lib/storage';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from './AuthContext';
@@ -442,7 +442,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
     };
 
-    const unreadCount = notifications.filter(n => !n.lu).length;
+    const unreadCount = useMemo(() => notifications.filter(n => !n.lu).length, [notifications]);
 
     return (
         <NotificationContext.Provider value={{

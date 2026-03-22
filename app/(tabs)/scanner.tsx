@@ -42,8 +42,8 @@ export default function ScannerScreen() {
     useEffect(() => {
         const loop = Animated.loop(
             Animated.sequence([
-                Animated.timing(scanAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
-                Animated.timing(scanAnim, { toValue: 0, duration: 0, useNativeDriver: true }),
+                Animated.timing(scanAnim, { toValue: 1, duration: 1800, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(scanAnim, { toValue: 0, duration: 0, useNativeDriver: Platform.OS !== 'web' }),
             ])
         );
         loop.start();

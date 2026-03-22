@@ -1,11 +1,11 @@
 // Palette de couleurs — design system unifié
 export const colors = {
-    // Couleur principale : emerald-600
-    primary: '#059669',
-    primaryLight: '#10b981',
-    primaryDark: '#047857',
-    primaryBg: '#ECFDF5',
-    primaryBg2: '#D1FAE5',
+    // Couleur principale : orange Jùlaba
+    primary: '#C47316',
+    primaryLight: '#D4882E',
+    primaryDark: '#A36012',
+    primaryBg: '#FFF8F0',
+    primaryBg2: '#FDEBD0',
 
     // Neutres
     white: '#FFFFFF',

@@ -140,7 +140,7 @@ export default function MesCommandesScreen() {
             // Étape 1 : commandes où je suis acheteur
             const { data: ordersData, error } = await supabase
                 .from('orders')
-                .select('*, products(name, price), stores!seller_store_id(id, name, owner_id)')
+                .select('*, stores!seller_store_id(id, name, owner_id)')
                 .eq('buyer_store_id', activeProfile.id)
                 .order('created_at', { ascending: false });
 

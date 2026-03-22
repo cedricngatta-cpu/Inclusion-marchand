@@ -34,11 +34,11 @@ export default function VoiceButton() {
     if (!voiceButtonVisible || keyboardVisible) return null;
 
     function handlePressIn() {
-        Animated.spring(scale, { toValue: 0.92, useNativeDriver: true }).start();
+        Animated.spring(scale, { toValue: 0.92, useNativeDriver: Platform.OS !== 'web' }).start();
     }
 
     function handlePressOut() {
-        Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
+        Animated.spring(scale, { toValue: 1, useNativeDriver: Platform.OS !== 'web' }).start();
     }
 
     return (

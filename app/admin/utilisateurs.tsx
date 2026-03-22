@@ -39,11 +39,11 @@ type RoleFilter = 'tous' | 'MERCHANT' | 'PRODUCER' | 'FIELD_AGENT' | 'COOPERATIV
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const ROLE_COLORS: Record<string, { bg: string; text: string; label: string; avatarBg: string }> = {
-    MERCHANT:    { bg: '#dcfce7', text: '#065f46', label: 'Marchand',    avatarBg: '#059669' },
+    MERCHANT:    { bg: '#dcfce7', text: '#065f46', label: 'Marchand',    avatarBg: colors.primary },
     PRODUCER:    { bg: '#dbeafe', text: '#1e40af', label: 'Producteur',  avatarBg: '#2563eb' },
     FIELD_AGENT: { bg: '#fef3c7', text: '#92400e', label: 'Agent',       avatarBg: '#d97706' },
     COOPERATIVE: { bg: '#ede9fe', text: '#5b21b6', label: 'Coopérative', avatarBg: '#7c3aed' },
-    SUPERVISOR:  { bg: '#fee2e2', text: '#991b1b', label: 'Admin',       avatarBg: '#dc2626' },
+    SUPERVISOR:  { bg: '#fee2e2', text: '#991b1b', label: 'Admin',       avatarBg: colors.error },
 };
 
 function getRoleInfo(role: string) {
@@ -106,7 +106,9 @@ export default function Utilisateurs() {
             }
 
             const rows = (data as Profile[]) ?? [];
-            console.log('[Utilisateurs] profils chargés:', rows.length);
+            const byRole: Record<string, number> = {};
+            for (const r of rows) byRole[r.role] = (byRole[r.role] ?? 0) + 1;
+            console.log('[Utilisateurs] ✅ profils chargés:', rows.length, '— par rôle:', JSON.stringify(byRole));
 
             // Enrichir avec les noms de coopératives (si la colonne existe)
             const coopIds = [...new Set(rows.map(r => r.cooperative_id).filter(Boolean))] as string[];
@@ -130,9 +132,8 @@ export default function Utilisateurs() {
         }
     }, []);
 
-    useEffect(() => { setLoading(true); fetchUsers(); }, [fetchUsers]);
     const onRefresh = useCallback(() => { setRefreshing(true); fetchUsers(); }, [fetchUsers]);
-    useFocusEffect(useCallback(() => { fetchUsers(); }, [fetchUsers]));
+    useFocusEffect(useCallback(() => { setLoading(true); fetchUsers(); }, [fetchUsers]));
 
     // Socket.io — rafraîchir quand un nouveau membre est enrôlé/validé
     useEffect(() => {
@@ -223,9 +224,9 @@ export default function Utilisateurs() {
                     text: 'Confirmer', style: 'destructive',
                     onPress: async () => {
                         const { error } = await supabase
-                            .from('profiles').update({ pin: '0000' }).eq('id', u.id);
+                            .from('profiles').update({ pin: '0101' }).eq('id', u.id);
                         if (error) Alert.alert('Erreur', 'Impossible de réinitialiser le PIN');
-                        else Alert.alert('Succès', `PIN de ${u.full_name} réinitialisé à 0000`);
+                        else Alert.alert('Succès', `PIN de ${u.full_name} réinitialisé à 0101`);
                     },
                 },
                 { text: 'Annuler', style: 'cancel' },
@@ -289,11 +290,11 @@ export default function Utilisateurs() {
                 showBack={true}
                 paddingBottom={16}
             >
-                <View style={s.searchBar}>
+                <View style={[s.searchBar, isDesktop && { maxWidth: 500 }]}>
                     <User color="rgba(255,255,255,0.6)" size={16} />
                     <TextInput
                         style={s.searchInput}
-                        placeholder="Rechercher par nom ou téléphone..."
+                        placeholder="Rechercher par nom ou telephone..."
                         placeholderTextColor="rgba(255,255,255,0.5)"
                         value={search}
                         onChangeText={setSearch}
@@ -307,30 +308,47 @@ export default function Utilisateurs() {
             </ScreenHeader>
 
             {/* Filtres rôle */}
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={s.filterScroll}
-                contentContainerStyle={s.filterRow}
-            >
-                {ROLE_FILTERS.map(f => (
-                    <TouchableOpacity
-                        key={f.key}
-                        style={[s.filterBtn, roleFilter === f.key && s.filterBtnActive]}
-                        activeOpacity={0.82}
-                        onPress={() => setRoleFilter(f.key)}
-                    >
-                        <Text style={[s.filterLabel, roleFilter === f.key && s.filterLabelActive]}>
-                            {f.label}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
+            {isDesktop ? (
+                <View style={[s.filterRow, { paddingHorizontal: 32, paddingVertical: 10, maxWidth: 1400, alignSelf: 'center' as const, width: '100%' }]}>
+                    {ROLE_FILTERS.map(f => (
+                        <TouchableOpacity
+                            key={f.key}
+                            style={[s.filterBtn, roleFilter === f.key && s.filterBtnActive]}
+                            activeOpacity={0.82}
+                            onPress={() => setRoleFilter(f.key)}
+                        >
+                            <Text style={[s.filterLabel, roleFilter === f.key && s.filterLabelActive]}>
+                                {f.label}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            ) : (
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={s.filterScroll}
+                    contentContainerStyle={s.filterRow}
+                >
+                    {ROLE_FILTERS.map(f => (
+                        <TouchableOpacity
+                            key={f.key}
+                            style={[s.filterBtn, roleFilter === f.key && s.filterBtnActive]}
+                            activeOpacity={0.82}
+                            onPress={() => setRoleFilter(f.key)}
+                        >
+                            <Text style={[s.filterLabel, roleFilter === f.key && s.filterLabelActive]}>
+                                {f.label}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            )}
 
             {/* Liste */}
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && dtU.desktopContent]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 refreshControl={
@@ -342,22 +360,62 @@ export default function Utilisateurs() {
                 ) : filtered.length === 0 ? (
                     <View style={s.emptyCard}>
                         <User color={colors.slate300} size={40} />
-                        <Text style={s.emptyText}>AUCUN UTILISATEUR TROUVÉ</Text>
+                        <Text style={s.emptyText}>AUCUN UTILISATEUR TROUVE</Text>
+                    </View>
+                ) : isDesktop ? (
+                    /* ── Tableau desktop dans une card blanche ── */
+                    <View style={dtU.tableCard}>
+                        <View style={dtU.tableHeader}>
+                            <View style={dtU.colAvatar} />
+                            <Text style={[dtU.thText, dtU.colName]}>NOM</Text>
+                            <Text style={[dtU.thText, dtU.colPhone]}>TELEPHONE</Text>
+                            <Text style={[dtU.thText, dtU.colRole]}>ROLE</Text>
+                            <Text style={[dtU.thText, dtU.colCoop]}>COOPERATIVE</Text>
+                            <Text style={[dtU.thText, dtU.colStatus]}>STATUT</Text>
+                            <Text style={[dtU.thText, dtU.colDate]}>DATE</Text>
+                            <View style={dtU.colChev} />
+                        </View>
+                        {filtered.map((u, idx) => {
+                            const ri      = getRoleInfo(u.role);
+                            const initial = (u.full_name ?? 'U')[0].toUpperCase();
+                            const isPending = !u.cooperative_id &&
+                                (u.role === 'MERCHANT' || u.role === 'PRODUCER');
+                            return (
+                                <TouchableOpacity
+                                    key={u.id}
+                                    style={[dtU.tableRow, idx % 2 === 1 && dtU.tableRowAlt]}
+                                    activeOpacity={0.85}
+                                    onPress={() => openModal(u)}
+                                >
+                                    <View style={[s.avatar, { backgroundColor: ri.avatarBg }, dtU.colAvatar]}>
+                                        <Text style={s.avatarText}>{initial}</Text>
+                                    </View>
+                                    <Text style={[s.userName, dtU.colName]} numberOfLines={1}>{u.full_name}</Text>
+                                    <Text style={[s.userPhone, dtU.colPhone]} numberOfLines={1}>{u.phone_number}</Text>
+                                    <View style={[dtU.colRole, { alignItems: 'flex-start' }]}>
+                                        <View style={[s.roleBadge, { backgroundColor: ri.bg }]}>
+                                            <Text style={[s.roleBadgeText, { color: ri.text }]}>{ri.label}</Text>
+                                        </View>
+                                    </View>
+                                    <Text style={[s.userCoop, dtU.colCoop]} numberOfLines={1}>
+                                        {u.cooperative_nom ?? (isPending ? 'A affecter' : '--')}
+                                    </Text>
+                                    <View style={[dtU.colStatus, { alignItems: 'flex-start' }]}>
+                                        <View style={[dtU.statusBadge, dtU.statusActive]}>
+                                            <Text style={[dtU.statusBadgeText, { color: '#065f46' }]}>Actif</Text>
+                                        </View>
+                                    </View>
+                                    <Text style={[s.userDate, dtU.colDate]} numberOfLines={1}>
+                                        {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                                    </Text>
+                                    <ChevronRight color={colors.slate300} size={16} />
+                                </TouchableOpacity>
+                            );
+                        })}
                     </View>
                 ) : (
+                    /* ── Cartes mobile ── */
                     <>
-                        {/* En-tête tableau (desktop uniquement) */}
-                        {isDesktop && (
-                            <View style={dtU.tableHeader}>
-                                <View style={dtU.colAvatar} />
-                                <Text style={[dtU.thText, dtU.colName]}>NOM</Text>
-                                <Text style={[dtU.thText, dtU.colPhone]}>TÉLÉPHONE</Text>
-                                <Text style={[dtU.thText, dtU.colRole]}>RÔLE</Text>
-                                <Text style={[dtU.thText, dtU.colCoop]}>COOPÉRATIVE</Text>
-                                <Text style={[dtU.thText, dtU.colDate]}>INSCRIPTION</Text>
-                                <View style={dtU.colChev} />
-                            </View>
-                        )}
                         {filtered.map(u => {
                             const ri      = getRoleInfo(u.role);
                             const initial = (u.full_name ?? 'U')[0].toUpperCase();
@@ -366,60 +424,36 @@ export default function Utilisateurs() {
                             return (
                                 <TouchableOpacity
                                     key={u.id}
-                                    style={[s.userCard, isDesktop && dtU.tableRow]}
+                                    style={s.userCard}
                                     activeOpacity={0.85}
                                     onPress={() => openModal(u)}
                                 >
-                                    {/* Avatar */}
-                                    <View style={[s.avatar, { backgroundColor: ri.avatarBg }, isDesktop && dtU.colAvatar]}>
+                                    <View style={[s.avatar, { backgroundColor: ri.avatarBg }]}>
                                         <Text style={s.avatarText}>{initial}</Text>
                                     </View>
-
-                                    {isDesktop ? (
-                                        // ── Ligne tableau desktop ──────────────────────────────
-                                        <>
-                                            <Text style={[s.userName, dtU.colName]} numberOfLines={1}>{u.full_name}</Text>
-                                            <Text style={[s.userPhone, dtU.colPhone]} numberOfLines={1}>{u.phone_number}</Text>
-                                            <View style={[dtU.colRole, { alignItems: 'flex-start' }]}>
-                                                <View style={[s.roleBadge, { backgroundColor: ri.bg }]}>
-                                                    <Text style={[s.roleBadgeText, { color: ri.text }]}>{ri.label}</Text>
-                                                </View>
-                                            </View>
-                                            <Text style={[s.userCoop, dtU.colCoop]} numberOfLines={1}>
-                                                {u.cooperative_nom ?? (isPending ? 'À affecter' : '—')}
+                                    <View style={s.userInfo}>
+                                        <Text style={s.userName} numberOfLines={1}>{u.full_name}</Text>
+                                        <Text style={s.userPhone}>{u.phone_number}</Text>
+                                        {u.boutique_name && (
+                                            <Text style={s.userBoutique} numberOfLines={1}>
+                                                {u.boutique_name}
                                             </Text>
-                                            <Text style={[s.userDate, dtU.colDate]} numberOfLines={1}>
-                                                {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                                        )}
+                                        {u.cooperative_nom && (
+                                            <Text style={s.userCoop} numberOfLines={1}>
+                                                {u.cooperative_nom}
                                             </Text>
-                                        </>
-                                    ) : (
-                                        // ── Carte mobile ──────────────────────────────────────
-                                        <>
-                                            <View style={s.userInfo}>
-                                                <Text style={s.userName} numberOfLines={1}>{u.full_name}</Text>
-                                                <Text style={s.userPhone}>{u.phone_number}</Text>
-                                                {u.boutique_name && (
-                                                    <Text style={s.userBoutique} numberOfLines={1}>
-                                                        🏪 {u.boutique_name}
-                                                    </Text>
-                                                )}
-                                                {u.cooperative_nom && (
-                                                    <Text style={s.userCoop} numberOfLines={1}>
-                                                        🤝 {u.cooperative_nom}
-                                                    </Text>
-                                                )}
-                                                {isPending && (
-                                                    <Text style={s.userNoCoopBadge}>À affecter</Text>
-                                                )}
-                                                <Text style={s.userDate}>
-                                                    {new Date(u.created_at).toLocaleDateString('fr-FR')}
-                                                </Text>
-                                            </View>
-                                            <View style={[s.roleBadge, { backgroundColor: ri.bg }]}>
-                                                <Text style={[s.roleBadgeText, { color: ri.text }]}>{ri.label}</Text>
-                                            </View>
-                                        </>
-                                    )}
+                                        )}
+                                        {isPending && (
+                                            <Text style={s.userNoCoopBadge}>A affecter</Text>
+                                        )}
+                                        <Text style={s.userDate}>
+                                            {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                                        </Text>
+                                    </View>
+                                    <View style={[s.roleBadge, { backgroundColor: ri.bg }]}>
+                                        <Text style={[s.roleBadgeText, { color: ri.text }]}>{ri.label}</Text>
+                                    </View>
                                     <ChevronRight color={colors.slate300} size={16} />
                                 </TouchableOpacity>
                             );
@@ -506,7 +540,7 @@ export default function Utilisateurs() {
                                             (selectedUser.role === 'MERCHANT' || selectedUser.role === 'PRODUCER') && (
                                             <View style={s.modalInfoRow}>
                                                 <Text style={s.modalInfoLabel}>Coopérative</Text>
-                                                <Text style={[s.modalInfoValue, { color: '#dc2626' }]}>Non affecté</Text>
+                                                <Text style={[s.modalInfoValue, { color: colors.error }]}>Non affecté</Text>
                                             </View>
                                         )}
                                     </View>
@@ -527,9 +561,9 @@ export default function Utilisateurs() {
                                                 </View>
                                             )}
                                             <View style={s.statsRow}>
-                                                <View style={[s.statBox, { backgroundColor: '#ecfdf5' }]}>
-                                                    <ShoppingBag color="#059669" size={18} />
-                                                    <Text style={[s.statVal, { color: '#059669' }]}>
+                                                <View style={[s.statBox, { backgroundColor: colors.primaryBg }]}>
+                                                    <ShoppingBag color={colors.primary} size={18} />
+                                                    <Text style={[s.statVal, { color: colors.primary }]}>
                                                         {userStats.salesCount}
                                                     </Text>
                                                     <Text style={s.statLbl}>Ventes</Text>
@@ -600,7 +634,7 @@ export default function Utilisateurs() {
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-    safe: { flex: 1, backgroundColor: '#f8fafc' },
+    safe: { flex: 1, backgroundColor: colors.slate50 },
 
     // Barre de recherche (dans le header)
     searchBar: {
@@ -618,9 +652,9 @@ const s = StyleSheet.create({
         borderRadius: 8, borderWidth: 1.5, borderColor: '#e2e8f0',
         backgroundColor: '#fff',
     },
-    filterBtnActive:   { borderColor: '#059669', backgroundColor: '#ecfdf5' },
+    filterBtnActive:   { borderColor: colors.primary, backgroundColor: colors.primaryBg },
     filterLabel:       { fontSize: 11, fontWeight: '700', color: '#64748b' },
-    filterLabelActive: { color: '#059669' },
+    filterLabelActive: { color: colors.primary },
 
     // Scroll
     scroll:        { flex: 1 },
@@ -642,10 +676,10 @@ const s = StyleSheet.create({
     userInfo:    { flex: 1, minWidth: 0, gap: 2 },
     userName:    { fontSize: 13, fontWeight: '700', color: '#1e293b' },
     userPhone:   { fontSize: 11, color: '#64748b' },
-    userBoutique:    { fontSize: 11, color: '#059669', fontWeight: '600' },
+    userBoutique:    { fontSize: 11, color: colors.primary, fontWeight: '600' },
     userDate:        { fontSize: 11, color: '#94a3b8' },
     userCoop:        { fontSize: 11, color: '#7c3aed', fontWeight: '600' },
-    userNoCoopBadge: { fontSize: 11, fontWeight: '700', color: '#dc2626' },
+    userNoCoopBadge: { fontSize: 11, fontWeight: '700', color: colors.error },
     roleBadge:     { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexShrink: 0 },
     roleBadgeText: { fontSize: 11, fontWeight: '700' },
 
@@ -686,7 +720,7 @@ const s = StyleSheet.create({
     modalName:       { fontSize: 18, fontWeight: '900', color: '#1e293b' },
 
     modalInfoBlock: {
-        backgroundColor: '#f8fafc', borderRadius: 10,
+        backgroundColor: colors.slate50, borderRadius: 10,
         padding: 14, gap: 10,
     },
     modalInfoRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
@@ -699,10 +733,10 @@ const s = StyleSheet.create({
     },
     storeTag: {
         flexDirection: 'row', alignItems: 'center', gap: 6,
-        backgroundColor: '#ecfdf5', borderRadius: 8,
+        backgroundColor: colors.primaryBg, borderRadius: 8,
         paddingHorizontal: 12, paddingVertical: 8, marginBottom: 8,
     },
-    storeTagText: { fontSize: 13, fontWeight: '700', color: '#059669' },
+    storeTagText: { fontSize: 13, fontWeight: '700', color: colors.primary },
 
     statsRow:  { flexDirection: 'row', gap: 8, marginBottom: 8 },
     statBox:   {
@@ -723,22 +757,57 @@ const s = StyleSheet.create({
 
 // ── Desktop table styles ────────────────────────────────────────────────────────
 const dtU = StyleSheet.create({
+    desktopContent: {
+        maxWidth: 1400,
+        alignSelf: 'center',
+        width: '100%',
+        padding: 32,
+    },
+    tableCard: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+        elevation: 3,
+    },
     tableHeader: {
         flexDirection: 'row', alignItems: 'center',
-        paddingHorizontal: 12, paddingVertical: 8,
-        backgroundColor: '#f1f5f9', borderRadius: 10,
-        marginBottom: 4,
+        paddingHorizontal: 16, paddingVertical: 12,
+        backgroundColor: '#f1f5f9',
+        borderBottomWidth: 1, borderBottomColor: '#e2e8f0',
     },
     tableRow: {
-        gap: 0,
+        flexDirection: 'row', alignItems: 'center',
+        paddingHorizontal: 16, paddingVertical: 10,
+        borderBottomWidth: 1, borderBottomColor: '#f1f5f9',
+    },
+    tableRowAlt: {
+        backgroundColor: colors.slate50,
     },
     thText: { fontSize: 10, fontWeight: '900', color: '#94a3b8', letterSpacing: 1 },
-    // Colonnes — largeurs fixes / flex
+    // Colonnes
     colAvatar: { width: 44, marginRight: 12 },
     colName:   { flex: 2, fontSize: 13, fontWeight: '700', color: '#1e293b', paddingRight: 8 },
     colPhone:  { flex: 1.5, fontSize: 11, color: '#64748b', paddingRight: 8 },
     colRole:   { flex: 1, paddingRight: 8 },
     colCoop:   { flex: 1.5, fontSize: 11, color: '#7c3aed', fontWeight: '600', paddingRight: 8 },
+    colStatus: { flex: 0.8, paddingRight: 8 },
     colDate:   { flex: 1, fontSize: 11, color: '#94a3b8', paddingRight: 8 },
     colChev:   { width: 16 },
+    // Status badges
+    statusBadge: {
+        paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+    },
+    statusActive: {
+        backgroundColor: '#d1fae5',
+    },
+    statusInactive: {
+        backgroundColor: '#fee2e2',
+    },
+    statusBadgeText: {
+        fontSize: 11, fontWeight: '700',
+    },
 });

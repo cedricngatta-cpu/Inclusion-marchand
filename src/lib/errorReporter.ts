@@ -121,6 +121,8 @@ export const reportRenderError = (component: string, error: { message?: string; 
 
 // Capture les erreurs JS non catchées + promesses rejetées
 export const setupGlobalErrorHandler = (): void => {
+  // ErrorUtils n'existe pas sur web — protection
+  if (typeof ErrorUtils === 'undefined') return;
   const originalHandler = ErrorUtils.getGlobalHandler();
   ErrorUtils.setGlobalHandler((error: Error, isFatal?: boolean) => {
     reportError('crash', error.message, {

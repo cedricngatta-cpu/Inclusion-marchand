@@ -1,7 +1,7 @@
 // Contexte d'authentification — migré depuis Next.js
 // Utilise AsyncStorage au lieu de localStorage + AppState au lieu de visibilityChange
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AppState, AppStateStatus, Platform } from 'react-native';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { Alert, AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { router } from 'expo-router';
@@ -27,7 +27,7 @@ interface AuthContextType {
     login: (phoneNumber: string, pin: string) => Promise<boolean>;
     signup: (name: string, phoneNumber: string, pin: string, role: User['role']) => Promise<boolean>;
     unlock: (pin: string) => Promise<boolean>;
-    logout: () => void;
+    logout: () => Promise<void>;
     setLocked: (locked: boolean) => void;
     setMustChangePin: (v: boolean) => void;
     updatePin: (newPin: string) => Promise<boolean>;
@@ -68,6 +68,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLocked, setIsLocked]       = useState<boolean>(false);
     const [mustChangePin, setMustChangePin] = useState<boolean>(false);
     const [sessionKey, setSessionKey]   = useState<number>(0);
+
+    // Protection brute-force
+    const loginAttemptsRef = useRef<Record<string, { count: number; blockedUntil: number }>>({});
+
+    const checkBruteForce = (key: string): string | null => {
+        const entry = loginAttemptsRef.current[key];
+        if (!entry) return null;
+        if (entry.blockedUntil > Date.now()) {
+            const remainSec = Math.ceil((entry.blockedUntil - Date.now()) / 1000);
+            const remainMin = Math.ceil(remainSec / 60);
+            return `Trop de tentatives. Réessayez dans ${remainMin} min.`;
+        }
+        if (entry.count >= 10) {
+            entry.blockedUntil = Date.now() + 30 * 60_000;
+            return 'Compte bloqué pendant 30 minutes.';
+        }
+        return null;
+    };
+
+    const recordFailedAttempt = (key: string) => {
+        if (!loginAttemptsRef.current[key]) {
+            loginAttemptsRef.current[key] = { count: 0, blockedUntil: 0 };
+        }
+        loginAttemptsRef.current[key].count++;
+        if (loginAttemptsRef.current[key].count >= 5 && loginAttemptsRef.current[key].blockedUntil === 0) {
+            loginAttemptsRef.current[key].blockedUntil = Date.now() + 5 * 60_000;
+        }
+    };
+
+    const clearAttempts = (key: string) => {
+        delete loginAttemptsRef.current[key];
+    };
 
     // Restaurer la session au démarrage
     useEffect(() => {
@@ -138,6 +170,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [isAuthenticated]);
 
     const login = async (phoneNumber: string, pin: string): Promise<boolean> => {
+        const bruteMsg = checkBruteForce(phoneNumber);
+        if (bruteMsg) { Alert.alert('Bloqué', bruteMsg); return false; }
+
         try {
             const { data, error } = await supabase
                 .from('profiles')
@@ -147,13 +182,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 .single();
 
             if (error || !data) {
+                console.warn('[Auth] Login Supabase échec:', error?.message ?? 'profil introuvable', '— phone:', phoneNumber);
                 // Mode démo — désactivé en production
                 if (__DEV__ && phoneNumber === '0000' && pin === '0000') {
+                    console.warn('[Auth] ⚠️ Mode DEMO activé — user.id = admin-001 (pas un UUID réel). Exécutez le seed pour des données réelles.');
                     const demoUser: User = { id: 'admin-001', phoneNumber: '0000', role: 'SUPERVISOR', name: 'Superviseur' };
                     await handleAuthSuccess(demoUser);
                     await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline
+                    clearAttempts(phoneNumber);
                     return true;
                 }
+                recordFailedAttempt(phoneNumber);
                 return false;
             }
 
@@ -163,11 +202,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 role: normalizeRole(data.role),
                 name: data.full_name,
             };
+            console.log('[Auth] ✅ Login OK:', userData.name, '| role:', userData.role, '| id:', userData.id);
 
             setProfile(data);
             if (data.pin === '0101') setMustChangePin(true);
             await handleAuthSuccess(userData);
             await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline
+            clearAttempts(phoneNumber);
             return true;
         } catch (err) {
             console.error('[Auth] Login error:', err);
@@ -193,12 +234,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 .select()
                 .single();
 
-            if (data && role === 'MERCHANT') {
-                await supabase.from('stores').insert([{
-                    owner_id: data.id,
-                    name: 'Ma Boutique',
-                    status: 'ACTIVE',
-                }]);
+            if (data && (role === 'MERCHANT' || role === 'PRODUCER')) {
+                // Vérifier si le store existe déjà avant de créer
+                const { data: existingStore } = await supabase
+                    .from('stores')
+                    .select('id')
+                    .eq('owner_id', data.id)
+                    .maybeSingle();
+
+                if (!existingStore) {
+                    await supabase.from('stores').insert([{
+                        owner_id: data.id,
+                        name: role === 'PRODUCER' ? 'Ma Ferme' : 'Ma Boutique',
+                        store_type: role === 'PRODUCER' ? 'PRODUCER' : 'RETAILER',
+                        status: 'ACTIVE',
+                    }]);
+                }
             }
 
             return login(phoneNumber, pin);
@@ -211,16 +262,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unlock = async (pin: string): Promise<boolean> => {
         if (!user) return false;
 
+        const unlockKey = user.phoneNumber || 'unlock';
+        const bruteMsgUnlock = checkBruteForce(unlockKey);
+        if (bruteMsgUnlock) { Alert.alert('Bloqué', bruteMsgUnlock); return false; }
+
         // Mode démo — désactivé en production
         if (__DEV__ && user.phoneNumber === '0000' && pin === '0000') {
             setIsLocked(false);
             await storage.setItem('app_locked', 'false');
+            clearAttempts(unlockKey);
             return true;
         }
 
         const doUnlock = async () => {
             setIsLocked(false);
             await storage.setItem('app_locked', 'false');
+            clearAttempts(unlockKey);
         };
 
         try {
@@ -240,6 +297,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     await doUnlock();
                     return true;
                 }
+                recordFailedAttempt(unlockKey);
                 return false;
             } else {
                 // Hors-ligne : comparer avec le PIN mis en cache au dernier login
@@ -248,6 +306,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     await doUnlock();
                     return true;
                 }
+                recordFailedAttempt(unlockKey);
                 return false;
             }
         } catch (err) {
@@ -258,6 +317,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 await doUnlock();
                 return true;
             }
+            recordFailedAttempt(unlockKey);
             return false;
         }
     };

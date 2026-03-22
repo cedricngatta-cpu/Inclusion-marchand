@@ -23,7 +23,7 @@ function getTypeStyle(type: string): { bg: string; color: string; Icon: IconComp
         case 'commande_refusee':
             return { bg: '#fee2e2', color: '#DC2626', Icon: ShoppingBag };
         case 'livraison':
-            return { bg: '#d1fae5', color: '#059669', Icon: Truck };
+            return { bg: '#d1fae5', color: colors.success, Icon: Truck };
         case 'enrolement':
             return { bg: '#fef3c7', color: '#D97706', Icon: UserCheck };
         case 'signalement':
@@ -33,7 +33,7 @@ function getTypeStyle(type: string): { bg: string; color: string; Icon: IconComp
         case 'achat_groupe':
             return { bg: '#cffafe', color: '#0891B2', Icon: Users };
         case 'vente':
-            return { bg: '#d1fae5', color: '#059669', Icon: ShoppingBag };
+            return { bg: '#d1fae5', color: colors.success, Icon: ShoppingBag };
         default:
             return { bg: '#eff6ff', color: '#2563eb', Icon: Bell };
     }

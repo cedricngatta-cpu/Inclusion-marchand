@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    ActivityIndicator, BackHandler,
+    ActivityIndicator, BackHandler, Platform, useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import {
@@ -17,8 +17,8 @@ import { onSocketEvent } from '@/src/lib/socket';
 import { colors } from '@/src/lib/colors';
 
 // ── Constantes de couleur propres à l'Agent ───────────────────────────────────
-const CYAN   = '#059669';
-const CYAN2  = '#047857'; // cyan-400
+const CYAN   = colors.primary;
+const CYAN2  = '#A36012';
 const CYANL  = 'rgba(255,255,255,0.15)';
 const CYANLT = 'rgba(255,255,255,0.7)';
 
@@ -31,7 +31,7 @@ const ACTIONS = [
     },
     {
         label: 'Secteur', sub: 'Mes boutiques',
-        icon: MapPin, bg: '#10b981',
+        icon: MapPin, bg: '#D4882E',
         path: '/agent/secteur',
     },
     {
@@ -55,6 +55,8 @@ const ROLE_ROUTES: Record<string, string> = {
 export default function AgentDashboard() {
     const router = useRouter();
     const { user } = useAuth();
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 768;
 
     // Garde de route — redirige si pas FIELD_AGENT
     useEffect(() => {
@@ -132,8 +134,6 @@ export default function AgentDashboard() {
         }
     }, [user?.id]);
 
-    useEffect(() => { fetchDashboard(); }, [fetchDashboard]);
-
     useEffect(() => {
         const unsubs = [
             onSocketEvent('enrolement-valide', () => fetchDashboard()),
@@ -202,7 +202,7 @@ export default function AgentDashboard() {
             {/* ════════════════════════════════ CONTENU ══════════════════════════ */}
             <ScrollView
                 style={s.scroll}
-                contentContainerStyle={s.scrollContent}
+                contentContainerStyle={[s.scrollContent, isDesktop && dtAg.scrollContent]}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
                 overScrollMode="never"
@@ -210,7 +210,7 @@ export default function AgentDashboard() {
                 {/* ── Bannière alerte critique ── */}
                 {!loading && criticalPending > 0 && (
                     <TouchableOpacity
-                        style={s.alertBanner}
+                        style={[s.alertBanner, isDesktop && dtAg.card]}
                         activeOpacity={0.85}
                         onPress={() => router.push('/agent/conformite' as any)}
                     >
@@ -226,78 +226,85 @@ export default function AgentDashboard() {
                     </TouchableOpacity>
                 )}
 
-                {/* ── Grille 4 boutons pleins ── */}
-                <Text style={s.sectionTitle}>ACTIONS RAPIDES</Text>
-                <View style={s.actionsGrid}>
-                    {ACTIONS.map(action => {
-                        const Icon = action.icon;
-                        return (
-                            <TouchableOpacity
-                                key={action.label}
-                                style={[s.actionBtn, { backgroundColor: action.bg }]}
-                                activeOpacity={0.85}
-                                onPress={() => router.push(action.path as any)}
-                            >
-                                <Icon color="#fff" size={28} />
-                                <View style={s.actionTextBlock}>
-                                    <Text style={s.actionLabel}>{action.label.toUpperCase()}</Text>
-                                    <Text style={s.actionSub}>{action.sub}</Text>
-                                </View>
-                            </TouchableOpacity>
-                        );
-                    })}
-                </View>
-
-                {/* ── Enrôlements récents ── */}
-                <View style={s.sectionHeader}>
-                    <Text style={s.sectionTitle}>ENRÔLEMENTS RÉCENTS</Text>
-                    <TouchableOpacity onPress={() => router.push('/agent/activites' as any)}>
-                        <Text style={s.sectionLink}>VOIR TOUT</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {loading ? (
-                    <ActivityIndicator color={CYAN} style={{ marginTop: 16 }} />
-                ) : recentEnroll.length === 0 ? (
-                    <View style={s.emptyCard}>
-                        <UserPlus color="#cbd5e1" size={40} />
-                        <Text style={s.emptyText}>AUCUN ENRÔLEMENT EFFECTUÉ</Text>
-                        <Text style={s.emptySub}>Commencez par enrôler un nouveau membre</Text>
+                {/* ── Sections côte à côte sur desktop ── */}
+                <View style={isDesktop ? dtAg.twoColumns : undefined}>
+                    {/* ── Grille 4 boutons pleins ── */}
+                    <View style={isDesktop ? dtAg.column : undefined}>
+                        <Text style={s.sectionTitle}>ACTIONS RAPIDES</Text>
+                        <View style={[s.actionsGrid, isDesktop && dtAg.actionsGrid]}>
+                            {ACTIONS.map(action => {
+                                const Icon = action.icon;
+                                return (
+                                    <TouchableOpacity
+                                        key={action.label}
+                                        style={[s.actionBtn, isDesktop && dtAg.actionBtn, { backgroundColor: action.bg }]}
+                                        activeOpacity={0.85}
+                                        onPress={() => router.push(action.path as any)}
+                                    >
+                                        <Icon color="#fff" size={28} />
+                                        <View style={s.actionTextBlock}>
+                                            <Text style={s.actionLabel}>{action.label.toUpperCase()}</Text>
+                                            <Text style={s.actionSub}>{action.sub}</Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
                     </View>
-                ) : (
-                    recentEnroll.map(enroll => {
-                        const statusColor = enroll.statut === 'valide'
-                            ? { bg: '#d1fae5', text: '#065f46', label: 'Validé' }
-                            : enroll.statut === 'rejete'
-                            ? { bg: '#fee2e2', text: '#991b1b', label: 'Refusé' }
-                            : { bg: '#fef3c7', text: '#92400e', label: 'En attente' };
-                        return (
-                            <TouchableOpacity
-                                key={enroll.id}
-                                style={s.enrollCard}
-                                activeOpacity={0.85}
-                                onPress={() => router.push('/agent/activites' as any)}
-                            >
-                                <View style={s.enrollInfo}>
-                                    <Text style={s.enrollName} numberOfLines={1}>
-                                        {enroll.nom}
-                                    </Text>
-                                    <Text style={s.enrollMeta}>
-                                        {enroll.type === 'PRODUCER' ? 'Producteur' : 'Marchand'} · {enroll.telephone}
-                                    </Text>
-                                    <Text style={s.enrollDate}>
-                                        {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
-                                    </Text>
-                                </View>
-                                <View style={[s.statusBadge, { backgroundColor: statusColor.bg }]}>
-                                    <Text style={[s.statusText, { color: statusColor.text }]}>
-                                        {statusColor.label}
-                                    </Text>
-                                </View>
+
+                    {/* ── Enrôlements récents ── */}
+                    <View style={isDesktop ? dtAg.column : undefined}>
+                        <View style={s.sectionHeader}>
+                            <Text style={s.sectionTitle}>ENRÔLEMENTS RÉCENTS</Text>
+                            <TouchableOpacity onPress={() => router.push('/agent/activites' as any)}>
+                                <Text style={s.sectionLink}>VOIR TOUT</Text>
                             </TouchableOpacity>
-                        );
-                    })
-                )}
+                        </View>
+
+                        {loading ? (
+                            <ActivityIndicator color={CYAN} style={{ marginTop: 16 }} />
+                        ) : recentEnroll.length === 0 ? (
+                            <View style={[s.emptyCard, isDesktop && dtAg.card]}>
+                                <UserPlus color="#cbd5e1" size={40} />
+                                <Text style={s.emptyText}>AUCUN ENRÔLEMENT EFFECTUÉ</Text>
+                                <Text style={s.emptySub}>Commencez par enrôler un nouveau membre</Text>
+                            </View>
+                        ) : (
+                            recentEnroll.map(enroll => {
+                                const statusColor = enroll.statut === 'valide'
+                                    ? { bg: '#d1fae5', text: '#065f46', label: 'Validé' }
+                                    : enroll.statut === 'rejete'
+                                    ? { bg: '#fee2e2', text: '#991b1b', label: 'Refusé' }
+                                    : { bg: '#fef3c7', text: '#92400e', label: 'En attente' };
+                                return (
+                                    <TouchableOpacity
+                                        key={enroll.id}
+                                        style={[s.enrollCard, isDesktop && dtAg.card]}
+                                        activeOpacity={0.85}
+                                        onPress={() => router.push('/agent/activites' as any)}
+                                    >
+                                        <View style={s.enrollInfo}>
+                                            <Text style={s.enrollName} numberOfLines={1}>
+                                                {enroll.nom}
+                                            </Text>
+                                            <Text style={s.enrollMeta}>
+                                                {enroll.type === 'PRODUCER' ? 'Producteur' : 'Marchand'} · {enroll.telephone}
+                                            </Text>
+                                            <Text style={s.enrollDate}>
+                                                {new Date(enroll.date_demande).toLocaleDateString('fr-FR')}
+                                            </Text>
+                                        </View>
+                                        <View style={[s.statusBadge, { backgroundColor: statusColor.bg }]}>
+                                            <Text style={[s.statusText, { color: statusColor.text }]}>
+                                                {statusColor.label}
+                                            </Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })
+                        )}
+                    </View>
+                </View>
             </ScrollView>
         </View>
     );
@@ -305,7 +312,7 @@ export default function AgentDashboard() {
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-    safe:   { flex: 1, backgroundColor: '#f8fafc' },
+    safe:   { flex: 1, backgroundColor: colors.slate50 },
 
     // Hero
     heroBlock:    { alignItems: 'center', gap: 6 },
@@ -393,4 +400,46 @@ const s = StyleSheet.create({
     },
     emptyText: { fontSize: 11, fontWeight: '900', color: '#cbd5e1', letterSpacing: 2 },
     emptySub:  { fontSize: 11, color: '#94a3b8', textAlign: 'center' },
+});
+
+// ── Desktop responsive ──────────────────────────────────────────────────────
+const dtAg = StyleSheet.create({
+    scrollContent: {
+        maxWidth: 1400,
+        alignSelf: 'center' as const,
+        width: '100%',
+        padding: 32,
+        gap: 24,
+    },
+    twoColumns: {
+        flexDirection: 'row',
+        gap: 24,
+    },
+    column: {
+        flex: 1,
+        gap: 14,
+    },
+    actionsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    actionBtn: {
+        flex: 1,
+        minWidth: '45%',
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+    },
+    card: {
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 12,
+        elevation: 3,
+    },
 });

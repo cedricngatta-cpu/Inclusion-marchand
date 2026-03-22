@@ -31,7 +31,7 @@ interface HistoryContextType {
     addTransaction: (transaction: Omit<Transaction, 'id' | 'timestamp'>) => Promise<void>;
     markAsPaid: (transactionId: string) => Promise<void>;
     clearHistory: () => Promise<void>;
-    getTodayTransactions: () => Transaction[];
+    todayTransactions: Transaction[];
     refreshHistory: () => Promise<void>;
 }
 
@@ -135,15 +135,9 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Recevoir les ventes des autres appareils en temps réel
     useEffect(() => {
         if (!activeProfile) return;
-        const unsubscribe = onSocketEvent('nouvelle-vente', ({ transaction }) => {
-            if (!transaction) return;
-            setHistory(prev => {
-                // Éviter les doublons (la vente locale est déjà dans l'historique)
-                if (prev.some(t => t.id === transaction.id)) return prev;
-                const updated = [transaction, ...prev];
-                if (cacheKey) AsyncStorage.setItem(cacheKey, JSON.stringify(updated));
-                return updated;
-            });
+        const unsubscribe = onSocketEvent('nouvelle-vente', () => {
+            // Supabase first : recharger depuis la base au lieu d'utiliser les données du socket
+            fetchHistory();
         });
         return unsubscribe;
     }, [activeProfile?.id, cacheKey]);
@@ -262,10 +256,10 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (cacheKey) await AsyncStorage.removeItem(cacheKey);
     };
 
-    const getTodayTransactions = () => {
+    const todayTransactions = useMemo(() => {
         const today = new Date().setHours(0, 0, 0, 0);
         return history.filter(t => t.timestamp >= today);
-    };
+    }, [history]);
 
     const balance = useMemo(() => history.reduce((acc, t) => {
         if (t.type === 'VENTE' && t.status !== 'DETTE') return acc + t.price;
@@ -274,7 +268,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, 0), [history]);
 
     return (
-        <HistoryContext.Provider value={{ history, balance, addTransaction, markAsPaid, clearHistory, getTodayTransactions, refreshHistory: fetchHistory }}>
+        <HistoryContext.Provider value={{ history, balance, addTransaction, markAsPaid, clearHistory, todayTransactions, refreshHistory: fetchHistory }}>
             {children}
         </HistoryContext.Provider>
     );

@@ -41,3 +41,6 @@ yarn-error.*
 /android
 .env
 eas.json
+
+# Claude Code
+.claude/
