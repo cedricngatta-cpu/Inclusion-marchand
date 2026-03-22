@@ -41,7 +41,12 @@
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "Julaba",
+      "shortName": "Julaba",
+      "description": "Plateforme d'inclusion financiere pour les commercants informels",
+      "themeColor": "#C47316",
+      "backgroundColor": "#C47316"
     },
     "plugins": [
       "expo-router",
