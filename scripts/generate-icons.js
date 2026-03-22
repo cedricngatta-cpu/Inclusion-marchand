@@ -63,14 +63,16 @@ async function main() {
     `, null)).png().toFile(path.join(ASSETS, 'android-icon-monochrome.png'));
     console.log('  android-icon-mono.png 1024x1024 (logo noir, transparent)');
 
-    // ── 5. splash-icon.png (400x400, logo blanc sur transparent) ──
-    // Scale: 340/360 = 0.944
-    await sharp(svgSquare(400, 0, `
-        <g transform="translate(-24.8,32.5) scale(0.944)">
+    // ── 5. splash-icon.png (512x512, logo blanc sur fond orange) ──
+    // Fond orange baked in pour compatibilite web (splash web ne gere pas backgroundColor)
+    // Logo bbox: x=58..418 y=135..220 (w=360, h=85), scale=1.139 pour 80% largeur
+    // Centre: 238*1.139+tx=256 → tx=-15.1, 177.5*1.139+ty=256 → ty=53.8
+    await sharp(svgSquare(512, 0, `
+        <g transform="translate(-15.1,53.8) scale(1.139)">
             <path d="${LOGO_PATH}" fill="white"/>
         </g>
-    `, null)).png().toFile(path.join(ASSETS, 'splash-icon.png'));
-    console.log('  splash-icon.png      400x400   (logo blanc, transparent)');
+    `)).png().toFile(path.join(ASSETS, 'splash-icon.png'));
+    console.log('  splash-icon.png      512x512   (logo blanc, fond orange)');
 
     console.log('\nDone!');
 }
