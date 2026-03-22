@@ -1,6 +1,6 @@
 // Dashboard Marchand — header collapsible, UI thread only, zéro conflit de gestes
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, BackHandler, Platform, useWindowDimensions, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, BackHandler, Platform, useWindowDimensions, ScrollView, Pressable } from 'react-native';
 import {
     TouchableOpacity,
     GestureHandlerRootView,
@@ -408,26 +408,28 @@ export default function CommercantScreen() {
             {!isDesktop && <Animated.View style={[styles.header, aHeader, { paddingTop: insets.top }]}>
 
                 <View style={[styles.headerNav, { height: NAV_H }]}>
-                    <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/(tabs)/profil')}>
+                    <Pressable style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]} onPress={() => router.push('/(tabs)/profil')}>
                         <User color={colors.primary} size={20} />
-                    </TouchableOpacity>
+                    </Pressable>
 
-                    <Animated.Text style={[styles.compactBalance, aCompact]} numberOfLines={1}>
-                        {balanceText} F
-                    </Animated.Text>
+                    <Animated.View style={[styles.compactBalanceWrap, aCompact]} pointerEvents="none">
+                        <Text style={styles.compactBalance} numberOfLines={1}>
+                            {balanceText} F
+                        </Text>
+                    </Animated.View>
 
                     <View style={styles.navRight}>
-                        <TouchableOpacity style={[styles.iconBtn, { position: 'relative' }]} onPress={() => router.push('/(tabs)/notifications')}>
+                        <Pressable style={({ pressed }) => [styles.iconBtn, { position: 'relative' as const }, pressed && styles.iconBtnPressed]} onPress={() => router.push('/(tabs)/notifications')}>
                             <Bell color={colors.primary} size={20} />
                             {unreadCount > 0 && (
                                 <View style={styles.notifBadge}>
                                     <Text style={styles.notifBadgeText}>{unreadCount}</Text>
                                 </View>
                             )}
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.iconBtn} onPress={() => setShowBalance(v => !v)}>
+                        </Pressable>
+                        <Pressable style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]} onPress={() => setShowBalance(v => !v)}>
                             {showBalance ? <Eye color={colors.primary} size={20} /> : <EyeOff color={colors.primary} size={20} />}
-                        </TouchableOpacity>
+                        </Pressable>
                     </View>
                 </View>
 
@@ -471,7 +473,10 @@ const styles = StyleSheet.create({
         alignItems: 'center', justifyContent: 'center',
         shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1, shadowRadius: 4, elevation: 3,
+        zIndex: 20,
+        ...(Platform.OS === 'web' ? { cursor: 'pointer' as any } : {}),
     },
+    iconBtnPressed: { opacity: 0.7 },
     notifBadge: {
         position: 'absolute', top: -2, right: -2,
         width: 16, height: 16, borderRadius: 4,
@@ -480,8 +485,11 @@ const styles = StyleSheet.create({
         alignItems: 'center', justifyContent: 'center',
     },
     notifBadgeText: { fontSize: 11, fontWeight: '900', color: colors.white },
+    compactBalanceWrap: {
+        flex: 1,
+    },
     compactBalance: {
-        flex: 1, textAlign: 'center',
+        textAlign: 'center',
         fontSize: 17, fontWeight: '900',
         color: colors.white, letterSpacing: -0.5,
     },
