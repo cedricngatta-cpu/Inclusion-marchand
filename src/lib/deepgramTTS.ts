@@ -4,6 +4,7 @@
 // Fallback mobile : expo-speech | Fallback web : Web Speech Synthesis
 import { Platform } from 'react-native';
 import { cleanTextForSpeech } from './voiceAssistant';
+import { formatForSpeech } from './ttsFormatter';
 import { reportApiError } from './errorReporter';
 
 const log = (...args: any[]) => { if (__DEV__) console.log('[DeepgramTTS]', ...args); };
@@ -27,6 +28,18 @@ let activeWebObjectUrl: string | null = null;
 // POINT D'ENTREE PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
 
+// Tronque intelligemment le texte long pour le TTS (coupe a la derniere phrase complete)
+function truncateForSpeech(text: string, maxLen = 200): string {
+    if (text.length <= maxLen) return text;
+    const cut = text.slice(0, maxLen);
+    // Couper a la derniere phrase complete (. ! ?)
+    const lastSentence = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('!'), cut.lastIndexOf('?'));
+    if (lastSentence > maxLen * 0.4) return cut.slice(0, lastSentence + 1);
+    // Sinon couper au dernier espace
+    const lastSpace = cut.lastIndexOf(' ');
+    return lastSpace > 0 ? cut.slice(0, lastSpace) + '.' : cut + '.';
+}
+
 export async function deepgramSpeak(text: string, onDone?: () => void): Promise<void> {
     const cleanText = cleanTextForSpeech(text);
 
@@ -34,15 +47,20 @@ export async function deepgramSpeak(text: string, onDone?: () => void): Promise<
     const canCallAPI = isWeb || !!DEEPGRAM_API_KEY;
 
     if (!canCallAPI || !cleanText) {
-        fallbackSpeak(cleanText || text, onDone);
+        fallbackSpeak(formatForSpeech(cleanText || text), onDone);
         return;
     }
+
+    // Tronquer + formater les nombres en mots francais
+    const ttsText = formatForSpeech(truncateForSpeech(cleanText));
 
     try {
         log('[Voice] 7. Sending to TTS...');
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        // Timeout global : 10s mobile, 4s web (cold start Render)
+        const timeout = isWeb ? 4000 : 10000;
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
 
         let res: Response;
 
@@ -51,7 +69,7 @@ export async function deepgramSpeak(text: string, onDone?: () => void): Promise<
             res = await fetch(PROXY_TTS_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: cleanText }),
+                body: JSON.stringify({ text: ttsText }),
                 signal: controller.signal,
             });
         } else {
@@ -62,7 +80,7 @@ export async function deepgramSpeak(text: string, onDone?: () => void): Promise<
                     'Authorization': `Token ${DEEPGRAM_API_KEY}`,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ text: cleanText }),
+                body: JSON.stringify({ text: ttsText }),
                 signal: controller.signal,
             });
         }
@@ -84,7 +102,8 @@ export async function deepgramSpeak(text: string, onDone?: () => void): Promise<
     } catch (err: any) {
         log('Erreur TTS, fallback:', err?.message ?? err);
         reportApiError('Deepgram TTS', err, 'deepgramTTS.deepgramSpeak');
-        fallbackSpeak(cleanText, onDone);
+        // Fallback immediat sur Web Speech Synthesis (formatte aussi)
+        fallbackSpeak(ttsText, onDone);
     }
 }
 

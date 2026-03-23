@@ -1,5 +1,5 @@
 // Contexte notifications — rôle-specific, Supabase persistant + cache offline unifié
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from './AuthContext';
 import { onSocketEvent } from '@/src/lib/socket';
@@ -41,47 +41,54 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const { user } = useAuth();
     const { isOnline } = useNetwork();
     const [notifications, setNotifications] = useState<Notification[]>([]);
+    const isFetchingRef = useRef(false);
 
     // ── Chargement : cache d'abord, puis Supabase si online ─────────────────
-    const loadFromStorage = async () => {
-        const cacheKey = user?.id ? CACHE_KEYS.notifications(user.id) : null;
+    const loadFromStorage = useCallback(async () => {
+        if (isFetchingRef.current) return;
+        isFetchingRef.current = true;
+        try {
+            const cacheKey = user?.id ? CACHE_KEYS.notifications(user.id) : null;
 
-        // 1. Cache d'abord (instantané)
-        if (cacheKey) {
-            const cached = await offlineCache.get<Notification[]>(cacheKey);
-            if (cached) setNotifications(cached.data);
+            // 1. Cache d'abord (instantané)
+            if (cacheKey) {
+                const cached = await offlineCache.get<Notification[]>(cacheKey);
+                if (cached) setNotifications(cached.data);
+            }
+
+            // 2. Puis réseau si online
+            if (isOnline && user?.id) {
+                try {
+                    const { data } = await supabase
+                        .from('notifications')
+                        .select('id, user_id, titre, message, type, data, lu, created_at')
+                        .eq('user_id', user.id)
+                        .order('created_at', { ascending: false })
+                        .limit(50);
+
+                    if (data?.length) {
+                        const mapped: Notification[] = data.map(n => ({
+                            id:         n.id,
+                            user_id:    n.user_id,
+                            titre:      n.titre ?? '',
+                            message:    n.message ?? '',
+                            type:       n.type ?? 'marche',
+                            route:      (n.data as any)?.route ?? '/',
+                            data:       (n.data as Record<string, any>) ?? {},
+                            lu:         n.lu ?? false,
+                            created_at: new Date(n.created_at).getTime(),
+                        }));
+                        setNotifications(mapped);
+                        if (cacheKey) await offlineCache.set(cacheKey, mapped, CACHE_TTL.OPTIONAL);
+                    }
+                } catch { /* réseau indisponible */ }
+            }
+        } finally {
+            isFetchingRef.current = false;
         }
+    }, [user?.id, isOnline]);
 
-        // 2. Puis réseau si online
-        if (isOnline && user?.id) {
-            try {
-                const { data } = await supabase
-                    .from('notifications')
-                    .select('id, user_id, titre, message, type, data, lu, created_at')
-                    .eq('user_id', user.id)
-                    .order('created_at', { ascending: false })
-                    .limit(50);
-
-                if (data?.length) {
-                    const mapped: Notification[] = data.map(n => ({
-                        id:         n.id,
-                        user_id:    n.user_id,
-                        titre:      n.titre ?? '',
-                        message:    n.message ?? '',
-                        type:       n.type ?? 'marche',
-                        route:      (n.data as any)?.route ?? '/',
-                        data:       (n.data as Record<string, any>) ?? {},
-                        lu:         n.lu ?? false,
-                        created_at: new Date(n.created_at).getTime(),
-                    }));
-                    setNotifications(mapped);
-                    if (cacheKey) await offlineCache.set(cacheKey, mapped, CACHE_TTL.OPTIONAL);
-                }
-            } catch { /* réseau indisponible */ }
-        }
-    };
-
-    useEffect(() => { loadFromStorage(); }, [user?.id]);
+    useEffect(() => { loadFromStorage(); }, [loadFromStorage]);
 
     // ── Handlers socket par rôle ──────────────────────────────────────────────
     useEffect(() => {
@@ -424,46 +431,64 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }, [user?.id, user?.role]);
 
     // ── Actions ───────────────────────────────────────────────────────────────
-    const saveNotifications = async (newItems: Notification[]) => {
-        setNotifications(newItems);
-        if (user?.id) await offlineCache.set(CACHE_KEYS.notifications(user.id), newItems, CACHE_TTL.OPTIONAL);
-    };
+    const updateAndCache = useCallback((updater: (prev: Notification[]) => Notification[]) => {
+        let updatedCopy: Notification[] | null = null;
+        setNotifications(prev => {
+            const updated = updater(prev);
+            updatedCopy = updated;
+            return updated;
+        });
+        // Cache en dehors du setState updater (pas de side-effect dans un updater)
+        if (user?.id && updatedCopy) {
+            offlineCache.set(CACHE_KEYS.notifications(user.id), updatedCopy, CACHE_TTL.OPTIONAL).catch(() => {});
+        }
+    }, [user?.id]);
 
-    const markAsRead = async (id: string) => {
-        await saveNotifications(notifications.map(n => n.id === id ? { ...n, lu: true } : n));
+    const markAsRead = useCallback(async (id: string) => {
+        updateAndCache(prev => prev.map(n => n.id === id ? { ...n, lu: true } : n));
         try {
             await supabase.from('notifications').update({ lu: true }).eq('id', id);
         } catch (err) {
             console.error('[Notifications] markAsRead sync error:', err);
         }
-    };
+    }, [updateAndCache]);
 
-    const deleteNotification = async (id: string) => {
-        await saveNotifications(notifications.filter(n => n.id !== id));
+    const deleteNotification = useCallback(async (id: string) => {
+        updateAndCache(prev => prev.filter(n => n.id !== id));
         try {
             await supabase.from('notifications').delete().eq('id', id);
         } catch (err) {
             console.error('[Notifications] deleteNotification sync error:', err);
         }
-    };
+    }, [updateAndCache]);
 
     const unreadCount = useMemo(() => notifications.filter(n => !n.lu).length, [notifications]);
 
+    const contextValue = useMemo(() => ({
+        notifications,
+        unreadCount,
+        markAsRead,
+        deleteNotification,
+        refreshNotifications: loadFromStorage,
+    }), [notifications, unreadCount, markAsRead, deleteNotification, loadFromStorage]);
+
     return (
-        <NotificationContext.Provider value={{
-            notifications,
-            unreadCount,
-            markAsRead,
-            deleteNotification,
-            refreshNotifications: loadFromStorage,
-        }}>
+        <NotificationContext.Provider value={contextValue}>
             {children}
         </NotificationContext.Provider>
     );
 };
 
+const EMPTY_CONTEXT: NotificationContextType = {
+    notifications: [],
+    unreadCount: 0,
+    markAsRead: async () => {},
+    deleteNotification: async () => {},
+    refreshNotifications: async () => {},
+};
+
 export const useNotifications = () => {
     const context = useContext(NotificationContext);
-    if (!context) throw new Error('useNotifications must be used within a NotificationProvider');
-    return context;
+    // Ne jamais throw — retourner un contexte vide si le provider n'est pas monte
+    return context ?? EMPTY_CONTEXT;
 };

@@ -2,7 +2,16 @@
   "buildCommand": "npx expo export --platform web && node scripts/inject-pwa.js",
   "outputDirectory": "dist",
   "framework": null,
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Service-Worker-Allowed", "value": "/" }
+      ]
+    }
+  ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!sw\\.js|manifest\\.json|pwa-icon|favicon|offline\\.html|screenshot|_expo).*)", "destination": "/index.html" }
   ]
 }

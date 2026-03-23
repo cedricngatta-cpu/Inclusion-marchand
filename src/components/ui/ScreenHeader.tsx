@@ -111,7 +111,9 @@ export function ScreenHeader({
                     {showNotification && (
                         <TouchableOpacity
                             style={[styles.iconBtn, { position: 'relative' }]}
-                            onPress={() => router.push('/(tabs)/notifications' as any)}
+                            onPress={() => {
+                                try { router.push('/(tabs)/notifications' as any); } catch { /* ignore */ }
+                            }}
                             activeOpacity={0.8}
                         >
                             <Bell color={colors.white} size={20} />

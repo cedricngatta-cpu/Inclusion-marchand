@@ -203,7 +203,9 @@ export default function NotificationsScreen() {
 
     const handleVoir = (route: string) => {
         setSelected(null);
-        setTimeout(() => { router.push(route as any); }, 350);
+        setTimeout(() => {
+            try { router.push(route as any); } catch { /* route invalide — ignore */ }
+        }, 350);
     };
 
     const modalTs    = selected ? getTypeStyle(selected.type) : null;

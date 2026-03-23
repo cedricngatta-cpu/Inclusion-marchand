@@ -366,10 +366,19 @@ export default function RootLayout() {
         // Initialiser le SyncManager (sync automatique offline → Supabase)
         syncManager.init();
         // Enregistrement du Service Worker pour le mode offline PWA
-        if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && 'serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js').catch(() => {});
+                navigator.serviceWorker.register('/sw.js')
+                    .then((reg) => console.log('[SW] Enregistre, scope:', reg.scope))
+                    .catch((err) => console.warn('[SW] Erreur enregistrement:', err));
             });
+        }
+        // Keepalive : ping le serveur Render toutes les 5 min pour eviter le cold start
+        if (Platform.OS === 'web') {
+            const interval = setInterval(() => {
+                fetch('https://inclusion-marchand.onrender.com/health').catch(() => {});
+            }, 5 * 60 * 1000);
+            return () => clearInterval(interval);
         }
     }, []);
 
