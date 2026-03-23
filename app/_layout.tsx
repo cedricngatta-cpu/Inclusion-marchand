@@ -55,6 +55,30 @@ import VoiceButton from '@/src/components/VoiceButton';
 import OfflineBanner from '@/src/components/OfflineBanner';
 import LockScreen from '@/src/components/LockScreen';
 import { ChangePinModal } from '@/src/components/ChangePinModal';
+import { useHistoryContext } from '@/src/context/HistoryContext';
+import { useStockContext } from '@/src/context/StockContext';
+import { useProductContext } from '@/src/context/ProductContext';
+
+// Composant interne qui rafraichit tous les contextes apres une sync reussie
+function SyncRefresher() {
+    const { refreshHistory } = useHistoryContext();
+    const { refreshStock } = useStockContext();
+    const { refreshProducts } = useProductContext();
+
+    useEffect(() => {
+        const unsub = syncManager.on((state) => {
+            if (state === 'done') {
+                // Rafraichir toutes les donnees depuis Supabase apres sync
+                refreshHistory().catch(() => {});
+                refreshStock().catch(() => {});
+                refreshProducts().catch(() => {});
+            }
+        });
+        return unsub;
+    }, [refreshHistory, refreshStock, refreshProducts]);
+
+    return null;
+}
 
 // ── Sidebar desktop ──────────────────────────────────────────────────────────
 
@@ -353,6 +377,7 @@ export default function RootLayout() {
                                 <HistoryProvider>
                                     <NotificationProvider>
                                         <VoiceButtonProvider>
+                                            <SyncRefresher />
                                             <StatusBar style="auto" />
                                             <ErrorBoundary>
                                                 <ResponsiveWrapper>

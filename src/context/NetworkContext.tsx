@@ -1,7 +1,7 @@
 // Contexte réseau — détecte la connectivité en temps réel + état de sync + compteur offline
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import NetInfo from '@react-native-community/netinfo';
-import { syncManager, SyncState } from '@/src/lib/syncManager';
+import { syncManager, SyncState, SyncProgress } from '@/src/lib/syncManager';
 import { actionQueue } from '@/src/lib/offlineQueue';
 
 interface NetworkContextType {
@@ -9,6 +9,7 @@ interface NetworkContextType {
     pendingCount: number;
     syncState: SyncState;
     syncResult: { synced: number; failed: number };
+    syncProgress: SyncProgress;
     addToPendingCount: (n: number) => void;
     resetPendingCount: () => void;
     triggerSync: () => Promise<void>;
@@ -19,6 +20,7 @@ const NetworkContext = createContext<NetworkContextType>({
     pendingCount: 0,
     syncState: 'idle',
     syncResult: { synced: 0, failed: 0 },
+    syncProgress: { current: 0, total: 0, synced: 0, failed: 0 },
     addToPendingCount: () => {},
     resetPendingCount: () => {},
     triggerSync: async () => {},
@@ -29,6 +31,7 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [pendingCount, setPendingCount] = useState(0);
     const [syncState, setSyncState] = useState<SyncState>('idle');
     const [syncResult, setSyncResult] = useState({ synced: 0, failed: 0 });
+    const [syncProgress, setSyncProgress] = useState<SyncProgress>({ current: 0, total: 0, synced: 0, failed: 0 });
 
     useEffect(() => {
         // Vérification initiale
@@ -46,9 +49,10 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Écouter les changements d'état du syncManager
     useEffect(() => {
-        const unsub = syncManager.on((state, detail) => {
+        const unsub = syncManager.on((state, detail, progress) => {
             setSyncState(state);
             if (detail) setSyncResult(detail);
+            if (progress) setSyncProgress(progress);
             // Après sync réussi, recalculer le pending count
             if (state === 'done' || state === 'error') {
                 actionQueue.getPendingCount().then(setPendingCount);
@@ -76,7 +80,7 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     return (
         <NetworkContext.Provider value={{
-            isOnline, pendingCount, syncState, syncResult,
+            isOnline, pendingCount, syncState, syncResult, syncProgress,
             addToPendingCount, resetPendingCount, triggerSync,
         }}>
             {children}

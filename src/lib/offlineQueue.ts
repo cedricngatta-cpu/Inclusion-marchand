@@ -125,55 +125,101 @@ export const actionQueue = {
         await AsyncStorage.removeItem(ACTIONS_KEY);
     },
 
-    /** Sync toutes les actions pending vers Supabase, dans l'ordre chronologique */
-    async sync(): Promise<{ synced: number; failed: number }> {
+    /** Sync toutes les actions pending vers Supabase — batch par type quand possible */
+    async sync(
+        onProgress?: (current: number, total: number, synced: number, failed: number) => void,
+    ): Promise<{ synced: number; failed: number }> {
         const pending = await this.getPending();
         if (pending.length === 0) return { synced: 0, failed: 0 };
 
         const { supabase } = await import('./supabase');
         let synced = 0;
         let failed = 0;
+        const total = pending.length;
 
+        // Regrouper par type pour batch les inserts
+        const byType = new Map<OfflineActionType, OfflineAction[]>();
         for (const action of pending) {
+            const list = byType.get(action.type) ?? [];
+            list.push(action);
+            byType.set(action.type, list);
+        }
+
+        const withTimeout = <T>(promiseLike: PromiseLike<T>, ms = 5000): Promise<T> =>
+            Promise.race([
+                Promise.resolve(promiseLike),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), ms)),
+            ]);
+
+        type SupaResult = { error: { message: string } | null };
+
+        // Batch SELL : upsert toutes les transactions d'un coup
+        const sells = byType.get('SELL') ?? [];
+        if (sells.length > 0) {
             try {
-                let error: any = null;
+                const rows = sells.map(a => a.data);
+                const { error } = await withTimeout<SupaResult>(
+                    supabase.from('transactions').upsert(rows, { onConflict: 'id', ignoreDuplicates: true })
+                );
+                if (error) {
+                    for (const a of sells) { await this.updateStatus(a.id, 'failed', error.message); failed++; }
+                } else {
+                    for (const a of sells) { await this.updateStatus(a.id, 'synced'); synced++; }
+                }
+            } catch (err: any) {
+                for (const a of sells) { await this.updateStatus(a.id, 'failed', err?.message ?? 'Timeout'); failed++; }
+            }
+            onProgress?.(synced + failed, total, synced, failed);
+        }
+
+        // Batch UPDATE_STOCK : upsert tous les stocks d'un coup
+        const stocks = byType.get('UPDATE_STOCK') ?? [];
+        if (stocks.length > 0) {
+            try {
+                const rows = stocks.map(a => a.data);
+                const { error } = await withTimeout<SupaResult>(
+                    supabase.from('stock').upsert(rows)
+                );
+                if (error) {
+                    for (const a of stocks) { await this.updateStatus(a.id, 'failed', error.message); failed++; }
+                } else {
+                    for (const a of stocks) { await this.updateStatus(a.id, 'synced'); synced++; }
+                }
+            } catch (err: any) {
+                for (const a of stocks) { await this.updateStatus(a.id, 'failed', err?.message ?? 'Timeout'); failed++; }
+            }
+            onProgress?.(synced + failed, total, synced, failed);
+        }
+
+        // Reste des types : traiter séquentiellement (pas de batch possible)
+        const remaining = pending.filter(a => a.type !== 'SELL' && a.type !== 'UPDATE_STOCK');
+        for (const action of remaining) {
+            try {
+                let error: { message: string } | null = null;
 
                 switch (action.type) {
-                    case 'SELL': {
-                        const res = await supabase
-                            .from('transactions')
-                            .upsert([action.data], { onConflict: 'id', ignoreDuplicates: true });
-                        error = res.error;
-                        break;
-                    }
-                    case 'UPDATE_STOCK': {
-                        const res = await supabase.from('stock').upsert(action.data);
-                        error = res.error;
-                        break;
-                    }
                     case 'ADD_PRODUCT': {
-                        const res = await supabase.from('products').insert([action.data]);
+                        const res = await withTimeout<SupaResult>(supabase.from('products').insert([action.data]));
                         error = res.error;
                         break;
                     }
                     case 'CREATE_ORDER': {
-                        const res = await supabase.from('orders').insert([action.data]);
+                        const res = await withTimeout<SupaResult>(supabase.from('orders').insert([action.data]));
                         error = res.error;
                         break;
                     }
                     case 'UPDATE_CREDIT': {
                         const { id: creditId, ...rest } = action.data;
                         const res = creditId
-                            ? await supabase.from('credits_clients').update(rest).eq('id', creditId)
-                            : await supabase.from('credits_clients').insert([rest]);
+                            ? await withTimeout<SupaResult>(supabase.from('credits_clients').update(rest).eq('id', creditId))
+                            : await withTimeout<SupaResult>(supabase.from('credits_clients').insert([rest]));
                         error = res.error;
                         break;
                     }
                     case 'MARK_PAID': {
-                        const res = await supabase
-                            .from('transactions')
-                            .update({ status: 'PAYÉ' })
-                            .eq('id', action.data.id);
+                        const res = await withTimeout<SupaResult>(
+                            supabase.from('transactions').update({ status: 'PAYÉ' }).eq('id', action.data.id)
+                        );
                         error = res.error;
                         break;
                     }
@@ -190,6 +236,7 @@ export const actionQueue = {
                 await this.updateStatus(action.id, 'failed', err?.message ?? 'Erreur inconnue');
                 failed++;
             }
+            onProgress?.(synced + failed, total, synced, failed);
         }
 
         // Nettoyer les actions synchronisées

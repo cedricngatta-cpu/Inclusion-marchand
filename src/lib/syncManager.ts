@@ -6,16 +6,25 @@ import { offlineCache } from './offlineCache';
 
 export type SyncState = 'idle' | 'syncing' | 'done' | 'error';
 
-type SyncListener = (state: SyncState, detail?: { synced: number; failed: number }) => void;
+export interface SyncProgress {
+    current: number;
+    total: number;
+    synced: number;
+    failed: number;
+}
+
+type SyncListener = (state: SyncState, detail?: { synced: number; failed: number }, progress?: SyncProgress) => void;
 
 class SyncManager {
     private listeners: SyncListener[] = [];
     private _state: SyncState = 'idle';
     private _lastResult: { synced: number; failed: number } = { synced: 0, failed: 0 };
+    private _progress: SyncProgress = { current: 0, total: 0, synced: 0, failed: 0 };
     private _initialized = false;
 
     get state() { return this._state; }
     get lastResult() { return this._lastResult; }
+    get progress() { return this._progress; }
 
     /** Initialiser le listener réseau — appeler une seule fois au démarrage */
     init() {
@@ -26,13 +35,13 @@ class SyncManager {
         networkStatus.on(async (online) => {
             if (online) {
                 // Petit délai pour laisser le réseau se stabiliser
-                setTimeout(() => this.sync(), 1500);
+                setTimeout(() => this.sync(), 500);
             }
         });
 
         // Sync au démarrage si des actions sont en attente
         if (networkStatus.isOnline) {
-            setTimeout(() => this.syncIfNeeded(), 3000);
+            setTimeout(() => this.syncIfNeeded(), 1000);
         }
     }
 
@@ -44,7 +53,7 @@ class SyncManager {
         }
     }
 
-    /** Exécuter la synchronisation complète */
+    /** Exécuter la synchronisation complète avec progression */
     async sync(): Promise<{ synced: number; failed: number }> {
         if (this._state === 'syncing') return this._lastResult;
         if (!networkStatus.isOnline) return { synced: 0, failed: 0 };
@@ -52,11 +61,15 @@ class SyncManager {
         const pendingCount = await actionQueue.getPendingCount();
         if (pendingCount === 0) return { synced: 0, failed: 0 };
 
+        this._progress = { current: 0, total: pendingCount, synced: 0, failed: 0 };
         this.setState('syncing');
 
         try {
-            // 1. Sync la queue d'actions
-            const result = await actionQueue.sync();
+            // 1. Sync la queue d'actions avec callback de progression
+            const result = await actionQueue.sync((current, total, synced, failed) => {
+                this._progress = { current, total, synced, failed };
+                this.setState('syncing', undefined, this._progress);
+            });
             this._lastResult = result;
 
             // 2. Purger le cache si nécessaire
@@ -93,9 +106,9 @@ class SyncManager {
         };
     }
 
-    private setState(state: SyncState, detail?: { synced: number; failed: number }) {
+    private setState(state: SyncState, detail?: { synced: number; failed: number }, progress?: SyncProgress) {
         this._state = state;
-        this.listeners.forEach(fn => fn(state, detail));
+        this.listeners.forEach(fn => fn(state, detail, progress));
     }
 }
 

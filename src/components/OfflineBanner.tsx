@@ -1,13 +1,13 @@
-// Bandeau "Hors ligne" — overlay avec état de synchronisation
+// Bandeau "Hors ligne" — overlay avec état de synchronisation + progression + retry
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Platform, StyleSheet, Text, ActivityIndicator } from 'react-native';
+import { Animated, Platform, StyleSheet, Text, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WifiOff, Wifi, Check, AlertTriangle } from 'lucide-react-native';
+import { WifiOff, Check, AlertTriangle, RefreshCw } from 'lucide-react-native';
 import { useNetwork } from '@/src/context/NetworkContext';
 import { colors } from '@/src/lib/colors';
 
 export default function OfflineBanner() {
-    const { isOnline, pendingCount, syncState, syncResult } = useNetwork();
+    const { isOnline, pendingCount, syncState, syncResult, syncProgress, triggerSync } = useNetwork();
     const insets     = useSafeAreaInsets();
     const translateY = useRef(new Animated.Value(-80)).current;
     const hideTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -70,8 +70,7 @@ export default function OfflineBanner() {
         } else if (syncState === 'error') {
             setPhase('error');
             slideIn();
-            clearTimer();
-            slideOut(4000);
+            // Ne pas auto-hide en erreur — laisser le bouton retry visible
         }
     }, [syncState]);
 
@@ -83,6 +82,11 @@ export default function OfflineBanner() {
         : phase === 'syncing' ? styles.bannerSyncing
         : phase === 'done' ? styles.bannerDone
         : styles.bannerError;
+
+    // Texte de progression pendant la sync
+    const progressText = syncProgress.total > 0
+        ? `${syncProgress.current}/${syncProgress.total}`
+        : '';
 
     return (
         <Animated.View
@@ -102,7 +106,12 @@ export default function OfflineBanner() {
             {phase === 'syncing' && (
                 <>
                     <ActivityIndicator size="small" color="#fff" />
-                    <Text style={styles.text}>Synchronisation en cours...</Text>
+                    <Text style={styles.text}>
+                        {progressText
+                            ? `Synchronisation ${progressText}...`
+                            : 'Synchronisation en cours...'
+                        }
+                    </Text>
                 </>
             )}
             {phase === 'done' && (
@@ -125,6 +134,14 @@ export default function OfflineBanner() {
                             : 'Erreur de synchronisation'
                         }
                     </Text>
+                    <TouchableOpacity
+                        style={styles.retryBtn}
+                        onPress={() => { triggerSync(); }}
+                        activeOpacity={0.7}
+                    >
+                        <RefreshCw color="#fff" size={12} />
+                        <Text style={styles.retryText}>Réessayer</Text>
+                    </TouchableOpacity>
                 </>
             )}
         </Animated.View>
@@ -154,5 +171,20 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '700',
         letterSpacing: 0.4,
+    },
+    retryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: 'rgba(255,255,255,0.25)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
+        marginLeft: 4,
+    },
+    retryText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '700',
     },
 });

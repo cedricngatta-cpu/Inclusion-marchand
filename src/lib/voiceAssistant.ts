@@ -12,6 +12,8 @@ import {
     startWebRecording, stopWebRecording, cancelWebRecording,
     isMediaRecorderAvailable,
 } from './webAudioRecorder';
+import { offlineQueue } from './offlineQueue';
+import { offlineCache, CACHE_KEYS, CACHE_TTL } from './offlineCache';
 
 const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
@@ -472,13 +474,33 @@ export async function executeVoiceAction(
                 const nomProduit = String(d.produit ?? d.produit_nom ?? d.product ?? '').trim();
                 if (!nomProduit) return "Je n'ai pas compris le nom du produit.";
 
-                const prod = await findProductInStore(nomProduit, storeId, 'id, name, price');
+                // Chercher le produit en ligne OU dans le cache offline
+                const online = await isOnline();
+                let prod: any = null;
+
+                if (online) {
+                    prod = await findProductInStore(nomProduit, storeId, 'id, name, price');
+                } else {
+                    // Chercher dans le cache produits local
+                    const cached = await offlineCache.get<any[]>(CACHE_KEYS.products(storeId));
+                    if (cached?.data) {
+                        const norm = nomProduit.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                        prod = cached.data.find((p: any) => {
+                            const pn = (p.name ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                            return pn.includes(norm) || pn.includes(norm.replace(/s$/, ''));
+                        }) ?? null;
+                    }
+                }
+
                 if (!prod) {
-                    const { data: tous } = await supabase.from('products').select('name').eq('store_id', storeId).limit(8);
-                    const liste = (tous ?? []).map((p: any) => p.name).join(', ');
-                    return liste
-                        ? `Je n'ai pas trouvé "${nomProduit}". Produits disponibles : ${liste}.`
-                        : `Je n'ai pas trouvé "${nomProduit}" dans votre stock.`;
+                    if (online) {
+                        const { data: tous } = await supabase.from('products').select('name').eq('store_id', storeId).limit(8);
+                        const liste = (tous ?? []).map((p: any) => p.name).join(', ');
+                        return liste
+                            ? `Je n'ai pas trouvé "${nomProduit}". Produits disponibles : ${liste}.`
+                            : `Je n'ai pas trouvé "${nomProduit}" dans votre stock.`;
+                    }
+                    return `Je n'ai pas trouvé "${nomProduit}" dans le cache local.`;
                 }
 
                 const qte   = Math.max(1, parseInt(String(d.quantite ?? 1), 10));
@@ -489,7 +511,7 @@ export async function executeVoiceAction(
                 const txId  = generateUUID();
                 const now   = new Date().toISOString();
 
-                const { error } = await supabase.from('transactions').insert([{
+                const txData = {
                     id:           txId,
                     store_id:     storeId,
                     product_id:   prod.id,
@@ -500,31 +522,61 @@ export async function executeVoiceAction(
                     client_name:  client,
                     status:       statusVal,
                     created_at:   now,
-                }]);
-                if (error) throw error;
+                };
 
-                // Décrémenter le stock
-                const { data: st } = await supabase.from('stock')
-                    .select('product_id, quantity')
-                    .eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
-                const newQty = st ? Math.max(0, (st.quantity ?? 0) - qte) : 0;
-                if (st) {
-                    await supabase.from('stock')
-                        .update({ quantity: newQty, updated_at: new Date().toISOString() })
-                        .eq('store_id', storeId).eq('product_id', prod.id);
+                if (online) {
+                    const { error } = await supabase.from('transactions').insert([txData]);
+                    if (error) throw error;
+
+                    // Décrémenter le stock en ligne
+                    const { data: st } = await supabase.from('stock')
+                        .select('product_id, quantity')
+                        .eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
+                    const newQty = st ? Math.max(0, (st.quantity ?? 0) - qte) : 0;
+                    if (st) {
+                        await supabase.from('stock')
+                            .update({ quantity: newQty, updated_at: new Date().toISOString() })
+                            .eq('store_id', storeId).eq('product_id', prod.id);
+                    }
+
+                    emitEvent('nouvelle-vente', {
+                        storeId,
+                        transaction: {
+                            id: txId, type: 'VENTE', productId: prod.id, productName: prod.name,
+                            quantity: qte, price: total, timestamp: new Date(now).getTime(),
+                            clientName: client ?? undefined, status: statusVal,
+                        },
+                    });
+                    emitEvent('stock-update', { storeId, productId: prod.id, newQty });
+                } else {
+                    // OFFLINE : ajouter à la queue + mettre à jour le cache local
+                    await offlineQueue.addTransaction(storeId, txData as any);
+
+                    // Mettre à jour le cache transactions local
+                    const cachedTx = await offlineCache.get<any[]>(CACHE_KEYS.transactions(storeId));
+                    const txList = cachedTx?.data ?? [];
+                    txList.unshift(txData);
+                    await offlineCache.set(CACHE_KEYS.transactions(storeId), txList, CACHE_TTL.IMPORTANT);
+
+                    // Mettre à jour le cache stock local
+                    const cachedStock = await offlineCache.get<any[]>(CACHE_KEYS.stock(storeId));
+                    if (cachedStock?.data) {
+                        const stockList = cachedStock.data;
+                        const idx = stockList.findIndex((s: any) => s.product_id === prod.id);
+                        if (idx >= 0) {
+                            stockList[idx].quantity = Math.max(0, (stockList[idx].quantity ?? 0) - qte);
+                            stockList[idx].updated_at = now;
+                        }
+                        await offlineCache.set(CACHE_KEYS.stock(storeId), stockList);
+                    }
+
+                    // Ajouter la mise à jour stock à la queue offline
+                    const cachedSt = await offlineCache.get<any[]>(CACHE_KEYS.stock(storeId));
+                    const currentQty = cachedSt?.data?.find((s: any) => s.product_id === prod.id)?.quantity ?? 0;
+                    await offlineQueue.setStockUpdate(storeId, prod.id, currentQty);
+
+                    log('[Offline] Vente ajoutée à la queue:', txId);
                 }
-
-                // Émettre avec transaction complète → HistoryContext met à jour l'état local
-                emitEvent('nouvelle-vente', {
-                    storeId,
-                    transaction: {
-                        id: txId, type: 'VENTE', productId: prod.id, productName: prod.name,
-                        quantity: qte, price: total, timestamp: new Date(now).getTime(),
-                        clientName: client ?? undefined, status: statusVal,
-                    },
-                });
-                // Émettre stock-update → StockContext met à jour l'état local
-                emitEvent('stock-update', { storeId, productId: prod.id, newQty });
                 return `Vente enregistrée ! ${qte} ${prod.name} → ${total.toLocaleString('fr-FR')} F${client ? ` (${client})` : ''}.`;
             }
 
@@ -534,6 +586,7 @@ export async function executeVoiceAction(
                 const produits: Array<{ nom: string; quantite: number }> = Array.isArray(d.produits) ? d.produits : [];
                 if (!produits.length) return "Aucun produit spécifié.";
 
+                const online = await isOnline();
                 const client  = String(d.client ?? d.client_nom ?? '').trim() || null;
                 const paiement = String(d.paiement ?? 'especes').trim();
                 const resultats: string[] = [];
@@ -543,8 +596,24 @@ export async function executeVoiceAction(
                 const transactions: any[] = [];
                 const stockUpdates: Array<{ productId: string; newQty: number }> = [];
 
+                // Charger le cache produits pour mode offline
+                let cachedProducts: any[] | null = null;
+                if (!online) {
+                    const cached = await offlineCache.get<any[]>(CACHE_KEYS.products(storeId));
+                    cachedProducts = cached?.data ?? null;
+                }
+
                 for (const item of produits) {
-                    const prod = await findProductInStore(String(item.nom), storeId, 'id, name, price');
+                    let prod: any = null;
+                    if (online) {
+                        prod = await findProductInStore(String(item.nom), storeId, 'id, name, price');
+                    } else if (cachedProducts) {
+                        const norm = String(item.nom).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                        prod = cachedProducts.find((p: any) => {
+                            const pn = (p.name ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                            return pn.includes(norm) || pn.includes(norm.replace(/s$/, ''));
+                        }) ?? null;
+                    }
                     if (!prod) { resultats.push(`"${item.nom}" non trouvé`); continue; }
 
                     const qte   = Math.max(1, parseInt(String(item.quantite ?? 1), 10));
@@ -553,35 +622,62 @@ export async function executeVoiceAction(
                     const txId = generateUUID();
                     const now  = new Date().toISOString();
 
-                    await supabase.from('transactions').insert([{
+                    const txData = {
                         id: txId, store_id: storeId, product_id: prod.id, product_name: prod.name,
                         type: 'VENTE', quantity: qte, price: total,
                         client_name: client, status: statusVal, created_at: now,
-                    }]);
+                    };
 
-                    const { data: st } = await supabase.from('stock')
-                        .select('quantity').eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
-                    const newQty = st ? Math.max(0, (st.quantity ?? 0) - qte) : 0;
-                    if (st) {
-                        await supabase.from('stock')
-                            .update({ quantity: newQty, updated_at: new Date().toISOString() })
-                            .eq('store_id', storeId).eq('product_id', prod.id);
+                    if (online) {
+                        await supabase.from('transactions').insert([txData]);
+                        const { data: st } = await supabase.from('stock')
+                            .select('quantity').eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
+                        const newQty = st ? Math.max(0, (st.quantity ?? 0) - qte) : 0;
+                        if (st) {
+                            await supabase.from('stock')
+                                .update({ quantity: newQty, updated_at: new Date().toISOString() })
+                                .eq('store_id', storeId).eq('product_id', prod.id);
+                        }
+                        stockUpdates.push({ productId: prod.id, newQty });
+                    } else {
+                        await offlineQueue.addTransaction(storeId, txData as any);
                     }
+
                     transactions.push({
                         id: txId, type: 'VENTE', productId: prod.id, productName: prod.name,
                         quantity: qte, price: total, timestamp: new Date(now).getTime(),
                         clientName: client ?? undefined, status: statusVal,
                     });
-                    stockUpdates.push({ productId: prod.id, newQty });
                     resultats.push(`${qte} ${prod.name}`);
                 }
 
-                // Émettre la dernière transaction pour que HistoryContext rafraîchisse
-                if (transactions.length > 0) {
-                    emitEvent('nouvelle-vente', { storeId, transaction: transactions[transactions.length - 1] });
+                if (online) {
+                    if (transactions.length > 0) {
+                        emitEvent('nouvelle-vente', { storeId, transaction: transactions[transactions.length - 1] });
+                    }
+                    stockUpdates.forEach(u => emitEvent('stock-update', { storeId, productId: u.productId, newQty: u.newQty }));
+                } else if (transactions.length > 0) {
+                    // Mettre à jour le cache transactions + stock en offline
+                    const cachedTx = await offlineCache.get<any[]>(CACHE_KEYS.transactions(storeId));
+                    const txList = cachedTx?.data ?? [];
+                    for (const t of transactions) {
+                        txList.unshift({ id: t.id, store_id: storeId, product_id: t.productId, product_name: t.productName, type: 'VENTE', quantity: t.quantity, price: t.price, client_name: t.clientName ?? null, status: t.status, created_at: new Date(t.timestamp).toISOString() });
+                    }
+                    await offlineCache.set(CACHE_KEYS.transactions(storeId), txList, CACHE_TTL.IMPORTANT);
+
+                    const cachedStock = await offlineCache.get<any[]>(CACHE_KEYS.stock(storeId));
+                    if (cachedStock?.data) {
+                        const stockList = cachedStock.data;
+                        for (const t of transactions) {
+                            const idx = stockList.findIndex((s: any) => s.product_id === t.productId);
+                            if (idx >= 0) {
+                                stockList[idx].quantity = Math.max(0, (stockList[idx].quantity ?? 0) - t.quantity);
+                            }
+                        }
+                        await offlineCache.set(CACHE_KEYS.stock(storeId), stockList);
+                    }
+                    log('[Offline] Ventes multiples ajoutées à la queue:', transactions.length);
                 }
-                // Émettre les mises à jour stock
-                stockUpdates.forEach(u => emitEvent('stock-update', { storeId, productId: u.productId, newQty: u.newQty }));
                 return `Vente enregistrée ! ${resultats.join(', ')} → Total : ${totalGeneral.toLocaleString('fr-FR')} F.`;
             }
 
