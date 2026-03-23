@@ -8,7 +8,13 @@ import { reportApiError } from './errorReporter';
 const log = (...args: any[]) => { if (__DEV__) console.log('[DeepgramSTT]', ...args); };
 
 // Cle API pour mobile uniquement (sur web, le serveur proxy gere la cle)
-const DEEPGRAM_API_KEY = process.env.EXPO_PUBLIC_DEEPGRAM_API_KEY ?? '';
+const DEEPGRAM_API_KEY = process.env.EXPO_PUBLIC_DEEPGRAM_API_KEY || '';
+if (__DEV__) {
+    log('[Config] DEEPGRAM_KEY:', DEEPGRAM_API_KEY ? DEEPGRAM_API_KEY.substring(0, 10) + '...' : 'UNDEFINED');
+}
+if (!DEEPGRAM_API_KEY) {
+    console.warn('[DeepgramSTT] Cle API manquante. Relancez avec: npx expo start --clear');
+}
 const DEEPGRAM_STT_URL = 'https://api.deepgram.com/v1/listen?model=nova-3&language=fr&smart_format=true';
 
 // URL du serveur proxy (meme serveur que Socket.io)

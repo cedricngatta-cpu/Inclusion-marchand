@@ -3,14 +3,20 @@
 // Mobile : appel direct Deepgram (pas de CORS)
 // Fallback mobile : expo-speech | Fallback web : Web Speech Synthesis
 import { Platform } from 'react-native';
-import { cleanTextForSpeech } from './voiceAssistant';
+import { cleanTextForSpeech } from './voiceUtils';
 import { formatForSpeech } from './ttsFormatter';
 import { reportApiError } from './errorReporter';
 
 const log = (...args: any[]) => { if (__DEV__) console.log('[DeepgramTTS]', ...args); };
 
 // Cle API pour mobile uniquement (sur web, le serveur proxy gere la cle)
-const DEEPGRAM_API_KEY = process.env.EXPO_PUBLIC_DEEPGRAM_API_KEY ?? '';
+const DEEPGRAM_API_KEY = process.env.EXPO_PUBLIC_DEEPGRAM_API_KEY || '';
+if (__DEV__) {
+    log('[Config] DEEPGRAM_KEY:', DEEPGRAM_API_KEY ? DEEPGRAM_API_KEY.substring(0, 10) + '...' : 'UNDEFINED');
+}
+if (!DEEPGRAM_API_KEY) {
+    console.warn('[DeepgramTTS] Cle API manquante. Relancez avec: npx expo start --clear');
+}
 const DEEPGRAM_TTS_URL = 'https://api.deepgram.com/v1/speak?model=aura-2-agathe-fr';
 
 // URL du serveur proxy (meme serveur que Socket.io)
