@@ -46,7 +46,11 @@
       "shortName": "Julaba",
       "description": "Plateforme d'inclusion financiere pour les commercants informels",
       "themeColor": "#C47316",
-      "backgroundColor": "#C47316"
+      "backgroundColor": "#C47316",
+      "display": "standalone",
+      "orientation": "portrait",
+      "scope": "/",
+      "startUrl": "/"
     },
     "plugins": [
       "expo-router",

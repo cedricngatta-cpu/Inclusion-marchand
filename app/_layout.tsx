@@ -331,6 +331,12 @@ export default function RootLayout() {
             style.textContent = 'input,textarea,select,div[contenteditable]{outline:none!important;outline-width:0!important;outline-style:none!important;}input:focus,textarea:focus,select:focus{outline:none!important;}';
             document.head.appendChild(style);
         }
+        // Enregistrement du Service Worker pour le mode offline PWA
+        if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').catch(() => {});
+            });
+        }
     }, []);
 
     return (
