@@ -6,15 +6,15 @@ import {
     KeyboardAvoidingView, Platform, Image, useWindowDimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as ImagePicker from 'expo-image-picker';
 import WebBarcodeScanner from '@/src/components/WebBarcodeScanner';
-import { Package, Plus, Search, X, Check, QrCode, ChevronLeft, Camera } from 'lucide-react-native';
+import ImagePickerButton from '@/src/components/ImagePickerButton';
+import { Package, Plus, Search, X, Check, QrCode, ChevronLeft } from 'lucide-react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { ScreenHeader } from '@/src/components/ui';
 import { useProductContext } from '@/src/context/ProductContext';
 import { useStockContext } from '@/src/context/StockContext';
-import { supabase } from '@/src/lib/supabase';
+import { uploadProductImage } from '@/src/lib/storage';
 import { colors } from '@/src/lib/colors';
 
 const CATEGORIES = ['Alimentation', 'Boissons', 'Hygiène', 'Textile', 'Électronique', 'Autre'];
@@ -50,6 +50,7 @@ export default function StockScreen() {
     const [newPrice,     setNewPrice]     = useState('');
     const [newCategory,  setNewCategory]  = useState('Alimentation');
     const [imageUri,     setImageUri]     = useState<string | null>(null);
+    const [webFile,      setWebFile]      = useState<File | undefined>(undefined);
     const [isAdding,     setIsAdding]     = useState(false);
     const [scanPaused,   setScanPaused]   = useState(false);
 
@@ -70,51 +71,6 @@ export default function StockScreen() {
     }, [showScanner]);
 
     const scanLineY = scanLineAnim.interpolate({ inputRange: [0, 1], outputRange: [0, FRAME_H - 2] });
-
-    // ── Sélection photo ─────────────────────────────────────────────────────
-    const handlePickImage = () => {
-        Alert.alert('Photo du produit', 'Choisissez une option', [
-            { text: 'Prendre une photo', onPress: pickFromCamera },
-            { text: 'Choisir dans la galerie', onPress: pickFromGallery },
-            { text: 'Annuler', style: 'cancel' },
-        ]);
-    };
-
-    const pickFromCamera = async () => {
-        const perm = await ImagePicker.requestCameraPermissionsAsync();
-        if (!perm.granted) { Alert.alert('Permission refusée', 'Activez l\'accès à la caméra dans les paramètres.'); return; }
-        const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true, aspect: [1, 1], quality: 0.7,
-        });
-        if (!result.canceled && result.assets[0]) setImageUri(result.assets[0].uri);
-    };
-
-    const pickFromGallery = async () => {
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true, aspect: [1, 1], quality: 0.7,
-        });
-        if (!result.canceled && result.assets[0]) setImageUri(result.assets[0].uri);
-    };
-
-    // ── Upload Supabase Storage ─────────────────────────────────────────────
-    const uploadImage = async (uri: string): Promise<string | null> => {
-        try {
-            const fileName = `product_${Date.now()}.jpg`;
-            const response = await fetch(uri);
-            const blob = await response.blob();
-            const { error } = await supabase.storage
-                .from('products')
-                .upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
-            if (error) { console.warn('[Stock] upload error:', error.message); return null; }
-            const { data } = supabase.storage.from('products').getPublicUrl(fileName);
-            return data.publicUrl;
-        } catch (e) {
-            console.warn('[Stock] upload exception:', e);
-            return null;
-        }
-    };
 
     // ── Scanner ─────────────────────────────────────────────────────────────
     const handleOpenScanner = async () => {
@@ -141,7 +97,7 @@ export default function StockScreen() {
     // ── Formulaire ──────────────────────────────────────────────────────────
     const resetForm = () => {
         setNewBarcode(''); setNewName(''); setNewPrice('');
-        setNewCategory('Alimentation'); setImageUri(null);
+        setNewCategory('Alimentation'); setImageUri(null); setWebFile(undefined);
     };
 
     const handleAddProduct = async () => {
@@ -151,10 +107,10 @@ export default function StockScreen() {
         }
         setIsAdding(true);
 
-        // Upload photo si sélectionnée
+        // Upload photo si selectionnee
         let photoUrl: string | undefined;
         if (imageUri) {
-            const url = await uploadImage(imageUri);
+            const url = await uploadProductImage(imageUri, webFile);
             if (url) photoUrl = url;
         }
 
@@ -333,26 +289,11 @@ export default function StockScreen() {
                                 contentContainerStyle={{ paddingBottom: 8 }}
                             >
                                 {/* 1. Photo */}
-                                <Text style={styles.inputLabel}>PHOTO DU PRODUIT</Text>
-                                <TouchableOpacity style={styles.photoBtn} onPress={handlePickImage} activeOpacity={0.8}>
-                                    {imageUri ? (
-                                        <Image source={{ uri: imageUri }} style={styles.photoPreview} />
-                                    ) : (
-                                        <View style={styles.photoPlaceholder}>
-                                            <Camera color={colors.slate300} size={30} />
-                                            <Text style={styles.photoHint}>Appuyez pour ajouter une photo</Text>
-                                        </View>
-                                    )}
-                                    {imageUri && (
-                                        <TouchableOpacity
-                                            style={styles.photoRemove}
-                                            onPress={() => setImageUri(null)}
-                                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                        >
-                                            <X color={colors.white} size={14} />
-                                        </TouchableOpacity>
-                                    )}
-                                </TouchableOpacity>
+                                <ImagePickerButton
+                                    imageUri={imageUri}
+                                    onImageSelected={({ uri, file }) => { setImageUri(uri); setWebFile(file); }}
+                                    onImageRemoved={() => { setImageUri(null); setWebFile(undefined); }}
+                                />
 
                                 {/* 2. Code-barres */}
                                 <Text style={styles.inputLabel}>CODE-BARRES</Text>
@@ -366,11 +307,9 @@ export default function StockScreen() {
                                         keyboardType="numeric"
                                         returnKeyType="next"
                                     />
-                                    {Platform.OS !== 'web' && (
-                                        <TouchableOpacity style={styles.scanBtn} onPress={handleOpenScanner}>
-                                            <QrCode color={colors.white} size={20} />
-                                        </TouchableOpacity>
-                                    )}
+                                    <TouchableOpacity style={styles.scanBtn} onPress={handleOpenScanner}>
+                                        <QrCode color={colors.white} size={20} />
+                                    </TouchableOpacity>
                                 </View>
 
                                 {/* 3. Nom */}
@@ -529,23 +468,6 @@ const styles = StyleSheet.create({
         backgroundColor: colors.slate50, borderWidth: 1, borderColor: colors.slate200,
         borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
         fontSize: 15, fontWeight: '600', color: colors.slate800,
-    },
-
-    // Photo
-    photoBtn: {
-        height: 110, borderRadius: 10, borderWidth: 1.5, borderColor: colors.slate200,
-        borderStyle: 'dashed', overflow: 'hidden', marginBottom: 4, position: 'relative',
-    },
-    photoPreview: { width: '100%', height: '100%', resizeMode: 'cover' },
-    photoPlaceholder: {
-        flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8,
-        backgroundColor: colors.slate50,
-    },
-    photoHint: { fontSize: 11, color: colors.slate400, fontWeight: '600', textAlign: 'center' },
-    photoRemove: {
-        position: 'absolute', top: 6, right: 6,
-        width: 24, height: 24, borderRadius: 6,
-        backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center',
     },
 
     // Code-barres

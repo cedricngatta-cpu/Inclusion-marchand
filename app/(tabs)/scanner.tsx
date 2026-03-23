@@ -1,19 +1,26 @@
 // Ecran Scanner — expo-camera (mobile) + BarcodeDetector API (web)
 // Camera centree, overlay sombre, ligne de scan animee, coins verts
+// Modal ajout produit integre quand code-barres inconnu
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, Pressable,
     Animated, Vibration, Dimensions, Platform,
+    Modal, TextInput, ScrollView, KeyboardAvoidingView, Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { ChevronLeft, Flashlight, FlashlightOff, RotateCcw, Plus, ShoppingBag } from 'lucide-react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChevronLeft, Flashlight, FlashlightOff, RotateCcw, Plus, ShoppingBag, X, Check } from 'lucide-react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useProductContext } from '@/src/context/ProductContext';
+import { useStockContext } from '@/src/context/StockContext';
 import { offlineCache, CACHE_KEYS } from '@/src/lib/offlineCache';
 import { useProfileContext } from '@/src/context/ProfileContext';
+import { useNetwork } from '@/src/context/NetworkContext';
+import { uploadProductImage } from '@/src/lib/storage';
 import { colors } from '@/src/lib/colors';
 import WebBarcodeScanner from '@/src/components/WebBarcodeScanner';
+import ImagePickerButton from '@/src/components/ImagePickerButton';
+import { actionQueue } from '@/src/lib/offlineQueue';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -26,6 +33,11 @@ const MASK = 'rgba(0,0,0,0.72)';
 const CORNER_COLOR = '#22c55e';
 const COOLDOWN_MS = 2000;
 
+const CATEGORIES = ['Tubercules', 'Legumes', 'Fruits', 'Cereales', 'Viande', 'Manufactures', 'Autre'];
+const UNITS = ['kg', 'unite', 'litre', 'sac', 'tas', 'boite', 'bouteille', 'sachet'];
+const BG_COLORS   = ['#ecfdf5', '#eff6ff', '#fff7ed', '#fdf4ff', '#fef2f2', '#f0fdf4', '#fefce8'];
+const ICON_COLORS = [colors.primary, '#2563eb', '#ea580c', '#7c3aed', '#dc2626', '#16a34a', '#ca8a04'];
+
 type ScanResult =
     | { found: true; code: string; name: string; price: number; stock?: number }
     | { found: false; code: string }
@@ -33,8 +45,11 @@ type ScanResult =
 
 export default function ScannerScreen() {
     const router = useRouter();
-    const { products } = useProductContext();
+    const insets = useSafeAreaInsets();
+    const { products, addProduct } = useProductContext();
+    const { updateStock } = useStockContext();
     const { activeProfile } = useProfileContext();
+    const { isOnline } = useNetwork();
     const storeId = activeProfile?.id as string | undefined;
 
     const [permission, requestPermission] = useCameraPermissions();
@@ -42,6 +57,18 @@ export default function ScannerScreen() {
     const [paused, setPaused] = useState(false);
     const [result, setResult] = useState<ScanResult>(null);
     const lastScanRef = useRef<number>(0);
+
+    // Modal nouveau produit
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [newPrice, setNewPrice] = useState('');
+    const [newCategory, setNewCategory] = useState('Autre');
+    const [newUnit, setNewUnit] = useState('unite');
+    const [newQty, setNewQty] = useState('');
+    const [newAlertThreshold, setNewAlertThreshold] = useState('');
+    const [imageUri, setImageUri] = useState<string | null>(null);
+    const [webFile, setWebFile] = useState<File | undefined>(undefined);
+    const [isAdding, setIsAdding] = useState(false);
 
     // Animation de la ligne de scan
     const scanAnim = useRef(new Animated.Value(0)).current;
@@ -63,11 +90,9 @@ export default function ScannerScreen() {
 
     // Recherche produit : contexte en memoire + cache offline
     const lookupProduct = useCallback(async (code: string) => {
-        // 1. Chercher dans le contexte ProductContext (memoire)
         const found = products.find(p => p.barcode === code);
         if (found) return { name: found.name, price: found.price, id: found.id };
 
-        // 2. Chercher dans le cache offline si un storeId est disponible
         if (storeId) {
             try {
                 const cached = await offlineCache.get<any[]>(CACHE_KEYS.products(storeId));
@@ -82,7 +107,6 @@ export default function ScannerScreen() {
     }, [products, storeId]);
 
     const handleBarCodeScanned = useCallback(async ({ data }: { type?: string; data: string }) => {
-        // Debounce : ignorer si scan recent
         const now = Date.now();
         if (now - lastScanRef.current < COOLDOWN_MS) return;
         if (paused) return;
@@ -103,6 +127,86 @@ export default function ScannerScreen() {
         setResult(null);
         setPaused(false);
         lastScanRef.current = 0;
+    };
+
+    // ── Modal Nouveau Produit ─────────────────────────────────────────────
+    const scannedBarcode = result && !result.found ? result.code : '';
+
+    const openAddModal = () => {
+        setNewName('');
+        setNewPrice('');
+        setNewCategory('Autre');
+        setNewUnit('unite');
+        setNewQty('');
+        setNewAlertThreshold('');
+        setImageUri(null);
+        setWebFile(undefined);
+        setShowAddModal(true);
+    };
+
+    const handleAddProduct = async () => {
+        if (!newName.trim() || !newPrice) {
+            Alert.alert('Erreur', 'Nom et prix sont obligatoires.');
+            return;
+        }
+        setIsAdding(true);
+
+        let photoUrl: string | undefined;
+        if (imageUri && isOnline) {
+            const url = await uploadProductImage(imageUri, webFile);
+            if (url) photoUrl = url;
+        }
+
+        const idx = Math.floor(Math.random() * BG_COLORS.length);
+        const productData = {
+            name:      newName.trim(),
+            price:     parseFloat(newPrice),
+            audioName: newName.trim(),
+            category:  newCategory,
+            barcode:   scannedBarcode || undefined,
+            color:     BG_COLORS[idx],
+            iconColor: ICON_COLORS[idx],
+            imageUrl:  photoUrl,
+            store_id:  '',
+        };
+
+        if (isOnline) {
+            const success = await addProduct(productData);
+            if (success) {
+                // Ajouter le stock initial si quantite specifiee
+                if (newQty && parseInt(newQty) > 0) {
+                    const addedProduct = products.find(p => p.barcode === scannedBarcode && p.name === newName.trim());
+                    if (addedProduct) {
+                        await updateStock(addedProduct.id, parseInt(newQty));
+                    }
+                }
+                setShowAddModal(false);
+                // Passer en mode "produit trouve"
+                setResult({ found: true, code: scannedBarcode, name: productData.name, price: productData.price });
+            } else {
+                Alert.alert('Erreur', "Impossible d'ajouter le produit.");
+            }
+        } else {
+            // Mode offline : sauvegarder dans la queue
+            try {
+                await actionQueue.add({
+                    type: 'ADD_PRODUCT',
+                    table: 'products',
+                    data: {
+                        ...productData,
+                        store_id: storeId,
+                        image_uri: imageUri, // sera uploadee a la sync
+                    },
+                    storeId: storeId || 'unknown',
+                });
+                setShowAddModal(false);
+                setResult({ found: true, code: scannedBarcode, name: productData.name, price: productData.price });
+                Alert.alert('Sauvegarde hors-ligne', 'Le produit sera synchronise quand vous serez connecte.');
+            } catch {
+                Alert.alert('Erreur', "Impossible de sauvegarder le produit.");
+            }
+        }
+        setIsAdding(false);
     };
 
     // ── Permission en attente (mobile seulement) ──
@@ -182,13 +286,10 @@ export default function ScannerScreen() {
 
                     {/* Cadre de scan */}
                     <View style={styles.scanFrame}>
-                        {/* Coins verts */}
                         <View style={[styles.corner, styles.cornerTL]} />
                         <View style={[styles.corner, styles.cornerTR]} />
                         <View style={[styles.corner, styles.cornerBL]} />
                         <View style={[styles.corner, styles.cornerBR]} />
-
-                        {/* Ligne de scan animee */}
                         <Animated.View
                             style={[styles.scanLine, { transform: [{ translateY: scanLineY }] }]}
                         />
@@ -240,7 +341,7 @@ export default function ScannerScreen() {
                                 </Pressable>
                                 <Pressable
                                     style={({ pressed }) => [styles.btnPrimary, pressed && { opacity: 0.85 }]}
-                                    onPress={() => router.push('/(tabs)/stock')}
+                                    onPress={openAddModal}
                                 >
                                     <Plus color={colors.white} size={14} />
                                     <Text style={styles.btnPrimaryText}>AJOUTER</Text>
@@ -251,6 +352,143 @@ export default function ScannerScreen() {
                 </View>
 
             </SafeAreaView>
+
+            {/* ── MODAL NOUVEAU PRODUIT ── */}
+            <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => setShowAddModal(false)}>
+                <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={[styles.modalCard, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                            <View style={styles.modalHeader}>
+                                <Text style={styles.modalTitle}>NOUVEAU PRODUIT</Text>
+                                <TouchableOpacity
+                                    style={styles.xCloseBtn}
+                                    onPress={() => setShowAddModal(false)}
+                                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                >
+                                    <X color={colors.slate400} size={22} />
+                                </TouchableOpacity>
+                            </View>
+
+                            <ScrollView
+                                showsVerticalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                contentContainerStyle={{ paddingBottom: 8 }}
+                            >
+                                {/* Code-barres pre-rempli */}
+                                <Text style={styles.inputLabel}>CODE-BARRES</Text>
+                                <View style={styles.barcodeBadge}>
+                                    <Text style={styles.barcodeBadgeText}>{scannedBarcode}</Text>
+                                </View>
+
+                                {/* Photo */}
+                                <ImagePickerButton
+                                    imageUri={imageUri}
+                                    onImageSelected={({ uri, file }) => { setImageUri(uri); setWebFile(file); }}
+                                    onImageRemoved={() => { setImageUri(null); setWebFile(undefined); }}
+                                />
+
+                                {/* Nom */}
+                                <Text style={styles.inputLabel}>NOM DU PRODUIT *</Text>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Ex: Riz Parfume 25kg"
+                                    placeholderTextColor={colors.slate300}
+                                    value={newName}
+                                    onChangeText={setNewName}
+                                    returnKeyType="next"
+                                />
+
+                                {/* Categorie */}
+                                <Text style={styles.inputLabel}>CATEGORIE</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                        {CATEGORIES.map(cat => (
+                                            <TouchableOpacity
+                                                key={cat}
+                                                style={[styles.chipBtn, newCategory === cat && styles.chipBtnActive]}
+                                                onPress={() => setNewCategory(cat)}
+                                            >
+                                                <Text style={[styles.chipText, newCategory === cat && styles.chipTextActive]}>{cat}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </ScrollView>
+
+                                {/* Prix */}
+                                <Text style={styles.inputLabel}>PRIX DE VENTE (F CFA) *</Text>
+                                <TextInput
+                                    style={styles.modalInput}
+                                    placeholder="Ex: 2500"
+                                    placeholderTextColor={colors.slate300}
+                                    value={newPrice}
+                                    onChangeText={setNewPrice}
+                                    keyboardType="numeric"
+                                    returnKeyType="next"
+                                />
+
+                                {/* Unite */}
+                                <Text style={styles.inputLabel}>UNITE DE MESURE</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                        {UNITS.map(u => (
+                                            <TouchableOpacity
+                                                key={u}
+                                                style={[styles.chipBtn, newUnit === u && styles.chipBtnActive]}
+                                                onPress={() => setNewUnit(u)}
+                                            >
+                                                <Text style={[styles.chipText, newUnit === u && styles.chipTextActive]}>{u}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </ScrollView>
+
+                                {/* Quantite initiale + seuil alerte */}
+                                <View style={styles.rowInputs}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.inputLabel}>STOCK INITIAL</Text>
+                                        <TextInput
+                                            style={styles.modalInput}
+                                            placeholder="0"
+                                            placeholderTextColor={colors.slate300}
+                                            value={newQty}
+                                            onChangeText={setNewQty}
+                                            keyboardType="numeric"
+                                        />
+                                    </View>
+                                    <View style={{ width: 12 }} />
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.inputLabel}>SEUIL ALERTE</Text>
+                                        <TextInput
+                                            style={styles.modalInput}
+                                            placeholder="5"
+                                            placeholderTextColor={colors.slate300}
+                                            value={newAlertThreshold}
+                                            onChangeText={setNewAlertThreshold}
+                                            keyboardType="numeric"
+                                        />
+                                    </View>
+                                </View>
+
+                                {/* Bouton ajouter */}
+                                <TouchableOpacity
+                                    style={[styles.addProductBtn, isAdding && { opacity: 0.6 }]}
+                                    onPress={handleAddProduct}
+                                    disabled={isAdding}
+                                    activeOpacity={0.85}
+                                >
+                                    <Check color={colors.white} size={18} />
+                                    <Text style={styles.addProductBtnText}>
+                                        {isAdding ? 'AJOUT EN COURS...' : (isOnline ? 'AJOUTER LE PRODUIT' : 'SAUVEGARDER HORS-LIGNE')}
+                                    </Text>
+                                </TouchableOpacity>
+                            </ScrollView>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
         </View>
     );
 }
@@ -293,7 +531,7 @@ const styles = StyleSheet.create({
     middleRow: { flexDirection: 'row', height: FRAME_H },
     sideMask: { flex: 1, backgroundColor: MASK },
 
-    // Cadre transparent (la camera est visible derriere)
+    // Cadre transparent
     scanFrame: {
         width: FRAME_W,
         height: FRAME_H,
@@ -379,4 +617,110 @@ const styles = StyleSheet.create({
         backgroundColor: colors.primary,
     },
     btnPrimaryText: { fontSize: 11, fontWeight: '900', color: colors.white, letterSpacing: 0.5 },
+
+    // ── Modal Nouveau Produit ──
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        justifyContent: 'flex-end',
+    },
+    modalCard: {
+        backgroundColor: colors.white,
+        borderTopLeftRadius: 12,
+        borderTopRightRadius: 12,
+        padding: 20,
+        maxHeight: '88%',
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 16,
+    },
+    modalTitle: {
+        fontSize: 15,
+        fontWeight: '900',
+        color: colors.slate900,
+        letterSpacing: 1.5,
+    },
+    xCloseBtn: {
+        width: 34,
+        height: 34,
+        borderRadius: 10,
+        backgroundColor: colors.slate100,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    barcodeBadge: {
+        backgroundColor: colors.slate100,
+        borderRadius: 8,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        marginBottom: 16,
+    },
+    barcodeBadgeText: {
+        fontSize: 15,
+        fontWeight: '800',
+        color: colors.slate700,
+        letterSpacing: 1,
+        textAlign: 'center',
+    },
+    inputLabel: {
+        fontSize: 11,
+        fontWeight: '800',
+        color: colors.slate500,
+        letterSpacing: 1,
+        marginBottom: 6,
+    },
+    modalInput: {
+        backgroundColor: colors.slate50,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: colors.slate200,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        fontSize: 15,
+        color: colors.slate800,
+        marginBottom: 16,
+    },
+    chipBtn: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 10,
+        borderWidth: 1.5,
+        borderColor: colors.slate200,
+        backgroundColor: colors.white,
+    },
+    chipBtnActive: {
+        backgroundColor: colors.primary,
+        borderColor: colors.primary,
+    },
+    chipText: {
+        fontSize: 12,
+        fontWeight: '700',
+        color: colors.slate600,
+    },
+    chipTextActive: {
+        color: colors.white,
+    },
+    rowInputs: {
+        flexDirection: 'row',
+        marginBottom: 4,
+    },
+    addProductBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: colors.primary,
+        borderRadius: 10,
+        paddingVertical: 14,
+        marginTop: 4,
+    },
+    addProductBtnText: {
+        color: colors.white,
+        fontWeight: '900',
+        fontSize: 13,
+        letterSpacing: 0.5,
+    },
 });
