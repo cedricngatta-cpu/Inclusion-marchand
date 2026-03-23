@@ -1,5 +1,5 @@
 // Enregistrement audio web via MediaRecorder API
-// Produit un Blob webm/opus pour envoi direct a Deepgram
+// Produit un Blob audio pour envoi a Groq Whisper STT
 // Utilise uniquement sur Platform.OS === 'web'
 
 const log = (...args: any[]) => { if (__DEV__) console.log('[WebAudioRecorder]', ...args); };
@@ -10,16 +10,17 @@ let audioStream: MediaStream | null = null;
 let recordingStartTime: number = 0;
 
 // Delai minimum d'enregistrement (ms) — evite les blobs vides
-const MIN_RECORDING_MS = 1000;
+const MIN_RECORDING_MS = 1500;
 
 // MIME types supportes par les navigateurs, par ordre de preference
+// mp4 en premier : meilleur support Whisper que webm/opus
 function getSupportedMimeType(): string {
     if (typeof MediaRecorder === 'undefined') return 'audio/webm';
     const types = [
+        'audio/mp4',
         'audio/webm;codecs=opus',
         'audio/webm',
         'audio/ogg;codecs=opus',
-        'audio/mp4',
     ];
     for (const type of types) {
         if (MediaRecorder.isTypeSupported(type)) return type;
@@ -76,7 +77,7 @@ export async function startWebRecording(): Promise<void> {
     const mimeType = getSupportedMimeType();
     log('MIME type:', mimeType);
 
-    mediaRecorder = new MediaRecorder(audioStream, { mimeType });
+    mediaRecorder = new MediaRecorder(audioStream, { mimeType, audioBitsPerSecond: 128000 });
 
     mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {

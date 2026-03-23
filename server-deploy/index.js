@@ -533,6 +533,21 @@ app.post('/api/groq/stt', async (req, res) => {
             `fr${CRLF}`
         );
 
+        // Partie response_format
+        parts.push(
+            `--${boundary}${CRLF}` +
+            `Content-Disposition: form-data; name="response_format"${CRLF}${CRLF}` +
+            `json${CRLF}`
+        );
+
+        // Partie prompt — hint francais pour forcer Whisper a transcrire en francais
+        // Whisper utilise le prompt comme contexte linguistique
+        parts.push(
+            `--${boundary}${CRLF}` +
+            `Content-Disposition: form-data; name="prompt"${CRLF}${CRLF}` +
+            `Transcription en francais d'un marchand ou commercant ivoirien.${CRLF}`
+        );
+
         // Fin du multipart
         parts.push(`--${boundary}--${CRLF}`);
 

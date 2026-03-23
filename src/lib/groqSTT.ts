@@ -42,6 +42,8 @@ export async function groqTranscribe(audioUri: string): Promise<GroqSTTResult> {
         } as any);
         formData.append('model', 'whisper-large-v3-turbo');
         formData.append('language', 'fr');
+        formData.append('response_format', 'json');
+        formData.append('prompt', 'Transcription en francais d\'un marchand ou commercant ivoirien.');
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
@@ -81,11 +83,15 @@ export async function groqTranscribe(audioUri: string): Promise<GroqSTTResult> {
 
 // ── Transcription web (Blob -> proxy serveur Render -> Groq) ────────────────
 export async function groqTranscribeWeb(audioBlob: Blob): Promise<GroqSTTResult> {
-    log('[Voice] 3. Sending to proxy Groq STT (web), size:', audioBlob.size, 'type:', audioBlob.type);
+    log('[Voice] 3. Sending blob to proxy Groq STT:', {
+        size: audioBlob.size,
+        type: audioBlob.type,
+        sizeKB: Math.round(audioBlob.size / 1024),
+    });
 
-    // Blob trop petit = pas de voix capturee
-    if (audioBlob.size < 1000) {
-        log('Audio blob trop petit (<1KB), pas assez de donnees audio');
+    // Blob trop petit = pas de voix capturee (1.5s minimum = ~3KB)
+    if (audioBlob.size < 3000) {
+        log('Audio blob trop petit (<3KB), pas assez de donnees audio');
         return { text: '', source: 'groq', confidence: 0 };
     }
 
