@@ -17,11 +17,13 @@ export interface Transaction {
     productName: string;
     quantity: number;
     price: number;
+    unitPrice?: number;
     timestamp: number;
     clientName?: string;
     status?: 'PAYÉ' | 'DETTE' | 'MOMO';
     operator?: 'ORANGE' | 'MTN' | 'WAVE' | 'MOOV';
     clientPhone?: string;
+    source?: 'manual' | 'voice' | 'voice_offline';
 }
 
 interface HistoryContextType {
@@ -76,11 +78,13 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                         productName: t.product_name,
                         quantity: t.quantity,
                         price: t.price,
+                        unitPrice: t.quantity > 0 ? Math.round(t.price / t.quantity) : t.price,
                         timestamp: new Date(t.created_at).getTime(),
                         clientName: t.client_name,
                         status: t.status,
                         operator: t.operator,
                         clientPhone: t.client_phone,
+                        source: t.source ?? 'manual',
                     }));
                     setHistory(mapped);
                     await offlineCache.set(cacheKey, mapped, CACHE_TTL.IMPORTANT);
@@ -150,6 +154,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             ...transaction,
             id: generateUUID(),
             timestamp: Date.now(),
+            unitPrice: transaction.quantity > 0 ? Math.round(transaction.price / transaction.quantity) : transaction.price,
         };
 
         console.log('[HistoryContext] addTransaction — id:', newTx.id, 'type:', newTx.type, 'produit:', newTx.productName, 'prix:', newTx.price);
@@ -178,6 +183,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 status:       newTx.status || 'PAYÉ',
                 operator:     newTx.operator ?? null,
                 client_phone: newTx.clientPhone ?? null,
+                source:       newTx.source ?? 'manual',
                 created_at:   new Date(newTx.timestamp).toISOString(),
             };
             console.log('[HistoryContext] INSERT transactions payload:', insertPayload);
@@ -208,6 +214,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 status:       newTx.status || 'PAYÉ',
                 operator:     newTx.operator ?? null,
                 client_phone: newTx.clientPhone ?? null,
+                source:       newTx.source ?? 'manual',
                 created_at:   new Date(newTx.timestamp).toISOString(),
             });
         }

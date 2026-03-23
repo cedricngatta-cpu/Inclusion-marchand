@@ -524,6 +524,7 @@ export async function executeVoiceAction(
                     price:        total,
                     client_name:  client,
                     status:       statusVal,
+                    source:       online ? 'voice' : 'voice_offline',
                     created_at:   now,
                 };
 
@@ -580,7 +581,9 @@ export async function executeVoiceAction(
 
                     log('[Offline] Vente ajoutée à la queue:', txId);
                 }
-                return `Vente enregistrée ! ${qte} ${prod.name} → ${total.toLocaleString('fr-FR')} F${client ? ` (${client})` : ''}.`;
+                const prixUnit = prod.price ?? 0;
+                const paiementLabel = statusVal === 'DETTE' ? 'à crédit' : statusVal === 'MOMO' ? 'par Mobile Money' : 'en espèces';
+                return `Vente enregistrée : ${qte} ${prod.name} à ${prixUnit.toLocaleString('fr-FR')} francs${qte > 1 ? ' l\'unité' : ''}${client ? ` pour ${client}` : ''}. Total : ${total.toLocaleString('fr-FR')} francs CFA. Paiement ${paiementLabel}.`;
             }
 
             // ── VENDRE MULTIPLE ────────────────────────────────────────────
@@ -628,7 +631,7 @@ export async function executeVoiceAction(
                     const txData = {
                         id: txId, store_id: storeId, product_id: prod.id, product_name: prod.name,
                         type: 'VENTE', quantity: qte, price: total,
-                        client_name: client, status: statusVal, created_at: now,
+                        client_name: client, status: statusVal, source: online ? 'voice' : 'voice_offline', created_at: now,
                     };
 
                     if (online) {
@@ -681,7 +684,8 @@ export async function executeVoiceAction(
                     }
                     log('[Offline] Ventes multiples ajoutées à la queue:', transactions.length);
                 }
-                return `Vente enregistrée ! ${resultats.join(', ')} → Total : ${totalGeneral.toLocaleString('fr-FR')} F.`;
+                const paiementLabelMulti = statusVal === 'DETTE' ? 'à crédit' : statusVal === 'MOMO' ? 'par Mobile Money' : 'en espèces';
+                return `Vente enregistrée : ${resultats.join(', ')}${client ? ` pour ${client}` : ''}. Total : ${totalGeneral.toLocaleString('fr-FR')} francs CFA. Paiement ${paiementLabelMulti}.`;
             }
 
             // ── STOCK AJOUT ────────────────────────────────────────────────

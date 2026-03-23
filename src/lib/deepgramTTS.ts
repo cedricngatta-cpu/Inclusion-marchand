@@ -216,6 +216,38 @@ function fallbackSpeak(text: string, onDone?: () => void): void {
     }
 }
 
+// ── Cache voix feminine francaise (evite de recalculer a chaque appel) ────────
+let cachedFrFemaleVoice: SpeechSynthesisVoice | null = null;
+let voiceCacheReady = false;
+
+function getFrenchFemaleVoice(): SpeechSynthesisVoice | null {
+    if (voiceCacheReady) return cachedFrFemaleVoice;
+    if (typeof window === 'undefined' || !window.speechSynthesis) return null;
+
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return null;
+
+    // Priorite : voix feminine francaise explicite
+    cachedFrFemaleVoice =
+        voices.find(v => v.lang.startsWith('fr') && /female|femme|féminin/i.test(v.name)) ??
+        voices.find(v => v.lang.startsWith('fr') && /amelie|aurelie|marie|celine|lea|virginie|agathe/i.test(v.name)) ??
+        voices.find(v => v.lang.startsWith('fr')) ??
+        null;
+
+    voiceCacheReady = true;
+    log('Voix selectionnee:', cachedFrFemaleVoice?.name ?? 'defaut');
+    return cachedFrFemaleVoice;
+}
+
+// Pre-charger les voix (Chrome les charge de maniere asynchrone)
+if (isWeb && typeof window !== 'undefined' && window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = () => {
+        voiceCacheReady = false;
+        getFrenchFemaleVoice();
+    };
+    getFrenchFemaleVoice();
+}
+
 // ── Web : SpeechSynthesis API ────────────────────────────────────────────────
 function fallbackWebSpeechSynthesis(text: string, onDone?: () => void): void {
     log('Utilisation Web Speech Synthesis (fallback web)');
@@ -232,6 +264,10 @@ function fallbackWebSpeechSynthesis(text: string, onDone?: () => void): void {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'fr-FR';
     utterance.rate = 0.9;
+
+    // Forcer la voix feminine francaise
+    const voice = getFrenchFemaleVoice();
+    if (voice) utterance.voice = voice;
 
     utterance.onend = () => {
         log('TTS Web Speech Synthesis termine');
@@ -269,6 +305,7 @@ function fallbackExpoSpeech(text: string, onDone?: () => void): void {
         Speech.speak(text, {
             language: 'fr-FR',
             rate: 0.9,
+            pitch: 1.1,
             onDone: () => { log('TTS expo-speech termine'); onDone?.(); },
             onError: () => { log('TTS expo-speech erreur'); onDone?.(); },
         });
@@ -279,6 +316,7 @@ function fallbackExpoSpeech(text: string, onDone?: () => void): void {
             Speech.speak(text, {
                 language: 'fr-FR',
                 rate: 0.9,
+                pitch: 1.1,
                 onDone: () => onDone?.(),
                 onError: () => onDone?.(),
             });

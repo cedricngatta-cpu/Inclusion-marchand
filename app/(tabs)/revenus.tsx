@@ -5,7 +5,7 @@ import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { ChevronLeft, ChevronRight, TrendingUp, ShoppingBag } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, TrendingUp, ShoppingBag, Mic, WifiOff } from 'lucide-react-native';
 import { ScreenHeader } from '@/src/components/ui';
 import { useHistoryContext } from '@/src/context/HistoryContext';
 import { colors } from '@/src/lib/colors';
@@ -161,6 +161,7 @@ export default function RevenusScreen() {
                         <View style={styles.saleList}>
                             {monthSales.map((t, i) => {
                                 const sc = statusColor(t.status);
+                                const unitPx = t.unitPrice ?? (t.quantity > 0 ? Math.round(t.price / t.quantity) : t.price);
                                 return (
                                     <View key={t.id} style={[styles.saleRow, i > 0 && styles.saleRowBorder]}>
                                         <View style={styles.saleIcon}>
@@ -168,10 +169,21 @@ export default function RevenusScreen() {
                                         </View>
                                         <View style={styles.saleInfo}>
                                             <Text style={styles.saleName} numberOfLines={1}>{t.productName}</Text>
-                                            <Text style={styles.saleMeta}>
-                                                {t.clientName && t.clientName !== 'Client standard' ? t.clientName + ' · ' : ''}
-                                                {t.quantity} u · {new Date(t.timestamp).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}
+                                            <Text style={styles.saleDetail}>
+                                                {t.quantity} u × {unitPx.toLocaleString('fr-FR')} F
+                                                {t.clientName && t.clientName !== 'Client standard' ? ` • ${t.clientName}` : ''}
                                             </Text>
+                                            <View style={styles.saleBadgeRow}>
+                                                <Text style={styles.saleDate}>
+                                                    {new Date(t.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                                </Text>
+                                                {t.source?.startsWith('voice') && (
+                                                    <View style={styles.saleSourceBadge}><Mic color="#7c3aed" size={10} /><Text style={styles.saleSourceText}>Vocal</Text></View>
+                                                )}
+                                                {t.source === 'voice_offline' && (
+                                                    <View style={styles.saleOfflineBadge}><WifiOff color="#d97706" size={10} /><Text style={styles.saleOfflineText}>Hors ligne</Text></View>
+                                                )}
+                                            </View>
                                         </View>
                                         <View style={styles.saleRight}>
                                             <Text style={styles.saleAmount}>{t.price.toLocaleString('fr-FR')} F</Text>
@@ -241,7 +253,13 @@ const styles = StyleSheet.create({
     },
     saleInfo: { flex: 1, minWidth: 0 },
     saleName: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
-    saleMeta: { fontSize: 11, color: colors.slate400, marginTop: 2 },
+    saleDetail: { fontSize: 11, color: colors.slate500, marginTop: 2 },
+    saleBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' },
+    saleDate: { fontSize: 10, color: colors.slate400 },
+    saleSourceBadge: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#f3e8ff', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+    saleSourceText: { fontSize: 9, fontWeight: '700', color: '#7c3aed' },
+    saleOfflineBadge: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#fef3c7', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+    saleOfflineText: { fontSize: 9, fontWeight: '700', color: '#d97706' },
 
     saleRight:  { alignItems: 'flex-end', flexShrink: 0 },
     saleAmount: { fontSize: 13, fontWeight: '900', color: colors.slate800 },

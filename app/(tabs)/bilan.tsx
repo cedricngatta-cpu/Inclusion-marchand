@@ -1,7 +1,7 @@
 // Écran Bilan — migré depuis Next.js /bilan/page.tsx
 import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Platform, useWindowDimensions } from 'react-native';
-import { Wallet, TrendingUp, RotateCcw, ShoppingBag, Package, Smartphone } from 'lucide-react-native';
+import { Wallet, TrendingUp, RotateCcw, ShoppingBag, Package, Smartphone, Mic, WifiOff, CheckCircle } from 'lucide-react-native';
 import { useHistoryContext } from '@/src/context/HistoryContext';
 import { useProductContext } from '@/src/context/ProductContext';
 import { useStockContext } from '@/src/context/StockContext';
@@ -147,28 +147,46 @@ export default function BilanScreen() {
                             <Text style={styles.historyTitle}>HISTORIQUE RÉCENT</Text>
                             <Text style={styles.historyCount}>{history.length} transactions</Text>
                         </View>
-                        {history.slice(0, isDesktop ? 15 : 10).map((t, i) => (
+                        {history.slice(0, isDesktop ? 15 : 10).map((t, i) => {
+                            const unitPx = t.unitPrice ?? (t.quantity > 0 ? Math.round(t.price / t.quantity) : t.price);
+                            const payLabel = t.status === 'MOMO' ? 'Mobile Money' : t.status === 'DETTE' ? 'Crédit' : 'Espèces';
+                            return (
                             <View key={t.id} style={[styles.txRow, i > 0 && styles.txBorder]}>
                                 <View style={[styles.txIcon, t.type === 'VENTE' ? styles.txIconSale : styles.txIconDelivery]}>
                                     {t.type === 'VENTE' ? <ShoppingBag color={colors.primary} size={15} /> : <Package color="#2563eb" size={15} />}
                                 </View>
                                 <View style={styles.txInfo}>
                                     <Text style={styles.txName} numberOfLines={1}>{t.productName}</Text>
-                                    <Text style={styles.txDate}>
-                                        {new Date(t.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                    <Text style={styles.txDetail} numberOfLines={1}>
+                                        {t.quantity} u × {unitPx.toLocaleString('fr-FR')} F
                                         {t.clientName ? ` • ${t.clientName}` : ''}
                                     </Text>
+                                    <View style={styles.txBadgeRow}>
+                                        <Text style={styles.txDate}>
+                                            {new Date(t.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                        </Text>
+                                        <View style={[styles.txPayBadge, t.status === 'MOMO' && styles.txPayMomo, t.status === 'DETTE' && styles.txPayDebt]}>
+                                            <Text style={[styles.txPayText, t.status === 'MOMO' && styles.txPayMomoText, t.status === 'DETTE' && styles.txPayDebtText]}>{payLabel}</Text>
+                                        </View>
+                                        {t.source?.startsWith('voice') && (
+                                            <View style={styles.txSourceBadge}><Mic color="#7c3aed" size={10} /><Text style={styles.txSourceText}>Vocal</Text></View>
+                                        )}
+                                        {t.source === 'voice_offline' && (
+                                            <View style={styles.txOfflineBadge}><WifiOff color="#d97706" size={10} /><Text style={styles.txOfflineText}>Hors ligne</Text></View>
+                                        )}
+                                    </View>
                                 </View>
                                 <View style={{ alignItems: 'flex-end', gap: 2 }}>
                                     <Text style={[styles.txAmount, t.status === 'DETTE' && styles.txDebt, t.status === 'MOMO' && styles.txMomo]}>
-                                        {t.type === 'VENTE' && t.status !== 'DETTE' ? '+' : ''}{t.price.toLocaleString()}F
+                                        {t.type === 'VENTE' && t.status !== 'DETTE' ? '+' : ''}{t.price.toLocaleString('fr-FR')} F
                                     </Text>
                                     {t.status === 'MOMO' && t.operator && (
                                         <Text style={styles.txOperatorBadge}>{t.operator}</Text>
                                     )}
                                 </View>
                             </View>
-                        ))}
+                            );
+                        })}
                         {history.length === 0 && (
                             <View style={styles.empty}>
                                 <Text style={styles.emptyText}>AUCUNE TRANSACTION</Text>
@@ -212,8 +230,20 @@ const styles = StyleSheet.create({
     txIconSale: { backgroundColor: '#ecfdf5' },
     txIconDelivery: { backgroundColor: '#eff6ff' },
     txInfo: { flex: 1 },
-    txName: { fontSize: 13, fontWeight: '600', color: colors.slate800 },
-    txDate: { fontSize: 11, color: colors.slate400, marginTop: 1 },
+    txName: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
+    txDetail: { fontSize: 11, color: colors.slate500, marginTop: 1 },
+    txBadgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' },
+    txDate: { fontSize: 10, color: colors.slate400 },
+    txPayBadge: { backgroundColor: '#d1fae5', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+    txPayMomo: { backgroundColor: '#dbeafe' },
+    txPayDebt: { backgroundColor: '#fef3c7' },
+    txPayText: { fontSize: 9, fontWeight: '700', color: '#065f46' },
+    txPayMomoText: { color: '#1d4ed8' },
+    txPayDebtText: { color: '#92400e' },
+    txSourceBadge: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#f3e8ff', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+    txSourceText: { fontSize: 9, fontWeight: '700', color: '#7c3aed' },
+    txOfflineBadge: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: '#fef3c7', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+    txOfflineText: { fontSize: 9, fontWeight: '700', color: '#d97706' },
     txAmount: { fontSize: 13, fontWeight: '700', color: colors.slate800 },
     txDebt: { color: '#f97316' },
     txMomo: { color: '#0891b2' },
