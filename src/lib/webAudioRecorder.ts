@@ -9,18 +9,24 @@ let audioChunks: Blob[] = [];
 let audioStream: MediaStream | null = null;
 let recordingStartTime: number = 0;
 
+// Volume metering via Web Audio API
+let audioContext: AudioContext | null = null;
+let analyserNode: AnalyserNode | null = null;
+let currentVolume: number = 0;
+let volumeInterval: ReturnType<typeof setInterval> | null = null;
+
 // Delai minimum d'enregistrement (ms) — evite les blobs vides
-const MIN_RECORDING_MS = 1500;
+const MIN_RECORDING_MS = 2000;
 
 // MIME types supportes par les navigateurs, par ordre de preference
-// mp4 en premier : meilleur support Whisper que webm/opus
+// webm/opus en premier : bien supporte par Whisper, meilleur codec navigateur
 function getSupportedMimeType(): string {
     if (typeof MediaRecorder === 'undefined') return 'audio/webm';
     const types = [
-        'audio/mp4',
         'audio/webm;codecs=opus',
         'audio/webm',
         'audio/ogg;codecs=opus',
+        'audio/mp4',
     ];
     for (const type of types) {
         if (MediaRecorder.isTypeSupported(type)) return type;
@@ -69,10 +75,15 @@ export async function startWebRecording(): Promise<void> {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
+            channelCount: 1,
+            sampleRate: { ideal: 16000 },
         },
     });
 
     log('Micro OK, tracks:', audioStream.getAudioTracks().map(t => `${t.label} (${t.readyState})`));
+
+    // Volume metering via AnalyserNode
+    setupVolumeMeter(audioStream);
 
     const mimeType = getSupportedMimeType();
     log('MIME type:', mimeType);
@@ -155,8 +166,50 @@ export function cancelWebRecording(): void {
     cleanupStream();
 }
 
+/** Initialise le volume meter via AudioContext + AnalyserNode */
+function setupVolumeMeter(stream: MediaStream): void {
+    try {
+        const AC = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AC) return;
+        audioContext = new AC();
+        const source = audioContext.createMediaStreamSource(stream);
+        analyserNode = audioContext.createAnalyser();
+        analyserNode.fftSize = 256;
+        analyserNode.smoothingTimeConstant = 0.5;
+        source.connect(analyserNode);
+
+        const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+        volumeInterval = setInterval(() => {
+            if (!analyserNode) return;
+            analyserNode.getByteFrequencyData(dataArray);
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+            currentVolume = sum / dataArray.length / 255; // 0.0 - 1.0
+        }, 100);
+    } catch (err) {
+        log('Volume meter setup error:', err);
+    }
+}
+
+/** Nettoie le volume meter */
+function cleanupVolumeMeter(): void {
+    if (volumeInterval) { clearInterval(volumeInterval); volumeInterval = null; }
+    if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close().catch(() => {});
+    }
+    audioContext = null;
+    analyserNode = null;
+    currentVolume = 0;
+}
+
+/** Retourne le niveau de volume actuel (0.0 - 1.0) */
+export function getVolume(): number {
+    return currentVolume;
+}
+
 /** Libere le flux micro */
 function cleanupStream(): void {
+    cleanupVolumeMeter();
     if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
         audioStream = null;

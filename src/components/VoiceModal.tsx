@@ -26,6 +26,7 @@ import { parseLocalCommand } from '@/src/lib/localCommandParser';
 import { processVoiceCommand, generateSmartGreeting, clearConversationMemory } from '@/src/lib/deepgramLLM';
 import type { LLMResult, GreetingStats } from '@/src/lib/deepgramLLM';
 import { offlineCache, CACHE_KEYS } from '@/src/lib/offlineCache';
+import { getVolume as getWebVolume } from '@/src/lib/webAudioRecorder';
 
 // ── Types UI ───────────────────────────────────────────────────────────────
 interface DisplayMsg {
@@ -39,8 +40,8 @@ interface Props {
     onClose: () => void;
 }
 
-// ── Barres de pulse ────────────────────────────────────────────────────────
-function PulsingBars({ active }: { active: boolean }) {
+// ── Barres de volume / pulse ───────────────────────────────────────────────
+function VolumeBars({ active, volume }: { active: boolean; volume: number }) {
     const bars = [
         useRef(new Animated.Value(0.4)).current,
         useRef(new Animated.Value(0.4)).current,
@@ -49,6 +50,19 @@ function PulsingBars({ active }: { active: boolean }) {
 
     useEffect(() => {
         if (!active) { bars.forEach(b => b.setValue(0.4)); return; }
+
+        // Si on a un volume reel (web), utiliser les valeurs reelles
+        if (volume > 0) {
+            const scales = [
+                0.3 + volume * 0.5,
+                0.3 + volume * 0.7,
+                0.3 + volume * 0.5,
+            ];
+            bars.forEach((b, i) => b.setValue(Math.min(scales[i], 1)));
+            return;
+        }
+
+        // Sinon, animation pulse classique (mobile)
         const anims = bars.map((b, i) =>
             Animated.loop(Animated.sequence([
                 Animated.delay(i * 120),
@@ -58,12 +72,18 @@ function PulsingBars({ active }: { active: boolean }) {
         );
         anims.forEach(a => a.start());
         return () => anims.forEach(a => a.stop());
-    }, [active]);
+    }, [active, volume]);
+
+    // Couleur selon le volume
+    const barColor = !active ? colors.primary
+        : volume > 0.15 ? colors.success
+        : volume > 0.05 ? colors.primary
+        : colors.warning;
 
     return (
         <View style={styles.barsRow}>
             {bars.map((b, i) => (
-                <Animated.View key={i} style={[styles.bar, { transform: [{ scaleY: b }] }]} />
+                <Animated.View key={i} style={[styles.bar, { backgroundColor: barColor, transform: [{ scaleY: b }] }]} />
             ))}
         </View>
     );
@@ -86,6 +106,9 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const [mode,          setMode]         = useState<'local' | 'ai' | 'offline'>('local');
     const [sttSource,     setSttSource]    = useState<'groq' | 'native' | 'web' | null>(null);
     const [error,         setError]        = useState('');
+
+    const [volume, setVolume] = useState(0);
+    const volumeRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const scrollRef = useRef<ScrollView>(null);
     const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -116,6 +139,8 @@ export default function VoiceModal({ visible, onClose }: Props) {
             stopSpeaking();
             cancelRecording();
             if (timerRef.current) clearTimeout(timerRef.current);
+            if (volumeRef.current) clearInterval(volumeRef.current);
+            setVolume(0);
             return;
         }
 
@@ -335,9 +360,17 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
             // startRecording() gere web (MediaRecorder) et mobile (expo-audio)
             await startRecording();
+
+            // Polling volume web pour feedback visuel
+            if (isWeb) {
+                volumeRef.current = setInterval(() => {
+                    setVolume(getWebVolume());
+                }, 150);
+            }
+
             timerRef.current = setTimeout(async () => {
                 await handleStopListening();
-            }, 10_000);
+            }, 15_000);
         } catch (err: any) {
             console.log('ERREUR startRecording:', err?.message ?? err);
             const msg = err?.message?.includes('refusée') || err?.message?.includes('not-allowed') || err?.message?.includes('Permission')
@@ -352,6 +385,8 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
     const handleStopListening = useCallback(async () => {
         if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+        if (volumeRef.current) { clearInterval(volumeRef.current); volumeRef.current = null; }
+        setVolume(0);
         setState('processing');
 
         // Timeout de securite global : si tout le pipeline prend > 25s, on abandonne
@@ -449,15 +484,25 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const isSpeaking   = state === 'speaking';
     const isProcessing = state === 'processing' || state === 'welcome';
 
-    const stateLabel: Record<string, string> = {
-        idle:       'Appuyez sur le micro pour parler',
-        welcome:    'Chargement… (max 20 secondes)',
-        listening:  'Je vous écoute…',
-        processing: 'Je réfléchis…',
-        speaking:   'En train de répondre… (appuyez pour interrompre)',
-        confirming: 'Confirmez-vous cette action ?',
-        error:      '',
+    // Message contextuel selon l'etat et le volume
+    const getStateLabel = (): string => {
+        if (state === 'listening') {
+            if (isWeb && volume < 0.03) return 'Parlez plus fort ou rapprochez-vous du micro';
+            if (isWeb && volume > 0.15) return 'Je vous ecoute bien !';
+            return 'Je vous ecoute...';
+        }
+        const labels: Record<string, string> = {
+            idle:       'Appuyez sur le micro pour parler',
+            welcome:    'Chargement...',
+            processing: 'Transcription en cours...',
+            speaking:   'En train de repondre... (appuyez pour interrompre)',
+            confirming: 'Confirmez-vous cette action ?',
+            error:      '',
+        };
+        return labels[state] ?? '';
     };
+
+    const stateLabel = getStateLabel();
 
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -519,10 +564,14 @@ export default function VoiceModal({ visible, onClose }: Props) {
                         )}
                     </ScrollView>
 
-                    {/* ── Barres de pulse + label ── */}
-                    <PulsingBars active={isListening} />
-                    {stateLabel[state] ? (
-                        <Text style={styles.stateLabel}>{stateLabel[state]}</Text>
+                    {/* ── Barres de volume / pulse + label ── */}
+                    <VolumeBars active={isListening} volume={volume} />
+                    {stateLabel ? (
+                        <Text style={[
+                            styles.stateLabel,
+                            state === 'listening' && isWeb && volume < 0.03 && { color: colors.warning },
+                            state === 'listening' && isWeb && volume > 0.15 && { color: colors.success },
+                        ]}>{stateLabel}</Text>
                     ) : null}
 
                     {/* ── Erreur ── */}
