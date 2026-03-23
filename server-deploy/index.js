@@ -31,14 +31,16 @@ const app = express();
 // CORS global pour toutes les routes (accepte les origines connues)
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)), methods: ['GET', 'POST', 'OPTIONS'] }));
 
-// CORS permissif pour les routes proxy Deepgram (n'importe quelle origine web)
-app.options('/api/deepgram/*', cors({ origin: '*' }));
-app.use('/api/deepgram', cors({ origin: '*', methods: ['POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+// CORS permissif pour les routes proxy API (n'importe quelle origine web)
+app.options('/api/*', cors({ origin: '*' }));
+app.use('/api', cors({ origin: '*', methods: ['POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 
-// Body parsing pour les routes proxy Deepgram AVANT le json() global
+// Body parsing pour les routes proxy AVANT le json() global
 // (sinon express.json() corrompt le body audio binaire du STT)
 app.use('/api/deepgram/stt', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '10mb' }));
 app.use('/api/deepgram/tts', express.json({ limit: '1mb' }));
+app.use('/api/groq/stt', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '10mb' }));
+app.use('/api/elevenlabs/tts', express.json({ limit: '1mb' }));
 
 app.use(express.json());
 
@@ -473,6 +475,101 @@ app.post('/api/deepgram/tts', async (req, res) => {
     }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PROXY GROQ STT — Whisper (evite CORS sur le web)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+
+app.post('/api/groq/stt', async (req, res) => {
+    if (!GROQ_API_KEY) {
+        return res.status(500).json({ error: 'GROQ_API_KEY non configuree sur le serveur' });
+    }
+
+    try {
+        const contentType = req.headers['content-type'] || 'audio/webm';
+        log(`🎤 Proxy Groq STT — ${req.body?.length ?? 0} bytes, type: ${contentType}`);
+
+        // Construire un FormData avec le body audio brut
+        const FormData = (await import('form-data')).default;
+        const form = new FormData();
+        form.append('file', req.body, { filename: 'audio.webm', contentType });
+        form.append('model', 'whisper-large-v3-turbo');
+        form.append('language', 'fr');
+
+        const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${GROQ_API_KEY}`,
+                ...form.getHeaders(),
+            },
+            body: form,
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            log(`❌ Proxy Groq STT erreur ${response.status}: ${errText}`);
+            return res.status(response.status).json({ error: errText });
+        }
+
+        const data = await response.json();
+        log(`🎤 Proxy Groq STT resultat: "${(data.text ?? '').slice(0, 80)}"`);
+        res.json(data);
+    } catch (err) {
+        log(`❌ Proxy Groq STT exception: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PROXY ELEVENLABS TTS (evite CORS sur le web)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || '';
+
+app.post('/api/elevenlabs/tts', async (req, res) => {
+    if (!ELEVENLABS_API_KEY) {
+        return res.status(500).json({ error: 'ELEVENLABS_API_KEY non configuree sur le serveur' });
+    }
+
+    try {
+        const { text, voice_id } = req.body || {};
+        const voiceId = voice_id || 'EXAVITQu4vr4xnSDxMaL'; // Aria
+        log(`🔊 Proxy ElevenLabs TTS — "${(text || '').slice(0, 60)}..."`);
+
+        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+            method: 'POST',
+            headers: {
+                'xi-api-key': ELEVENLABS_API_KEY,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                text: text || '',
+                model_id: 'eleven_flash_v2_5',
+                voice_settings: {
+                    stability: 0.5,
+                    similarity_boost: 0.75,
+                    style: 0.3,
+                },
+            }),
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            log(`❌ Proxy ElevenLabs TTS erreur ${response.status}: ${errText}`);
+            return res.status(response.status).json({ error: errText });
+        }
+
+        const audioBuffer = await response.arrayBuffer();
+        log(`🔊 Proxy ElevenLabs TTS audio: ${audioBuffer.byteLength} bytes`);
+        res.set('Content-Type', 'audio/mpeg');
+        res.send(Buffer.from(audioBuffer));
+    } catch (err) {
+        log(`❌ Proxy ElevenLabs TTS exception: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ── Route santé ──────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
     const byRole = {};
@@ -537,8 +634,10 @@ server.listen(PORT, '0.0.0.0', () => {
     log(`║  Health  : http://localhost:${PORT}/health  ║`);
     log(`║  Notify  : POST /notify                ║`);
     log(`║  Emit    : POST /emit                  ║`);
-    log(`║  STT     : POST /api/deepgram/stt      ║`);
-    log(`║  TTS     : POST /api/deepgram/tts      ║`);
+    log(`║  STT     : POST /api/groq/stt           ║`);
+    log(`║  TTS     : POST /api/elevenlabs/tts    ║`);
+    log(`║  STT(old): POST /api/deepgram/stt      ║`);
+    log(`║  TTS(old): POST /api/deepgram/tts      ║`);
     log('╚══════════════════════════════════════╝\n');
     log('Événements supportés:');
     log('  • nouvelle-vente, stock-update');

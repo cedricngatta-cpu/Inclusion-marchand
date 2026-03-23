@@ -18,7 +18,10 @@ import { useProfileContext } from '@/src/context/ProfileContext';
 import { useNetwork } from '@/src/context/NetworkContext';
 import { uploadProductImage } from '@/src/lib/storage';
 import { colors } from '@/src/lib/colors';
-import WebBarcodeScanner from '@/src/components/WebBarcodeScanner';
+// WebBarcodeScanner = web-only (HTML elements), lazy-load to avoid crash on mobile
+const WebBarcodeScanner = Platform.OS === 'web'
+    ? require('@/src/components/WebBarcodeScanner').default
+    : () => null;
 import ImagePickerButton from '@/src/components/ImagePickerButton';
 import { actionQueue } from '@/src/lib/offlineQueue';
 
@@ -386,7 +389,7 @@ export default function ScannerScreen() {
                                 {/* Photo */}
                                 <ImagePickerButton
                                     imageUri={imageUri}
-                                    onImageSelected={({ uri, file }) => { setImageUri(uri); setWebFile(file); }}
+                                    onImageSelected={(uri, file) => { setImageUri(uri); setWebFile(file); }}
                                     onImageRemoved={() => { setImageUri(null); setWebFile(undefined); }}
                                 />
 

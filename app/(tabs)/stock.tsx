@@ -6,7 +6,10 @@ import {
     KeyboardAvoidingView, Platform, Image, useWindowDimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import WebBarcodeScanner from '@/src/components/WebBarcodeScanner';
+// WebBarcodeScanner = web-only (HTML elements), lazy-load to avoid crash on mobile
+const WebBarcodeScanner = Platform.OS === 'web'
+    ? require('@/src/components/WebBarcodeScanner').default
+    : () => null;
 import ImagePickerButton from '@/src/components/ImagePickerButton';
 import { Package, Plus, Search, X, Check, QrCode, ChevronLeft } from 'lucide-react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
@@ -291,7 +294,7 @@ export default function StockScreen() {
                                 {/* 1. Photo */}
                                 <ImagePickerButton
                                     imageUri={imageUri}
-                                    onImageSelected={({ uri, file }) => { setImageUri(uri); setWebFile(file); }}
+                                    onImageSelected={(uri, file) => { setImageUri(uri); setWebFile(file); }}
                                     onImageRemoved={() => { setImageUri(null); setWebFile(undefined); }}
                                 />
 

@@ -84,7 +84,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const [state,         setState]        = useState<AssistantState>('idle');
     const [pendingAction, setPendingAction] = useState<VoiceAction | null>(null);
     const [mode,          setMode]         = useState<'local' | 'ai' | 'offline'>('local');
-    const [sttSource,     setSttSource]    = useState<'deepgram' | 'native' | 'groq' | 'web' | null>(null);
+    const [sttSource,     setSttSource]    = useState<'groq' | 'native' | 'web' | null>(null);
     const [error,         setError]        = useState('');
 
     const scrollRef = useRef<ScrollView>(null);
@@ -375,7 +375,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
             transcript = result.text;
             setSttSource(result.source);
             if (result.source === 'native' || result.source === 'web') setMode('offline');
-            if (result.source === 'deepgram') setMode('ai');
+            if (result.source === 'groq') setMode('ai');
         } catch (err: any) {
             console.log('ERREUR STT dans VoiceModal:', err?.message ?? err);
             const msg = err?.message?.includes('trop de temps') || err?.name === 'AbortError'
@@ -476,7 +476,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
                                 <><WifiOff color="#94a3b8" size={12} /><Text style={styles.modeText}>Hors ligne</Text></>
                             ) : mode === 'ai' ? (
                                 <><Zap color={colors.success} size={12} /><Text style={[styles.modeText, { color: colors.success }]}>
-                                    {sttSource === 'deepgram' ? 'Deepgram' : 'IA active'}
+                                    {sttSource === 'groq' ? 'Groq IA' : 'IA active'}
                                 </Text></>
                             ) : (
                                 <><Wifi color="#64748b" size={12} /><Text style={styles.modeText}>Mode local</Text></>

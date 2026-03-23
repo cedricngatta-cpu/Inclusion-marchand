@@ -6,7 +6,10 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import WebBarcodeScanner from '@/src/components/WebBarcodeScanner';
+// WebBarcodeScanner = web-only (HTML elements), lazy-load to avoid crash on mobile
+const WebBarcodeScanner = Platform.OS === 'web'
+    ? require('@/src/components/WebBarcodeScanner').default
+    : () => null;
 import {
     ShoppingBag, Trash2, CheckCircle, Smartphone, Banknote,
     BookOpen, Plus, Minus, QrCode, X, Flashlight, FlashlightOff, RotateCcw, ChevronLeft,

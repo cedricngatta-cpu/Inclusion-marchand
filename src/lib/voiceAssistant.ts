@@ -1,12 +1,13 @@
-// Logique audio de l'assistant vocal + exécution des actions métier
-// Web : MediaRecorder + Deepgram | Mobile : expo-audio + Deepgram
+// Logique audio de l'assistant vocal + execution des actions metier
+// Web : MediaRecorder + Groq Whisper | Mobile : expo-audio + Groq Whisper
+// TTS : ElevenLabs (principal) → expo-speech (fallback)
 import { Platform } from 'react-native';
 import { fetchRoleContext, buildSystemPrompt, GroqMessage, VoiceAction, isOnline } from './groqAI';
 import { supabase } from './supabase';
 import { emitEvent } from './socket';
 import { reportApiError } from './errorReporter';
-import { deepgramSpeak, stopDeepgramSpeaking } from './deepgramTTS';
-import { deepgramTranscribe, deepgramTranscribeWeb } from './deepgramSTT';
+import { elevenlabsSpeak, stopElevenlabsSpeaking } from './elevenlabsTTS';
+import { groqTranscribe, groqTranscribeWeb } from './groqSTT';
 import { parseLocalCommand } from './localCommandParser';
 import {
     startWebRecording, stopWebRecording, cancelWebRecording,
@@ -157,7 +158,7 @@ export async function cancelRecording(): Promise<void> {
 
 // ── Transcription intelligente (web + mobile, online + offline) ──────────────
 
-export type TranscribeSource = 'deepgram' | 'native' | 'web' | 'groq';
+export type TranscribeSource = 'groq' | 'native' | 'web';
 
 export async function transcribeRecording(
     uri: string,
@@ -172,10 +173,10 @@ export async function transcribeRecording(
         }
 
         if (online) {
-            // Envoyer le blob a Deepgram — timeout et erreurs gerees dans deepgramSTT
+            // Envoyer le blob a Groq Whisper via proxy
             const blob = lastWebBlob;
             lastWebBlob = null;
-            const result = await deepgramTranscribeWeb(blob);
+            const result = await groqTranscribeWeb(blob);
             return { text: result.text, source: result.source };
         }
 
@@ -187,7 +188,7 @@ export async function transcribeRecording(
 
     // ── MOBILE ───────────────────────────────────────────────────────────
     if (online) {
-        const result = await deepgramTranscribe(uri);
+        const result = await groqTranscribe(uri);
         return { text: result.text, source: result.source };
     }
 
@@ -200,18 +201,18 @@ export async function transcribeRecording(
 // ── Parser local offline ─────────────────────────────────────────────────
 export { parseLocalCommand } from './localCommandParser';
 
-// ── Fonctions partagees avec deepgramTTS — re-export depuis voiceUtils ────
+// ── Re-exports voiceUtils ─────────────────────────────────────────────────
 export { cleanTextForSpeech, numberToFrenchWords } from './voiceUtils';
 
 // ── TTS ────────────────────────────────────────────────────────────────────
 export function stopSpeaking(): void {
-    stopDeepgramSpeaking();
+    stopElevenlabsSpeaking();
 }
 
 export function speakText(text: string, onDone?: () => void): void {
     log('TTS → parle:', text.slice(0, 60));
-    // Deepgram TTS gere le fallback vers expo-speech automatiquement
-    deepgramSpeak(text, onDone);
+    // ElevenLabs TTS gere le fallback vers expo-speech automatiquement
+    elevenlabsSpeak(text, onDone);
 }
 
 // ── Initialisation de la conversation ─────────────────────────────────────
