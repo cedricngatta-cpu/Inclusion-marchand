@@ -5,12 +5,35 @@ const http    = require('http');
 const { Server } = require('socket.io');
 const cors    = require('cors');
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/;
+const ALLOWED_ORIGINS = [
+    'https://inclusion-marchand-two.vercel.app',
+    'https://julabav9.vercel.app',
+    'http://localhost:8081',
+    'http://localhost:19006',
+    'http://localhost:3000',
+];
+// Accepte aussi les IPs locales (dev mobile)
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    if (ALLOWED_ORIGINS.includes(origin)) return true;
+    if (/^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin)) return true;
+    // Variable d'environnement pour origines supplementaires
+    const extra = process.env.ALLOWED_ORIGIN;
+    if (extra && origin === extra) return true;
+    return false;
+}
+
 const EMIT_SECRET = process.env.EMIT_SECRET;
-if (!EMIT_SECRET) { console.error('❌ EMIT_SECRET manquant — set process.env.EMIT_SECRET'); process.exit(1); }
+if (!EMIT_SECRET) { console.error('EMIT_SECRET manquant — set process.env.EMIT_SECRET'); process.exit(1); }
 
 const app = express();
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+
+// CORS global pour toutes les routes (accepte les origines connues)
+app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)), methods: ['GET', 'POST', 'OPTIONS'] }));
+
+// CORS permissif pour les routes proxy Deepgram (n'importe quelle origine web)
+app.options('/api/deepgram/*', cors({ origin: '*' }));
+app.use('/api/deepgram', cors({ origin: '*', methods: ['POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 
 // Body parsing pour les routes proxy Deepgram AVANT le json() global
 // (sinon express.json() corrompt le body audio binaire du STT)
@@ -22,7 +45,7 @@ app.use(express.json());
 const server = http.createServer(app);
 
 const io = new Server(server, {
-    cors: { origin: ALLOWED_ORIGIN, methods: ['GET', 'POST'] },
+    cors: { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)), methods: ['GET', 'POST'] },
     pingTimeout: 30000,
     pingInterval: 10000,
 });
@@ -373,9 +396,6 @@ io.on('connection', (socket) => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || '';
-
-// CORS permissif pour les routes proxy (appels depuis le navigateur)
-app.use('/api/deepgram', cors({ origin: '*' }));
 
 // ── Proxy STT Deepgram (Nova-3) ─────────────────────────────────────────────
 app.post('/api/deepgram/stt', async (req, res) => {

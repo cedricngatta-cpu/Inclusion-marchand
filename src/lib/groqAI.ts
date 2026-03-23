@@ -848,15 +848,11 @@ export async function fetchScreenDebrief(
     }
 }
 
-// ── Vérification connectivité ──────────────────────────────────────────────
-export async function isOnline(): Promise<boolean> {
-    try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 3000);
-        await fetch('https://api.groq.com', { method: 'HEAD', signal: ctrl.signal });
-        clearTimeout(timer);
-        return true;
-    } catch {
-        return false;
+// ── Vérification connectivité (synchrone, sans requête HTTP) ──────────────
+export function isOnline(): boolean {
+    if (Platform.OS === 'web') {
+        return typeof navigator !== 'undefined' ? navigator.onLine : true;
     }
+    // Mobile : on considère en ligne par défaut (NetInfo gère le offline dans NetworkContext)
+    return true;
 }
