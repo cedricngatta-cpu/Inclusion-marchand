@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import NetInfo from '@react-native-community/netinfo';
 import { syncManager, SyncState, SyncProgress } from '@/src/lib/syncManager';
 import { actionQueue } from '@/src/lib/offlineQueue';
+import { isOfflineEligible } from '@/src/lib/offlineCache';
 
 interface NetworkContextType {
     isOnline: boolean;
@@ -10,9 +11,11 @@ interface NetworkContextType {
     syncState: SyncState;
     syncResult: { synced: number; failed: number };
     syncProgress: SyncProgress;
+    userRole: string;
     addToPendingCount: (n: number) => void;
     resetPendingCount: () => void;
     triggerSync: () => Promise<void>;
+    setUserRole: (role: string) => void;
 }
 
 const NetworkContext = createContext<NetworkContextType>({
@@ -21,9 +24,11 @@ const NetworkContext = createContext<NetworkContextType>({
     syncState: 'idle',
     syncResult: { synced: 0, failed: 0 },
     syncProgress: { current: 0, total: 0, synced: 0, failed: 0 },
+    userRole: '',
     addToPendingCount: () => {},
     resetPendingCount: () => {},
     triggerSync: async () => {},
+    setUserRole: () => {},
 });
 
 export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -32,6 +37,7 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [syncState, setSyncState] = useState<SyncState>('idle');
     const [syncResult, setSyncResult] = useState({ synced: 0, failed: 0 });
     const [syncProgress, setSyncProgress] = useState<SyncProgress>({ current: 0, total: 0, synced: 0, failed: 0 });
+    const [userRole, setUserRole] = useState('');
 
     useEffect(() => {
         // Vérification initiale
@@ -80,8 +86,8 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     return (
         <NetworkContext.Provider value={{
-            isOnline, pendingCount, syncState, syncResult, syncProgress,
-            addToPendingCount, resetPendingCount, triggerSync,
+            isOnline, pendingCount, syncState, syncResult, syncProgress, userRole,
+            addToPendingCount, resetPendingCount, triggerSync, setUserRole,
         }}>
             {children}
         </NetworkContext.Provider>

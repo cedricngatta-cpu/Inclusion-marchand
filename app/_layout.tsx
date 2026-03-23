@@ -60,10 +60,17 @@ import { useStockContext } from '@/src/context/StockContext';
 import { useProductContext } from '@/src/context/ProductContext';
 
 // Composant interne qui rafraichit tous les contextes apres une sync reussie
+// et transmet le role utilisateur au syncManager
 function SyncRefresher() {
     const { refreshHistory } = useHistoryContext();
     const { refreshStock } = useStockContext();
     const { refreshProducts } = useProductContext();
+    const { user } = useAuth();
+
+    // Transmettre le role au syncManager pour les guards offline
+    useEffect(() => {
+        syncManager.setUserRole(user?.role ?? '');
+    }, [user?.role]);
 
     useEffect(() => {
         const unsub = syncManager.on((state) => {

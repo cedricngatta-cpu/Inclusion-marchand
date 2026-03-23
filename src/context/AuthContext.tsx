@@ -7,7 +7,8 @@ import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { storage } from '@/src/lib/storage';
 import { connectSocket, disconnectSocket } from '@/src/lib/socket';
-import { offlineCache, CACHE_KEYS, CACHE_TTL } from '@/src/lib/offlineCache';
+import { offlineCache, CACHE_KEYS, CACHE_TTL, isOfflineEligible } from '@/src/lib/offlineCache';
+import { prefetchAllData } from '@/src/lib/dataPrefetch';
 
 export interface User {
     id: string;
@@ -142,6 +143,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
                     const wasLocked = await storage.getItem('app_locked');
                     setIsLocked(wasLocked === 'true');
+                } else {
+                    // Pas de session active — tenter l'auto-login offline pour marchands/producteurs
+                    await tryOfflineAutoLogin();
                 }
             } finally {
                 setIsLoading(false);
@@ -149,6 +153,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         checkUser();
     }, []);
+
+    // Auto-login offline : restaurer la session depuis le cache local (marchands/producteurs)
+    const tryOfflineAutoLogin = async () => {
+        try {
+            const raw = await storage.getItem('julaba_offline_auth');
+            if (!raw) return;
+            const cached = JSON.parse(raw);
+            if (!cached?.user || !cached?.role) return;
+
+            // Seuls les marchands/producteurs peuvent se connecter hors ligne
+            if (!isOfflineEligible(cached.role)) return;
+
+            // Verifier que les donnees ne sont pas trop vieilles (30 jours max)
+            if (Date.now() - (cached.timestamp ?? 0) > 30 * 24 * 3600 * 1000) return;
+
+            const userData = cached.user as User;
+            setUser(userData);
+            setIsAuthenticated(true);
+            setProfile(cached.profile ?? null);
+            await storage.setItem('auth_user', JSON.stringify(userData));
+            console.log('[Auth] Auto-login offline:', userData.name, '| role:', userData.role);
+        } catch (err) {
+            console.warn('[Auth] tryOfflineAutoLogin error:', err);
+        }
+    };
+
+    // Login offline explicite (quand Supabase échoue) — marchands/producteurs uniquement
+    const tryOfflineLogin = async (phoneNumber: string, pin: string): Promise<boolean> => {
+        try {
+            const raw = await storage.getItem('julaba_offline_auth');
+            if (!raw) return false;
+            const cached = JSON.parse(raw);
+            if (!cached?.phone || !cached?.pinHash || !cached?.user) return false;
+            if (!isOfflineEligible(cached.role)) return false;
+            // Verifier le PIN
+            if (cached.phone !== phoneNumber || cached.pinHash !== btoa(pin)) return false;
+            // Donnees pas trop vieilles (30 jours)
+            if (Date.now() - (cached.timestamp ?? 0) > 30 * 24 * 3600 * 1000) return false;
+
+            const userData = cached.user as User;
+            setProfile(cached.profile ?? null);
+            await handleAuthSuccess(userData);
+            console.log('[Auth] Login offline OK:', userData.name);
+            return true;
+        } catch {
+            return false;
+        }
+    };
 
     // Verrouillage automatique après 60s en arrière-plan (Android/iOS uniquement — AppState non dispo sur web)
     useEffect(() => {
@@ -192,10 +244,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     console.warn('[Auth] ⚠️ Mode DEMO activé — user.id = admin-001 (pas un UUID réel). Exécutez le seed pour des données réelles.');
                     const demoUser: User = { id: 'admin-001', phoneNumber: '0000', role: 'SUPERVISOR', name: 'Superviseur' };
                     await handleAuthSuccess(demoUser);
-                    await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline
+                    await storage.setItem('cached_pin', pin);
                     clearAttempts(phoneNumber);
                     return true;
                 }
+                // Tentative login offline pour marchands/producteurs
+                const offlineOk = await tryOfflineLogin(phoneNumber, pin);
+                if (offlineOk) { clearAttempts(phoneNumber); return true; }
                 recordFailedAttempt(phoneNumber);
                 return false;
             }
@@ -213,6 +268,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (data.pin === '0101') setMustChangePin(true);
             await handleAuthSuccess(userData);
             await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline
+
+            // Sauvegarder les données d'auth offline pour marchands/producteurs
+            if (isOfflineEligible(userData.role)) {
+                await storage.setItem('julaba_offline_auth', JSON.stringify({
+                    phone: phoneNumber,
+                    pinHash: btoa(pin),
+                    profile: data,
+                    user: userData,
+                    role: userData.role,
+                    timestamp: Date.now(),
+                }));
+
+                // Pre-charger toutes les donnees en background (non bloquant)
+                const { data: store } = await supabase
+                    .from('stores').select('id').eq('owner_id', userData.id).maybeSingle();
+                if (store) {
+                    prefetchAllData(store.id, userData.id, userData.role).catch(() => {});
+                }
+            }
+
             clearAttempts(phoneNumber);
             return true;
         } catch (err) {

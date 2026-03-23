@@ -1,8 +1,9 @@
 // SyncManager — synchronisation automatique offline → Supabase
-// Écoute les changements réseau et sync quand online revient
+// Ecoute les changements reseau et sync quand online revient
+// Ne sync QUE pour les marchands et producteurs (isOfflineEligible)
 import { networkStatus } from './networkStatus';
 import { actionQueue } from './offlineQueue';
-import { offlineCache } from './offlineCache';
+import { offlineCache, isOfflineEligible } from './offlineCache';
 
 export type SyncState = 'idle' | 'syncing' | 'done' | 'error';
 
@@ -21,10 +22,14 @@ class SyncManager {
     private _lastResult: { synced: number; failed: number } = { synced: 0, failed: 0 };
     private _progress: SyncProgress = { current: 0, total: 0, synced: 0, failed: 0 };
     private _initialized = false;
+    private _userRole: string = '';
 
     get state() { return this._state; }
     get lastResult() { return this._lastResult; }
     get progress() { return this._progress; }
+
+    /** Mettre a jour le role utilisateur (appele au login/logout) */
+    setUserRole(role: string) { this._userRole = role; }
 
     /** Initialiser le listener réseau — appeler une seule fois au démarrage */
     init() {
@@ -33,9 +38,8 @@ class SyncManager {
 
         // Écouter la transition offline → online
         networkStatus.on(async (online) => {
-            if (online) {
-                // Petit délai pour laisser le réseau se stabiliser
-                setTimeout(() => this.sync(), 500);
+            if (online && isOfflineEligible(this._userRole)) {
+                setTimeout(() => this.sync(), 300);
             }
         });
 
@@ -47,6 +51,7 @@ class SyncManager {
 
     /** Sync seulement s'il y a des actions pending */
     async syncIfNeeded(): Promise<void> {
+        if (!isOfflineEligible(this._userRole)) return;
         const count = await actionQueue.getPendingCount();
         if (count > 0) {
             await this.sync();
@@ -57,6 +62,7 @@ class SyncManager {
     async sync(): Promise<{ synced: number; failed: number }> {
         if (this._state === 'syncing') return this._lastResult;
         if (!networkStatus.isOnline) return { synced: 0, failed: 0 };
+        if (!isOfflineEligible(this._userRole)) return { synced: 0, failed: 0 };
 
         const pendingCount = await actionQueue.getPendingCount();
         if (pendingCount === 0) return { synced: 0, failed: 0 };

@@ -1,13 +1,19 @@
-// Bandeau "Hors ligne" — overlay avec état de synchronisation + progression + retry
+// Bandeau "Hors ligne" — overlay avec etat de synchronisation + progression + retry
+// Marchands/Producteurs : mode offline complet (orange)
+// Agents/Coops/Admins : connexion requise (rouge)
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Platform, StyleSheet, Text, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WifiOff, Check, AlertTriangle, RefreshCw } from 'lucide-react-native';
 import { useNetwork } from '@/src/context/NetworkContext';
+import { useAuth } from '@/src/context/AuthContext';
+import { isOfflineEligible } from '@/src/lib/offlineCache';
 import { colors } from '@/src/lib/colors';
 
 export default function OfflineBanner() {
     const { isOnline, pendingCount, syncState, syncResult, syncProgress, triggerSync } = useNetwork();
+    const { user } = useAuth();
+    const eligible = isOfflineEligible(user?.role);
     const insets     = useSafeAreaInsets();
     const translateY = useRef(new Animated.Value(-80)).current;
     const hideTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -78,7 +84,8 @@ export default function OfflineBanner() {
 
     const paddingTop = insets.top + 8;
 
-    const bannerStyle = phase === 'offline' ? styles.bannerOffline
+    const bannerStyle = phase === 'offline'
+        ? (eligible ? styles.bannerOffline : styles.bannerRequired)
         : phase === 'syncing' ? styles.bannerSyncing
         : phase === 'done' ? styles.bannerDone
         : styles.bannerError;
@@ -96,9 +103,11 @@ export default function OfflineBanner() {
                 <>
                     <WifiOff color="#fff" size={15} />
                     <Text style={styles.text}>
-                        {pendingCount > 0
-                            ? `HORS LIGNE — ${pendingCount} action(s) en attente`
-                            : 'HORS LIGNE — Données locales'
+                        {eligible
+                            ? (pendingCount > 0
+                                ? `MODE HORS LIGNE — ${pendingCount} action(s) sauvegardée(s)`
+                                : 'MODE HORS LIGNE — Vos données sont disponibles')
+                            : 'CONNEXION INTERNET REQUISE'
                         }
                     </Text>
                 </>
@@ -162,10 +171,11 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         gap: 8,
     },
-    bannerOffline: { backgroundColor: '#b45309' },
-    bannerSyncing: { backgroundColor: colors.primary },
-    bannerDone:    { backgroundColor: '#059669' },
-    bannerError:   { backgroundColor: '#DC2626' },
+    bannerOffline:  { backgroundColor: '#b45309' },
+    bannerRequired: { backgroundColor: '#DC2626' },
+    bannerSyncing:  { backgroundColor: colors.primary },
+    bannerDone:     { backgroundColor: '#059669' },
+    bannerError:    { backgroundColor: '#DC2626' },
     text: {
         color: '#fff',
         fontSize: 11,

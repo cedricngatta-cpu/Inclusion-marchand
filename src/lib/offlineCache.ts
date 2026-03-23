@@ -184,3 +184,10 @@ export const CACHE_TTL = {
     IMPORTANT: 7 * 24 * 3600,     // 7 jours (transactions, crédits, commandes)
     OPTIONAL: 24 * 3600,          // 1 jour (notifications, stats)
 } as const;
+
+// ── Guard rôle offline ──────────────────────────────────────────────────────
+// Seuls les marchands et producteurs bénéficient du mode offline complet.
+// Agents, coopératives et admins nécessitent toujours internet.
+export function isOfflineEligible(role: string | undefined): boolean {
+    return role === 'MERCHANT' || role === 'PRODUCER';
+}
