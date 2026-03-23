@@ -477,6 +477,8 @@ app.post('/api/deepgram/tts', async (req, res) => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PROXY GROQ STT — Whisper (evite CORS sur le web)
+// Node 18+ fetch ne supporte pas form-data streams → on construit le
+// multipart manuellement en Buffer pour garantir la compatibilite.
 // ══════════════════════════════════════════════════════════════════════════════
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
@@ -487,34 +489,70 @@ app.post('/api/groq/stt', async (req, res) => {
     }
 
     try {
-        const contentType = req.headers['content-type'] || 'audio/webm';
-        log(`🎤 Proxy Groq STT — ${req.body?.length ?? 0} bytes, type: ${contentType}`);
+        if (!req.body || req.body.length < 100) {
+            return res.status(400).json({ error: 'Audio trop court ou vide' });
+        }
 
-        // Construire un FormData avec le body audio brut
-        const FormData = (await import('form-data')).default;
-        const form = new FormData();
-        form.append('file', req.body, { filename: 'audio.webm', contentType });
-        form.append('model', 'whisper-large-v3-turbo');
-        form.append('language', 'fr');
+        const contentType = req.headers['content-type'] || 'audio/webm';
+        log(`🎤 Proxy Groq STT — ${req.body.length} bytes, type: ${contentType}`);
+
+        // Determiner l'extension selon le content-type
+        let ext = 'webm';
+        if (contentType.includes('mp4') || contentType.includes('m4a')) ext = 'm4a';
+        else if (contentType.includes('wav')) ext = 'wav';
+        else if (contentType.includes('mp3')) ext = 'mp3';
+        else if (contentType.includes('ogg')) ext = 'ogg';
+
+        // Construire le multipart/form-data manuellement en Buffer
+        // (form-data stream n'est pas compatible avec fetch() natif Node 18+)
+        const boundary = '----FormBoundary' + Math.random().toString(36).slice(2);
+        const CRLF = '\r\n';
+
+        const parts = [];
+
+        // Partie fichier audio
+        parts.push(
+            `--${boundary}${CRLF}` +
+            `Content-Disposition: form-data; name="file"; filename="audio.${ext}"${CRLF}` +
+            `Content-Type: ${contentType}${CRLF}${CRLF}`
+        );
+        parts.push(req.body); // Buffer brut
+        parts.push(CRLF);
+
+        // Partie model
+        parts.push(
+            `--${boundary}${CRLF}` +
+            `Content-Disposition: form-data; name="model"${CRLF}${CRLF}` +
+            `whisper-large-v3-turbo${CRLF}`
+        );
+
+        // Partie language
+        parts.push(
+            `--${boundary}${CRLF}` +
+            `Content-Disposition: form-data; name="language"${CRLF}${CRLF}` +
+            `fr${CRLF}`
+        );
+
+        // Fin du multipart
+        parts.push(`--${boundary}--${CRLF}`);
+
+        // Concatener en un seul Buffer
+        const body = Buffer.concat(parts.map(p => typeof p === 'string' ? Buffer.from(p) : p));
 
         const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${GROQ_API_KEY}`,
-                ...form.getHeaders(),
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': String(body.length),
             },
-            body: form,
+            body,
         });
 
-        if (!response.ok) {
-            const errText = await response.text();
-            log(`❌ Proxy Groq STT erreur ${response.status}: ${errText}`);
-            return res.status(response.status).json({ error: errText });
-        }
+        const data = await response.text();
+        log(`🎤 Proxy Groq STT — ${response.status}: ${data.substring(0, 200)}`);
 
-        const data = await response.json();
-        log(`🎤 Proxy Groq STT resultat: "${(data.text ?? '').slice(0, 80)}"`);
-        res.json(data);
+        res.status(response.status).json(JSON.parse(data));
     } catch (err) {
         log(`❌ Proxy Groq STT exception: ${err.message}`);
         res.status(500).json({ error: err.message });
