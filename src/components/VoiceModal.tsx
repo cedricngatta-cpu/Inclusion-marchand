@@ -129,61 +129,46 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const generateWelcome = useCallback(async () => {
         setState('welcome');
 
-        // Timeout global de 20s — jamais de chargement infini
-        const globalTimeout = setTimeout(() => {
-            const fallback = `Bonjour ${userName.split(' ')[0]} ! Connexion lente. Mode local activé.`;
-            setMode('local');
-            addAssistantMessage(fallback, { isWelcome: true });
-            speakText(fallback, () => setState('idle'));
-        }, 20000);
+        const firstName = userName.split(' ')[0];
+        const quickGreeting = `Bonjour ${firstName}, comment puis-je vous aider ?`;
 
+        // Etape 1 : Greeting instantane (local, pas d'API)
+        addAssistantMessage(quickGreeting, { isWelcome: true });
+        setState('speaking');
+
+        // Utiliser Web Speech Synthesis (instantane) pour le greeting
+        // au lieu de Deepgram TTS qui necessite un appel API
+        if (isWeb && typeof window !== 'undefined' && window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(quickGreeting);
+            utterance.lang = 'fr-FR';
+            utterance.rate = 1.0;
+            utterance.onend = () => setState('idle');
+            utterance.onerror = () => setState('idle');
+            setTimeout(() => window.speechSynthesis.speak(utterance), 50);
+        } else {
+            // Mobile : fallback expo-speech (local, rapide)
+            speakText(quickGreeting, () => setState('idle'));
+        }
+
+        // Etape 2 : Charger le contexte IA en background (pour les prochaines interactions)
         try {
-            // Paralléliser : vérification réseau + récupération contexte Supabase simultanément
-            const [online, systemMsg] = await Promise.all([
-                isOnline(),
-                initConversation(role, userId, userName, storeId).catch(() => null),
-            ]);
+            const online = await isOnline();
 
             if (!online) {
-                clearTimeout(globalTimeout);
-                const txt = `Bonjour ${userName.split(' ')[0]} ! Je suis en mode hors ligne. Vous pouvez me donner des commandes directes comme "vendre", "stock" ou "bilan".`;
                 setMode('offline');
-                addAssistantMessage(txt, { isWelcome: true });
-                speakText(txt, () => setState('idle'));
                 return;
             }
 
-            if (!systemMsg) {
-                clearTimeout(globalTimeout);
-                throw new Error('Contexte indisponible');
-            }
-
             setMode('ai');
-            const welcomePrompt: GroqMessage = { role: 'user', content: 'Accueil chaleureux et résumé rapide de mon activité en 2 phrases max.' };
-            const msgs = [systemMsg, welcomePrompt];
 
-            // max_tokens réduit (300) pour accélérer le message d'accueil
-            const welcomeReply = await chatWithHistory(msgs, 300);
-            clearTimeout(globalTimeout);
-
-            const { text } = parseAction(welcomeReply);
-            const welcomeText = text || welcomeReply;
-
-            // Historique Groq initialisé avec system + welcome exchange
-            groqHistoryRef.current = [...msgs, { role: 'assistant', content: welcomeReply }];
-
-            addAssistantMessage(welcomeText, { isWelcome: true });
-            setState('speaking');
-            speakText(welcomeText, () => setState('idle'));
-        } catch (err: any) {
-            clearTimeout(globalTimeout);
-            console.log('ERREUR generateWelcome:', err?.message ?? err);
-            const isTimeout = err?.message === 'TIMEOUT';
-            const fallback = isTimeout
-                ? `Bonjour ${userName.split(' ')[0]} ! Connexion lente. Je suis prêt, parlez-moi.`
-                : `Bonjour ${userName.split(' ')[0]} ! Comment puis-je vous aider ?`;
-            addAssistantMessage(fallback, { isWelcome: true });
-            speakText(fallback, () => setState('idle'));
+            // Charger le system prompt en background — pret pour la prochaine question
+            const systemMsg = await initConversation(role, userId, userName, storeId).catch(() => null);
+            if (systemMsg) {
+                groqHistoryRef.current = [systemMsg];
+            }
+        } catch {
+            // Pas grave si ca echoue — le greeting est deja affiche
         }
     }, [role, userId, userName, storeId]);
 
@@ -270,7 +255,13 @@ export default function VoiceModal({ visible, onClose }: Props) {
                 { role: 'user', content: transcript },
             ];
 
-            const rawReply = await chatWithHistory(newHistory);
+            // Timeout de securite : 12s max pour le LLM (le timeout interne est 10s)
+            const rawReply = await Promise.race([
+                chatWithHistory(newHistory),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('TIMEOUT')), 12000)
+                ),
+            ]);
             const { text, action } = parseAction(rawReply);
             const replyText = text || rawReply;
 
@@ -287,9 +278,18 @@ export default function VoiceModal({ visible, onClose }: Props) {
             }
         } catch (err: any) {
             console.log('ERREUR chatWithHistory:', err?.message ?? err);
+            // Fallback : essayer le parser local
+            const localResult = parseLocalCommand(transcript);
+            if (localResult.action) {
+                addAssistantMessage(localResult.responseText);
+                setPendingAction(localResult.action);
+                setState('confirming');
+                speakText(localResult.responseText);
+                return;
+            }
             const errTxt = err?.message === 'TIMEOUT'
-                ? 'Connexion lente. Réessayez.'
-                : "Désolé, je n'ai pas pu traiter votre demande.";
+                ? 'Connexion lente. Reessayez ou utilisez des commandes directes.'
+                : "Desole, je n'ai pas pu traiter votre demande. Reessayez.";
             addAssistantMessage(errTxt);
             speakText(errTxt, () => setState('idle'));
         }
@@ -322,10 +322,17 @@ export default function VoiceModal({ visible, onClose }: Props) {
         if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
         setState('processing');
 
+        // Timeout de securite global : si tout le pipeline prend > 25s, on abandonne
+        const globalSafety = setTimeout(() => {
+            setError('Le traitement a pris trop de temps. Reessayez.');
+            setState('error');
+        }, 25000);
+
+        try {
         // stopRecording() retourne un URI (mobile) ou '__web_blob__' (web)
         const uri = await stopRecording();
         if (!uri) {
-            setError("Impossible d'acceder au micro.");
+            setError("Aucun audio capture. Verifiez que le micro est autorise.");
             setState('error');
             return;
         }
@@ -339,17 +346,29 @@ export default function VoiceModal({ visible, onClose }: Props) {
             if (result.source === 'deepgram') setMode('ai');
         } catch (err: any) {
             console.log('ERREUR STT dans VoiceModal:', err?.message ?? err);
-            const msg = err?.message?.includes('reseau') || err?.message?.includes('network')
-                ? 'Erreur de connexion. Verifiez votre internet.'
-                : err?.message?.includes('401') || err?.message?.includes('403')
-                    ? 'Cle API invalide. Contactez le support.'
-                    : `Erreur de transcription : ${err?.message ?? 'inconnue'}`;
+            const msg = err?.message?.includes('trop de temps') || err?.name === 'AbortError'
+                ? 'La transcription a pris trop de temps. Reessayez.'
+                : err?.message?.includes('reseau') || err?.message?.includes('network')
+                    ? 'Erreur de connexion. Verifiez votre internet.'
+                    : err?.message?.includes('401') || err?.message?.includes('403')
+                        ? 'Cle API invalide. Contactez le support.'
+                        : `Erreur de transcription : ${err?.message ?? 'inconnue'}`;
             setError(msg);
             setState('error');
             return;
         }
 
+        // Transcript vide = aucune voix detectee
+        if (!transcript.trim()) {
+            setError("Je n'ai pas entendu de voix. Parlez plus fort ou plus pres du micro.");
+            setState('error');
+            return;
+        }
+
         await processTranscript(transcript);
+        } finally {
+            clearTimeout(globalSafety);
+        }
     }, [processTranscript]);
 
     const handleMicPress = useCallback(async () => {

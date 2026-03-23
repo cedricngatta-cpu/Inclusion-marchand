@@ -94,7 +94,7 @@ export async function transcribeAudio(uri: string): Promise<string> {
 // ── Chat multi-tour : tout l'historique est envoyé à Groq ─────────────────
 export async function chatWithHistory(messages: GroqMessage[], maxTokens = 800): Promise<string> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
         const res = await fetch(CHAT_URL, {
@@ -119,8 +119,8 @@ export async function chatWithHistory(messages: GroqMessage[], maxTokens = 800):
     } catch (err: any) {
         clearTimeout(timeoutId);
         if (err.name === 'AbortError') {
-            log('TIMEOUT Groq — trop long (15s)');
-            reportApiError('Groq Chat', { message: 'Timeout 15s' }, 'groqAI.chatWithHistory');
+            log('TIMEOUT Groq — trop long (10s)');
+            reportApiError('Groq Chat', { message: 'Timeout 10s' }, 'groqAI.chatWithHistory');
             throw new Error('TIMEOUT');
         }
         reportApiError('Groq Chat', err, 'groqAI.chatWithHistory');

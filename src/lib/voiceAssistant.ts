@@ -152,20 +152,23 @@ export async function transcribeRecording(
 
     // ── WEB ──────────────────────────────────────────────────────────────
     if (isWebPlatform) {
-        if (online && lastWebBlob) {
-            const result = await deepgramTranscribeWeb(lastWebBlob);
-            lastWebBlob = null;
-            return { text: result.text, source: result.source };
-        }
-        // Fallback web offline : Web Speech API (via deepgramSTT fallback)
-        const { deepgramTranscribeWeb: transcribeWeb } = await import('./deepgramSTT');
-        // Pas de blob → fallback direct Web Speech
         if (!lastWebBlob) {
+            log('Pas de blob audio web enregistre');
             return { text: '', source: 'web' };
         }
-        const result = await transcribeWeb(lastWebBlob);
+
+        if (online) {
+            // Envoyer le blob a Deepgram — timeout et erreurs gerees dans deepgramSTT
+            const blob = lastWebBlob;
+            lastWebBlob = null;
+            const result = await deepgramTranscribeWeb(blob);
+            return { text: result.text, source: result.source };
+        }
+
+        // Offline web : on ne peut pas reenvoyer le blob, retourner vide
+        // (le parser local gerera la commande si l'utilisateur reparle)
         lastWebBlob = null;
-        return { text: result.text, source: result.source };
+        return { text: '', source: 'web' };
     }
 
     // ── MOBILE ───────────────────────────────────────────────────────────

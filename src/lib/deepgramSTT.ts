@@ -16,7 +16,7 @@ export interface DeepgramSTTResult {
     confidence?: number;
 }
 
-// ── Transcription mobile (fichier URI → FormData) ────────────────────────────
+// ── Transcription mobile (fichier URI -> FormData) ────────────────────────────
 export async function deepgramTranscribe(audioUri: string): Promise<DeepgramSTTResult> {
     if (!DEEPGRAM_API_KEY) {
         log('Pas de cle API Deepgram, fallback natif');
@@ -24,7 +24,7 @@ export async function deepgramTranscribe(audioUri: string): Promise<DeepgramSTTR
     }
 
     try {
-        log('Envoi audio a Deepgram Nova-3 (mobile)...');
+        log('[Voice] 3. Sending to Deepgram STT (mobile)...');
 
         const fileUri = Platform.OS === 'ios' ? audioUri.replace('file://', '') : audioUri;
 
@@ -36,7 +36,11 @@ export async function deepgramTranscribe(audioUri: string): Promise<DeepgramSTTR
         } as any);
 
         const result = await sendToDeepgram(formData);
-        if (!result) return fallbackNativeSTT();
+        if (!result) {
+            log('Transcription Deepgram vide, fallback natif');
+            return fallbackNativeSTT();
+        }
+        log('[Voice] 4. STT result:', result.text);
         return result;
     } catch (err: any) {
         log('Erreur Deepgram STT mobile:', err?.message ?? err);
@@ -45,21 +49,28 @@ export async function deepgramTranscribe(audioUri: string): Promise<DeepgramSTTR
     }
 }
 
-// ── Transcription web (Blob webm → binary body) ─────────────────────────────
+// ── Transcription web (Blob webm -> binary body) ─────────────────────────────
 export async function deepgramTranscribeWeb(audioBlob: Blob): Promise<DeepgramSTTResult> {
+    log('[Voice] 3. Sending to Deepgram STT (web), size:', audioBlob.size, 'type:', audioBlob.type);
+    log('Deepgram key present:', !!DEEPGRAM_API_KEY);
+
     if (!DEEPGRAM_API_KEY) {
         log('Pas de cle API Deepgram, fallback Web Speech');
         return fallbackWebSTT();
     }
 
-    try {
-        log('Envoi audio a Deepgram Nova-3 (web), type:', audioBlob.type, 'size:', audioBlob.size);
+    // Blob trop petit = pas de voix capturee
+    if (audioBlob.size < 1000) {
+        log('Audio blob trop petit (<1KB), pas assez de donnees audio');
+        return { text: '', source: 'deepgram', confidence: 0 };
+    }
 
+    try {
         // Deepgram accepte le binaire brut avec Content-Type explicite
         const contentType = audioBlob.type || 'audio/webm';
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
 
         const res = await fetch(DEEPGRAM_STT_URL, {
             method: 'POST',
@@ -81,16 +92,24 @@ export async function deepgramTranscribeWeb(audioBlob: Blob): Promise<DeepgramST
         const data = await res.json();
         const transcript = parseDeepgramResponse(data);
 
+        log('[Voice] 4. STT result:', transcript.text || '(vide)', 'confidence:', transcript.confidence);
+
+        // Transcript vide = pas de voix detectee, retourne vide au lieu de fallback
+        // (le fallback Web Speech ne peut pas reecouter un audio deja enregistre)
         if (!transcript.text) {
-            log('Transcription vide, fallback Web Speech');
-            return fallbackWebSTT();
+            return { text: '', source: 'deepgram', confidence: 0 };
         }
 
         return transcript;
     } catch (err: any) {
         log('Erreur Deepgram STT web:', err?.message ?? err);
         reportApiError('Deepgram STT Web', err, 'deepgramSTT.deepgramTranscribeWeb');
-        return fallbackWebSTT();
+
+        // Sur erreur reseau/timeout, propager l'erreur (pas de fallback car le micro est ferme)
+        if (err?.name === 'AbortError') {
+            throw new Error('La transcription a pris trop de temps. Reessayez.');
+        }
+        throw err;
     }
 }
 
@@ -98,7 +117,7 @@ export async function deepgramTranscribeWeb(audioBlob: Blob): Promise<DeepgramST
 
 async function sendToDeepgram(body: FormData): Promise<DeepgramSTTResult | null> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     const res = await fetch(DEEPGRAM_STT_URL, {
         method: 'POST',
@@ -172,7 +191,7 @@ function fallbackWebSTT(): Promise<DeepgramSTTResult> {
         const timeout = setTimeout(() => {
             try { recognition.abort(); } catch { /* ignore */ }
             reject(new Error('Web Speech API : timeout'));
-        }, 15000);
+        }, 10000);
 
         recognition.onresult = (event: any) => {
             clearTimeout(timeout);
