@@ -7,6 +7,7 @@ import { colors } from '@/src/lib/colors';
 import { useVoiceButton } from '@/src/context/VoiceButtonContext';
 import { useAuth } from '@/src/context/AuthContext';
 import { isWeb } from '@/src/lib/platform';
+import { isMediaRecorderAvailable } from '@/src/lib/webAudioRecorder';
 import { isWebSpeechSupported } from '@/src/lib/webSpeech';
 import VoiceModal from './VoiceModal';
 
@@ -24,8 +25,8 @@ export default function VoiceButton() {
         return () => { showSub.remove(); hideSub.remove(); };
     }, []);
 
-    // Sur web : afficher uniquement si Web Speech API est supportée par le navigateur
-    if (isWeb && !isWebSpeechSupported()) return null;
+    // Sur web : afficher si MediaRecorder OU Web Speech API est disponible
+    if (isWeb && !isMediaRecorderAvailable() && !isWebSpeechSupported()) return null;
 
     // Garde défensive : ne rien afficher si pas authentifié
     if (!user) return null;

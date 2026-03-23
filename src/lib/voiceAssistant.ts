@@ -1,13 +1,21 @@
 // Logique audio de l'assistant vocal + exécution des actions métier
-import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
-import * as Speech from 'expo-speech';
+// Web : MediaRecorder + Deepgram | Mobile : expo-audio + Deepgram
 import { Platform } from 'react-native';
-import { fetchRoleContext, buildSystemPrompt, GroqMessage, VoiceAction } from './groqAI';
+import { fetchRoleContext, buildSystemPrompt, GroqMessage, VoiceAction, isOnline } from './groqAI';
 import { supabase } from './supabase';
 import { emitEvent } from './socket';
 import { reportApiError } from './errorReporter';
+import { deepgramSpeak, stopDeepgramSpeaking } from './deepgramTTS';
+import { deepgramTranscribe, deepgramTranscribeWeb } from './deepgramSTT';
+import { parseLocalCommand } from './localCommandParser';
+import {
+    startWebRecording, stopWebRecording, cancelWebRecording,
+    isMediaRecorderAvailable,
+} from './webAudioRecorder';
 
 const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
+
+const isWebPlatform = Platform.OS === 'web';
 
 const generateUUID = (): string =>
     'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -24,75 +32,154 @@ export type AssistantState =
     | 'confirming'
     | 'error';
 
-// ── Enregistrement audio ───────────────────────────────────────────────────
-let recordingInstance: Audio.Recording | null = null;
-
-// Options explicites m4a pour Android ET iOS (Whisper accepte m4a, pas .caf)
-const RECORDING_OPTIONS: Audio.RecordingOptions = {
-    android: {
-        extension: '.m4a',
-        outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-        audioEncoder: Audio.AndroidAudioEncoder.AAC,
-        sampleRate: 44100,
-        numberOfChannels: 1,
-        bitRate: 128000,
-    },
-    ios: {
-        extension: '.m4a',
-        outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-        audioQuality: Audio.IOSAudioQuality.HIGH,
-        sampleRate: 44100,
-        numberOfChannels: 1,
-        bitRate: 128000,
-    },
-    web: {},
+// Mode audio lecture — haut-parleur iOS (utilise par les fonctions mobile)
+const AUDIO_MODE_PLAYBACK = {
+    allowsRecording: false,
+    playsInSilentMode: true,
+    shouldPlayInBackground: false,
+    interruptionMode: 'duckOthers' as const,
+    shouldRouteThroughEarpiece: false,
 };
 
-export async function startRecording(): Promise<void> {
-    log('=== DÉBUT ENREGISTREMENT ===');
-    log('Platform:', Platform.OS);
+// ── Blob web stocke entre start et stop ──────────────────────────────────────
+let lastWebBlob: Blob | null = null;
 
-    const { status } = await Audio.requestPermissionsAsync();
-    log('Permission micro:', status);
-    if (status !== 'granted') {
-        log('PERMISSION REFUSÉE');
-        throw new Error('Permission microphone refusée');
-    }
+// ── Enregistrement mobile (expo-audio) ───────────────────────────────────────
+let recorderInstance: any = null; // AudioRecorder (import dynamique mobile)
 
-    await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-        shouldDuckAndroid: false,
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-        playThroughEarpieceAndroid: false,
+async function startMobileRecording(): Promise<void> {
+    const { AudioModule, setAudioModeAsync, requestRecordingPermissionsAsync, RecordingPresets } = await import('expo-audio');
+
+    const { status } = await requestRecordingPermissionsAsync();
+    if (status !== 'granted') throw new Error('Permission microphone refusée');
+
+    await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        interruptionMode: 'doNotMix',
+        shouldRouteThroughEarpiece: false,
     });
-    const { recording } = await Audio.Recording.createAsync(RECORDING_OPTIONS);
-    recordingInstance = recording;
-    log('Enregistrement démarré avec options m4a');
+
+    const RECORDING_OPTIONS = {
+        ...RecordingPresets.HIGH_QUALITY,
+        numberOfChannels: 1,
+        extension: '.m4a',
+        android: {
+            ...RecordingPresets.HIGH_QUALITY.android,
+            outputFormat: 'mpeg4' as const,
+            audioEncoder: 'aac' as const,
+        },
+        ios: {
+            ...RecordingPresets.HIGH_QUALITY.ios,
+            numberOfChannels: 1,
+        },
+    };
+
+    const recorder = new AudioModule.AudioRecorder(RECORDING_OPTIONS);
+    await recorder.prepareToRecordAsync();
+    recorder.record();
+    recorderInstance = recorder;
 }
 
+async function stopMobileRecording(): Promise<string | null> {
+    if (!recorderInstance) return null;
+    await recorderInstance.stop();
+    const uri = recorderInstance.uri;
+    recorderInstance = null;
+
+    const { setAudioModeAsync } = await import('expo-audio');
+    await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
+
+    return uri ?? null;
+}
+
+async function cancelMobileRecording(): Promise<void> {
+    if (!recorderInstance) return;
+    try { await recorderInstance.stop(); } catch { /* ignore */ }
+    recorderInstance = null;
+    try {
+        const { setAudioModeAsync } = await import('expo-audio');
+        await setAudioModeAsync(AUDIO_MODE_PLAYBACK);
+    } catch { /* ignore */ }
+}
+
+// ── API publique unifiée (web + mobile) ──────────────────────────────────────
+
+export async function startRecording(): Promise<void> {
+    log('=== DEBUT ENREGISTREMENT ===', 'Platform:', Platform.OS);
+    lastWebBlob = null;
+
+    if (isWebPlatform) {
+        await startWebRecording();
+    } else {
+        await startMobileRecording();
+    }
+    log('Enregistrement demarre');
+}
+
+/** Arrete l'enregistrement. Retourne un URI (mobile) ou '__web_blob__' (web). */
 export async function stopRecording(): Promise<string | null> {
-    if (!recordingInstance) return null;
-    await recordingInstance.stopAndUnloadAsync();
-    const uri = recordingInstance.getURI();
-    recordingInstance = null;
-    // Basculer immédiatement vers haut-parleur (iOS sinon reste sur écouteur)
-    await Audio.setAudioModeAsync(AUDIO_MODE_PLAYBACK);
-
     log('=== FIN ENREGISTREMENT ===');
-    log('URI audio:', uri);
-    log('Fichier existe:', uri ? 'oui' : 'non');
 
-    return uri;
+    if (isWebPlatform) {
+        lastWebBlob = await stopWebRecording();
+        if (!lastWebBlob) return null;
+        return '__web_blob__'; // Marqueur — le vrai blob est dans lastWebBlob
+    }
+
+    return stopMobileRecording();
 }
 
 export async function cancelRecording(): Promise<void> {
-    if (!recordingInstance) return;
-    try { await recordingInstance.stopAndUnloadAsync(); } catch { /* ignore */ }
-    recordingInstance = null;
-    await Audio.setAudioModeAsync(AUDIO_MODE_PLAYBACK);
+    if (isWebPlatform) {
+        cancelWebRecording();
+        lastWebBlob = null;
+    } else {
+        await cancelMobileRecording();
+    }
 }
+
+// ── Transcription intelligente (web + mobile, online + offline) ──────────────
+
+export type TranscribeSource = 'deepgram' | 'native' | 'web' | 'groq';
+
+export async function transcribeRecording(
+    uri: string,
+): Promise<{ text: string; source: TranscribeSource }> {
+    const online = await isOnline();
+
+    // ── WEB ──────────────────────────────────────────────────────────────
+    if (isWebPlatform) {
+        if (online && lastWebBlob) {
+            const result = await deepgramTranscribeWeb(lastWebBlob);
+            lastWebBlob = null;
+            return { text: result.text, source: result.source };
+        }
+        // Fallback web offline : Web Speech API (via deepgramSTT fallback)
+        const { deepgramTranscribeWeb: transcribeWeb } = await import('./deepgramSTT');
+        // Pas de blob → fallback direct Web Speech
+        if (!lastWebBlob) {
+            return { text: '', source: 'web' };
+        }
+        const result = await transcribeWeb(lastWebBlob);
+        lastWebBlob = null;
+        return { text: result.text, source: result.source };
+    }
+
+    // ── MOBILE ───────────────────────────────────────────────────────────
+    if (online) {
+        const result = await deepgramTranscribe(uri);
+        return { text: result.text, source: result.source };
+    }
+
+    // Fallback mobile offline : expo-speech-recognition
+    const { nativeSpeechRecognition } = await import('./speechRecognition');
+    const result = await nativeSpeechRecognition();
+    return { text: result.text, source: 'native' };
+}
+
+// ── Parser local offline ─────────────────────────────────────────────────
+export { parseLocalCommand } from './localCommandParser';
 
 // ── Conversion nombre → mots français ─────────────────────────────────────
 function numberToFrenchWords(n: number): string {
@@ -191,42 +278,13 @@ export function cleanTextForSpeech(text: string): string {
 
 // ── TTS ────────────────────────────────────────────────────────────────────
 export function stopSpeaking(): void {
-    Speech.stop();
+    stopDeepgramSpeaking();
 }
 
-// Mode audio lecture — haut-parleur iOS forcé via category .playback (pas .playAndRecord)
-const AUDIO_MODE_PLAYBACK = {
-    allowsRecordingIOS: false,           // → iOS bascule en category .playback = haut-parleur
-    playsInSilentModeIOS: true,          // fonctionne même en mode silencieux
-    staysActiveInBackground: false,
-    interruptionModeIOS: InterruptionModeIOS.DuckOthers,   // spoken audio → haut-parleur
-    shouldDuckAndroid: false,
-    interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
-    playThroughEarpieceAndroid: false,   // Android : haut-parleur, pas écouteur
-};
-
 export function speakText(text: string, onDone?: () => void): void {
-    const doSpeak = () => {
-        log('TTS → parle:', text.slice(0, 60));
-        Speech.speak(cleanTextForSpeech(text), {
-            language: 'fr-FR',
-            rate: 0.9,
-            onStart: () => log('TTS démarré'),
-            onDone:  () => { log('TTS terminé'); onDone?.(); },
-            onError: (e) => { log('TTS ERREUR:', e); onDone?.(); },
-        });
-    };
-
-    // Basculer en mode lecture haut-parleur, puis attendre 500ms
-    // (iOS a besoin de ce délai pour changer la route audio earpiece → speaker)
-    Audio.setAudioModeAsync(AUDIO_MODE_PLAYBACK)
-        .then(() => new Promise<void>(resolve => setTimeout(resolve, 500)))
-        .then(doSpeak)
-        .catch(err => {
-            log('Audio mode switch error:', err);
-            reportApiError('TTS Audio Mode', err, 'voiceAssistant.speak');
-            doSpeak();
-        });
+    log('TTS → parle:', text.slice(0, 60));
+    // Deepgram TTS gere le fallback vers expo-speech automatiquement
+    deepgramSpeak(text, onDone);
 }
 
 // ── Initialisation de la conversation ─────────────────────────────────────

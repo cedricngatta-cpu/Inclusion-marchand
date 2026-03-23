@@ -1,29 +1,28 @@
-// Modal assistant vocal conversationnel — historique multi-tour, chat UI
+// Modal assistant vocal conversationnel — Deepgram STT/TTS + Groq LLM + fallback offline
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
     Modal, View, Text, TouchableOpacity, StyleSheet,
     Animated, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,
 } from 'react-native';
-import { Mic, MicOff, X, Check, XCircle, Wifi, WifiOff } from 'lucide-react-native';
-import * as Speech from 'expo-speech';
+import { Mic, MicOff, X, Check, XCircle, Wifi, WifiOff, Zap } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/src/context/AuthContext';
 import { useProfileContext } from '@/src/context/ProfileContext';
 import { colors } from '@/src/lib/colors';
 import { isWeb } from '@/src/lib/platform';
-import { startWebSpeechRecognition } from '@/src/lib/webSpeech';
 import {
     startRecording, stopRecording, cancelRecording,
     stopSpeaking, speakText, initConversation,
     isVoiceConfirmation, isVoiceCancellation,
     getLocalRoute, isLogoutCommand, isLocalCommand, getLocalConfirmation,
-    executeVoiceAction,
+    executeVoiceAction, transcribeRecording,
     AssistantState,
 } from '@/src/lib/voiceAssistant';
 import {
-    GroqMessage, VoiceAction, transcribeAudio,
+    GroqMessage, VoiceAction,
     chatWithHistory, parseAction, isOnline, fetchScreenDebrief,
 } from '@/src/lib/groqAI';
+import { parseLocalCommand } from '@/src/lib/localCommandParser';
 
 // ── Types UI ───────────────────────────────────────────────────────────────
 interface DisplayMsg {
@@ -82,11 +81,11 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const [state,         setState]        = useState<AssistantState>('idle');
     const [pendingAction, setPendingAction] = useState<VoiceAction | null>(null);
     const [mode,          setMode]         = useState<'local' | 'ai' | 'offline'>('local');
+    const [sttSource,     setSttSource]    = useState<'deepgram' | 'native' | 'groq' | 'web' | null>(null);
     const [error,         setError]        = useState('');
 
-    const scrollRef          = useRef<ScrollView>(null);
-    const timerRef           = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const webSpeechStopRef   = useRef<(() => void) | null>(null);
+    const scrollRef = useRef<ScrollView>(null);
+    const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Helpers ────────────────────────────────────────────────────────────
     const role     = (user?.role as string) ?? 'MERCHANT';
@@ -296,39 +295,23 @@ export default function VoiceModal({ visible, onClose }: Props) {
         }
     }, [pendingAction, role, userId, userName, storeId]);
 
-    // ── Enregistrement ─────────────────────────────────────────────────────
+    // ── Enregistrement (flux unifie web + mobile) ─────────────────────────
     const handleStartListening = useCallback(async () => {
         try {
             setError('');
             setState('listening');
 
-            // ── Chemin WEB : Web Speech API ───────────────────────────────
-            if (isWeb) {
-                webSpeechStopRef.current = startWebSpeechRecognition(
-                    (text) => {
-                        webSpeechStopRef.current = null;
-                        setState('processing');
-                        processTranscript(text);
-                    },
-                    (err) => {
-                        webSpeechStopRef.current = null;
-                        setError(err);
-                        setState('error');
-                    },
-                    'fr-FR',
-                );
-                return;
-            }
-
-            // ── Chemin MOBILE : expo-av (inchangé) ────────────────────────
+            // startRecording() gere web (MediaRecorder) et mobile (expo-audio)
             await startRecording();
             timerRef.current = setTimeout(async () => {
                 await handleStopListening();
             }, 10_000);
         } catch (err: any) {
             console.log('ERREUR startRecording:', err?.message ?? err);
-            const msg = err?.message?.includes('refusée')
-                ? 'Permission microphone refusée. Activez-la dans Réglages > Confidentialité.'
+            const msg = err?.message?.includes('refusée') || err?.message?.includes('not-allowed') || err?.message?.includes('Permission')
+                ? isWeb
+                    ? 'Microphone non autorise. Autorisez l\'acces au microphone dans les parametres du navigateur.'
+                    : 'Permission microphone refusee. Activez-la dans Reglages > Confidentialite.'
                 : `Erreur micro : ${err?.message ?? 'inconnue'}`;
             setError(msg);
             setState('error');
@@ -336,36 +319,30 @@ export default function VoiceModal({ visible, onClose }: Props) {
     }, [processTranscript]);
 
     const handleStopListening = useCallback(async () => {
-        // ── Chemin WEB : arrêt Web Speech ────────────────────────────────
-        if (isWeb) {
-            if (webSpeechStopRef.current) {
-                webSpeechStopRef.current();
-                webSpeechStopRef.current = null;
-            }
-            setState('idle');
-            return;
-        }
-
-        // ── Chemin MOBILE : expo-av + Whisper (inchangé) ──────────────────
         if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
         setState('processing');
 
+        // stopRecording() retourne un URI (mobile) ou '__web_blob__' (web)
         const uri = await stopRecording();
         if (!uri) {
-            setError("Impossible d'accéder au micro.");
+            setError("Impossible d'acceder au micro.");
             setState('error');
             return;
         }
 
         let transcript = '';
         try {
-            transcript = await transcribeAudio(uri);
+            const result = await transcribeRecording(uri);
+            transcript = result.text;
+            setSttSource(result.source);
+            if (result.source === 'native' || result.source === 'web') setMode('offline');
+            if (result.source === 'deepgram') setMode('ai');
         } catch (err: any) {
-            console.log('ERREUR WHISPER dans VoiceModal:', err?.message ?? err);
-            const msg = err?.message?.includes('réseau')
-                ? 'Erreur de connexion. Vérifiez votre internet.'
+            console.log('ERREUR STT dans VoiceModal:', err?.message ?? err);
+            const msg = err?.message?.includes('reseau') || err?.message?.includes('network')
+                ? 'Erreur de connexion. Verifiez votre internet.'
                 : err?.message?.includes('401') || err?.message?.includes('403')
-                    ? 'Clé API invalide. Contactez le support.'
+                    ? 'Cle API invalide. Contactez le support.'
                     : `Erreur de transcription : ${err?.message ?? 'inconnue'}`;
             setError(msg);
             setState('error');
@@ -376,7 +353,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
     }, [processTranscript]);
 
     const handleMicPress = useCallback(async () => {
-        Speech.stop();
+        stopSpeaking();
         if (state === 'speaking') { setState('idle'); return; }
 
         if (state === 'listening') {
@@ -447,7 +424,9 @@ export default function VoiceModal({ visible, onClose }: Props) {
                             {mode === 'offline' ? (
                                 <><WifiOff color="#94a3b8" size={12} /><Text style={styles.modeText}>Hors ligne</Text></>
                             ) : mode === 'ai' ? (
-                                <><Wifi color={colors.primary} size={12} /><Text style={[styles.modeText, { color: colors.primary }]}>IA active</Text></>
+                                <><Zap color={colors.success} size={12} /><Text style={[styles.modeText, { color: colors.success }]}>
+                                    {sttSource === 'deepgram' ? 'Deepgram' : 'IA active'}
+                                </Text></>
                             ) : (
                                 <><Wifi color="#64748b" size={12} /><Text style={styles.modeText}>Mode local</Text></>
                             )}
@@ -544,9 +523,34 @@ export default function VoiceModal({ visible, onClose }: Props) {
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────
+const webOverlay = Platform.OS === 'web' ? {
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    // @ts-ignore — propriete web uniquement
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+} : {};
+
+const webSheet = Platform.OS === 'web' ? {
+    maxWidth: 500,
+    width: '94%' as any,
+    borderRadius: 12,
+    maxHeight: '85%' as any,
+    // @ts-ignore — proprietes web
+    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+} : {};
+
 const styles = StyleSheet.create({
-    overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-    overlayTouch: { flex: 1 },
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        justifyContent: 'flex-end',
+        ...webOverlay,
+    },
+    overlayTouch: {
+        flex: Platform.OS === 'web' ? 0 : 1,
+        ...(Platform.OS === 'web' ? { position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: 0 } : {}),
+    },
 
     sheet: {
         backgroundColor: '#fff',
@@ -554,6 +558,7 @@ const styles = StyleSheet.create({
         paddingTop: 16, paddingHorizontal: 16, paddingBottom: 32,
         maxHeight: '82%',
         gap: 10,
+        ...webSheet,
     },
 
     // Header
