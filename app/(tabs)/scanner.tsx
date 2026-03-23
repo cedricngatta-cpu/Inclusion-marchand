@@ -1,6 +1,6 @@
-// Écran Scanner — redesign complet
-// Caméra centrée dans un rectangle, overlay sombre autour, ligne de scan animée
-import React, { useState, useEffect, useRef } from 'react';
+// Ecran Scanner — expo-camera (mobile) + BarcodeDetector API (web)
+// Camera centree, overlay sombre, ligne de scan animee, coins verts
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, Pressable,
     Animated, Vibration, Dimensions, Platform,
@@ -10,7 +10,10 @@ import { ChevronLeft, Flashlight, FlashlightOff, RotateCcw, Plus, ShoppingBag } 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useProductContext } from '@/src/context/ProductContext';
+import { offlineCache, CACHE_KEYS } from '@/src/lib/offlineCache';
+import { useProfileContext } from '@/src/context/ProfileContext';
 import { colors } from '@/src/lib/colors';
+import WebBarcodeScanner from '@/src/components/WebBarcodeScanner';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -21,21 +24,24 @@ const CORNER_SIZE = 24;
 const CORNER_T = 4;
 const MASK = 'rgba(0,0,0,0.72)';
 const CORNER_COLOR = '#22c55e';
+const COOLDOWN_MS = 2000;
 
 type ScanResult =
-    | { found: true; code: string; name: string; price: number }
+    | { found: true; code: string; name: string; price: number; stock?: number }
     | { found: false; code: string }
     | null;
 
 export default function ScannerScreen() {
     const router = useRouter();
     const { products } = useProductContext();
+    const { activeProfile } = useProfileContext();
+    const storeId = activeProfile?.id as string | undefined;
 
     const [permission, requestPermission] = useCameraPermissions();
     const [torch, setTorch] = useState(false);
     const [paused, setPaused] = useState(false);
     const [result, setResult] = useState<ScanResult>(null);
-    const cooldown = useRef(false);
+    const lastScanRef = useRef<number>(0);
 
     // Animation de la ligne de scan
     const scanAnim = useRef(new Animated.Value(0)).current;
@@ -55,46 +61,67 @@ export default function ScannerScreen() {
         outputRange: [0, FRAME_H - 2],
     });
 
-    const handleBarCodeScanned = ({ data }: { data: string }) => {
-        if (cooldown.current || paused) return;
-        cooldown.current = true;
+    // Recherche produit : contexte en memoire + cache offline
+    const lookupProduct = useCallback(async (code: string) => {
+        // 1. Chercher dans le contexte ProductContext (memoire)
+        const found = products.find(p => p.barcode === code);
+        if (found) return { name: found.name, price: found.price, id: found.id };
+
+        // 2. Chercher dans le cache offline si un storeId est disponible
+        if (storeId) {
+            try {
+                const cached = await offlineCache.get<any[]>(CACHE_KEYS.products(storeId));
+                if (cached?.data) {
+                    const offlineProduct = cached.data.find((p: any) => p.barcode === code);
+                    if (offlineProduct) return { name: offlineProduct.name, price: offlineProduct.price, id: offlineProduct.id };
+                }
+            } catch { /* pas grave */ }
+        }
+
+        return null;
+    }, [products, storeId]);
+
+    const handleBarCodeScanned = useCallback(async ({ data }: { type?: string; data: string }) => {
+        // Debounce : ignorer si scan recent
+        const now = Date.now();
+        if (now - lastScanRef.current < COOLDOWN_MS) return;
+        if (paused) return;
+
+        lastScanRef.current = now;
         setPaused(true);
         if (Platform.OS !== 'web') Vibration.vibrate(100);
 
-        const product = products.find(p => p.barcode === data);
+        const product = await lookupProduct(data);
         if (product) {
             setResult({ found: true, code: data, name: product.name, price: product.price });
         } else {
             setResult({ found: false, code: data });
         }
-
-        // Délai anti-double-scan
-        setTimeout(() => { cooldown.current = false; }, 500);
-    };
+    }, [paused, lookupProduct]);
 
     const handleScanAgain = () => {
         setResult(null);
         setPaused(false);
-        cooldown.current = false;
+        lastScanRef.current = 0;
     };
 
-    // ── Permission en attente ──
-    if (!permission) {
+    // ── Permission en attente (mobile seulement) ──
+    if (Platform.OS !== 'web' && !permission) {
         return (
             <View style={styles.fullDark}>
-                <Text style={styles.permText}>Vérification des permissions...</Text>
+                <Text style={styles.permText}>Verification des permissions...</Text>
             </View>
         );
     }
 
-    // ── Permission refusée ──
-    if (!permission.granted) {
+    // ── Permission refusee (mobile seulement) ──
+    if (Platform.OS !== 'web' && !permission?.granted) {
         return (
             <View style={styles.fullDark}>
-                <Text style={styles.permTitle}>Accès Caméra Requis</Text>
-                <Text style={styles.permText}>Nécessaire pour scanner les codes-barres.</Text>
+                <Text style={styles.permTitle}>Acces Camera Requis</Text>
+                <Text style={styles.permText}>Necessaire pour scanner les codes-barres.</Text>
                 <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
-                    <Text style={styles.permBtnText}>AUTORISER LA CAMÉRA</Text>
+                    <Text style={styles.permBtnText}>AUTORISER LA CAMERA</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.backTextBtn} onPress={() => router.back()}>
                     <Text style={styles.backTextBtnText}>RETOUR</Text>
@@ -103,22 +130,30 @@ export default function ScannerScreen() {
         );
     }
 
-    // ── Écran principal ──
+    // ── Ecran principal ──
     return (
         <View style={styles.container}>
-            {/* Caméra plein écran derrière */}
-            <CameraView
-                style={StyleSheet.absoluteFillObject}
-                facing="back"
-                enableTorch={Platform.OS !== 'web' ? torch : false}
-                barcodeScannerSettings={{
-                    barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e'],
-                }}
-                onBarcodeScanned={paused ? undefined : handleBarCodeScanned}
-            />
+            {/* Camera : WebBarcodeScanner sur web, CameraView sur mobile */}
+            {Platform.OS === 'web' ? (
+                <WebBarcodeScanner
+                    style={StyleSheet.absoluteFillObject}
+                    onScan={handleBarCodeScanned}
+                    active={!paused}
+                />
+            ) : (
+                <CameraView
+                    style={StyleSheet.absoluteFillObject}
+                    facing="back"
+                    enableTorch={torch}
+                    barcodeScannerSettings={{
+                        barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'upc_a', 'upc_e', 'itf14', 'codabar'],
+                    }}
+                    onBarcodeScanned={paused ? undefined : handleBarCodeScanned}
+                />
+            )}
 
             {/* ── LAYOUT OVERLAY ── */}
-            <SafeAreaView style={styles.layout} edges={['top', 'bottom']}>
+            <SafeAreaView style={styles.layout} edges={['top', 'bottom']} pointerEvents="box-none">
 
                 {/* Header avec fond sombre */}
                 <View style={styles.headerMask}>
@@ -141,7 +176,7 @@ export default function ScannerScreen() {
                 {/* Zone au-dessus du cadre */}
                 <View style={styles.topMask} />
 
-                {/* Rangée centrale : masque gauche | cadre transparent | masque droit */}
+                {/* Rangee centrale : masque gauche | cadre transparent | masque droit */}
                 <View style={styles.middleRow}>
                     <View style={styles.sideMask} />
 
@@ -153,7 +188,7 @@ export default function ScannerScreen() {
                         <View style={[styles.corner, styles.cornerBL]} />
                         <View style={[styles.corner, styles.cornerBR]} />
 
-                        {/* Ligne de scan animée */}
+                        {/* Ligne de scan animee */}
                         <Animated.View
                             style={[styles.scanLine, { transform: [{ translateY: scanLineY }] }]}
                         />
@@ -162,14 +197,14 @@ export default function ScannerScreen() {
                     <View style={styles.sideMask} />
                 </View>
 
-                {/* Zone en dessous du cadre + bandeau résultat */}
+                {/* Zone en dessous du cadre + bandeau resultat */}
                 <View style={styles.bottomMask}>
                     {!result ? (
                         <Text style={styles.hint}>Placez le code-barres dans le cadre</Text>
                     ) : result.found ? (
-                        /* ── Produit trouvé ── */
+                        /* ── Produit trouve ── */
                         <View style={styles.resultCard}>
-                            <Text style={styles.resultFoundTag}>✓ PRODUIT TROUVÉ</Text>
+                            <Text style={styles.resultFoundTag}>PRODUIT TROUVE</Text>
                             <Text style={styles.resultName}>{result.name}</Text>
                             <Text style={styles.resultPrice}>{result.price.toLocaleString()} F CFA</Text>
                             <View style={styles.resultActions}>
@@ -190,9 +225,9 @@ export default function ScannerScreen() {
                             </View>
                         </View>
                     ) : (
-                        /* ── Produit non trouvé ── */
+                        /* ── Produit non trouve ── */
                         <View style={styles.resultCard}>
-                            <Text style={styles.resultNotFoundTag}>✗ PRODUIT INCONNU</Text>
+                            <Text style={styles.resultNotFoundTag}>PRODUIT INCONNU</Text>
                             <Text style={styles.resultCode}>{result.code}</Text>
                             <Text style={styles.resultCodeLabel}>Ce produit n'est pas dans votre catalogue</Text>
                             <View style={styles.resultActions}>
@@ -254,11 +289,11 @@ const styles = StyleSheet.create({
     // Masque au-dessus du cadre
     topMask: { flex: 1, backgroundColor: MASK },
 
-    // Rangée centrale
+    // Rangee centrale
     middleRow: { flexDirection: 'row', height: FRAME_H },
     sideMask: { flex: 1, backgroundColor: MASK },
 
-    // Cadre transparent (la caméra est visible derrière)
+    // Cadre transparent (la camera est visible derriere)
     scanFrame: {
         width: FRAME_W,
         height: FRAME_H,
@@ -278,7 +313,7 @@ const styles = StyleSheet.create({
     cornerBL: { bottom: 0, left: 0, borderBottomWidth: CORNER_T, borderLeftWidth: CORNER_T, borderBottomLeftRadius: 5 },
     cornerBR: { bottom: 0, right: 0, borderBottomWidth: CORNER_T, borderRightWidth: CORNER_T, borderBottomRightRadius: 5 },
 
-    // Ligne de scan rouge animée
+    // Ligne de scan rouge animee
     scanLine: {
         position: 'absolute',
         top: 0,
@@ -311,7 +346,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
 
-    // Bandeau résultat
+    // Bandeau resultat
     resultCard: {
         width: '100%',
         backgroundColor: colors.white,

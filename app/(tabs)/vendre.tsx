@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import WebBarcodeScanner from '@/src/components/WebBarcodeScanner';
 import {
     ShoppingBag, Trash2, CheckCircle, Smartphone, Banknote,
     BookOpen, Plus, Minus, QrCode, X, Flashlight, FlashlightOff, RotateCcw, ChevronLeft,
@@ -156,10 +157,14 @@ export default function VendreScreen() {
     };
 
     // ── Scan barcode ──
-    const handleBarCodeScanned = ({ data }: { data: string }) => {
+    const lastScanTimeRef = useRef<number>(0);
+    const handleBarCodeScanned = ({ data }: { type?: string; data: string }) => {
+        const now = Date.now();
+        if (now - lastScanTimeRef.current < 2000) return;
         if (cooldown.current) return;
         cooldown.current = true;
-        Vibration.vibrate(80);
+        lastScanTimeRef.current = now;
+        if (Platform.OS !== 'web') Vibration.vibrate(80);
 
         const product = products.find(p => p.barcode === data);
         if (product) {
@@ -175,7 +180,7 @@ export default function VendreScreen() {
             setScanFeedback(null);
             setScanFeedbackName('');
             cooldown.current = false;
-        }, 1400);
+        }, 2000);
     };
 
     const closeScanner = () => {
@@ -600,16 +605,16 @@ export default function VendreScreen() {
 
             {/* ── Modal Scanner ── */}
             <Modal visible={showScanner} animationType="slide" statusBarTranslucent>
-                {!permission ? (
+                {Platform.OS !== 'web' && !permission ? (
                     <View style={styles.fullDark}>
-                        <Text style={styles.permText}>Vérification des permissions...</Text>
+                        <Text style={styles.permText}>Verification des permissions...</Text>
                     </View>
-                ) : !permission.granted ? (
+                ) : Platform.OS !== 'web' && !permission?.granted ? (
                     <View style={styles.fullDark}>
-                        <Text style={styles.permTitle}>Accès Caméra Requis</Text>
-                        <Text style={styles.permText}>Nécessaire pour scanner les codes-barres.</Text>
+                        <Text style={styles.permTitle}>Acces Camera Requis</Text>
+                        <Text style={styles.permText}>Necessaire pour scanner les codes-barres.</Text>
                         <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
-                            <Text style={styles.permBtnText}>AUTORISER LA CAMÉRA</Text>
+                            <Text style={styles.permBtnText}>AUTORISER LA CAMERA</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.backTextBtn} onPress={closeScanner}>
                             <Text style={styles.backTextBtnText}>FERMER</Text>
@@ -617,16 +622,24 @@ export default function VendreScreen() {
                     </View>
                 ) : (
                     <View style={styles.scannerContainer}>
-                        {/* Caméra plein écran */}
-                        <CameraView
-                            style={StyleSheet.absoluteFillObject}
-                            facing="back"
-                            enableTorch={Platform.OS !== 'web' ? torch : false}
-                            barcodeScannerSettings={{
-                                barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e'],
-                            }}
-                            onBarcodeScanned={handleBarCodeScanned}
-                        />
+                        {/* Camera : WebBarcodeScanner sur web, CameraView sur mobile */}
+                        {Platform.OS === 'web' ? (
+                            <WebBarcodeScanner
+                                style={StyleSheet.absoluteFillObject}
+                                onScan={handleBarCodeScanned}
+                                active={!cooldown.current}
+                            />
+                        ) : (
+                            <CameraView
+                                style={StyleSheet.absoluteFillObject}
+                                facing="back"
+                                enableTorch={torch}
+                                barcodeScannerSettings={{
+                                    barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'upc_a', 'upc_e', 'itf14', 'codabar'],
+                                }}
+                                onBarcodeScanned={handleBarCodeScanned}
+                            />
+                        )}
 
                         <SafeAreaView style={styles.scanLayout} edges={['top', 'bottom']}>
 

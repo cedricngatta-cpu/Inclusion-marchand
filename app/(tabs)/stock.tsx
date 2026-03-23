@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import WebBarcodeScanner from '@/src/components/WebBarcodeScanner';
 import { Package, Plus, Search, X, Check, QrCode, ChevronLeft, Camera } from 'lucide-react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
@@ -123,14 +124,18 @@ export default function StockScreen() {
         setShowScanner(true);
     };
 
-    const handleBarCodeScanned = ({ data }: { data: string }) => {
+    const lastScanTimeRef = useRef<number>(0);
+    const handleBarCodeScanned = ({ data }: { type?: string; data: string }) => {
+        const now = Date.now();
+        if (now - lastScanTimeRef.current < 2000) return;
         if (cooldown.current || scanPaused) return;
         cooldown.current = true;
+        lastScanTimeRef.current = now;
         setScanPaused(true);
-        Vibration.vibrate(100);
+        if (Platform.OS !== 'web') Vibration.vibrate(100);
         setNewBarcode(data);
         setShowScanner(false);
-        setTimeout(() => { cooldown.current = false; }, 500);
+        setTimeout(() => { cooldown.current = false; }, 2000);
     };
 
     // ── Formulaire ──────────────────────────────────────────────────────────
@@ -421,18 +426,24 @@ export default function StockScreen() {
             {/* ── MODAL SCANNER ── */}
             <Modal visible={showScanner} transparent animationType="fade" onRequestClose={() => setShowScanner(false)}>
                 <View style={styles.scanRoot}>
-                    {permission?.granted ? (
+                    {Platform.OS === 'web' ? (
+                        <WebBarcodeScanner
+                            style={StyleSheet.absoluteFillObject}
+                            onScan={handleBarCodeScanned}
+                            active={!scanPaused}
+                        />
+                    ) : permission?.granted ? (
                         <CameraView
                             style={StyleSheet.absoluteFillObject}
                             facing="back"
                             barcodeScannerSettings={{
-                                barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e'],
+                                barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'upc_a', 'upc_e', 'itf14', 'codabar'],
                             }}
                             onBarcodeScanned={scanPaused ? undefined : handleBarCodeScanned}
                         />
                     ) : (
                         <View style={styles.noPermBox}>
-                            <Text style={styles.noPermText}>Accès caméra non autorisé</Text>
+                            <Text style={styles.noPermText}>Acces camera non autorise</Text>
                             <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
                                 <Text style={styles.permBtnText}>AUTORISER</Text>
                             </TouchableOpacity>

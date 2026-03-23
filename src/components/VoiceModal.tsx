@@ -23,6 +23,9 @@ import {
     chatWithHistory, parseAction, isOnline, fetchScreenDebrief,
 } from '@/src/lib/groqAI';
 import { parseLocalCommand } from '@/src/lib/localCommandParser';
+import { processVoiceCommand, generateSmartGreeting, clearConversationMemory } from '@/src/lib/deepgramLLM';
+import type { LLMResult, GreetingStats } from '@/src/lib/deepgramLLM';
+import { offlineCache, CACHE_KEYS } from '@/src/lib/offlineCache';
 
 // ── Types UI ───────────────────────────────────────────────────────────────
 interface DisplayMsg {
@@ -122,6 +125,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
         setPendingAction(null);
         setError('');
         setMode('local');
+        clearConversationMemory();
 
         generateWelcome();
     }, [visible]);
@@ -129,8 +133,29 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const generateWelcome = useCallback(async () => {
         setState('welcome');
 
-        const firstName = userName.split(' ')[0];
-        const quickGreeting = `Bonjour ${firstName}, comment puis-je vous aider ?`;
+        // Charger les stats depuis le cache offline pour un greeting contextuel
+        let greetingStats: GreetingStats | null = null;
+        try {
+            const cacheKey = storeId ? CACHE_KEYS.transactions(storeId) : null;
+            const cached = cacheKey ? await offlineCache.get<any[]>(cacheKey) : null;
+            if (cached?.data && Array.isArray(cached.data)) {
+                const today = new Date().toISOString().slice(0, 10);
+                const todayTx = cached.data.filter((tx: any) =>
+                    tx.created_at?.startsWith(today) && tx.type === 'VENTE'
+                );
+                if (todayTx.length > 0) {
+                    greetingStats = {
+                        todaySales: todayTx.length,
+                        todayAmount: todayTx.reduce((s: number, tx: any) => s + (tx.price || 0) * (tx.quantity || 1), 0),
+                        lowStockCount: 0,
+                        pendingOrders: 0,
+                        unreadNotifs: 0,
+                    };
+                }
+            }
+        } catch { /* pas grave — greeting simple */ }
+
+        const quickGreeting = generateSmartGreeting(userName, greetingStats);
 
         // Etape 1 : Greeting instantane (local, pas d'API)
         addAssistantMessage(quickGreeting, { isWelcome: true });
@@ -250,34 +275,41 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
         setMode('ai');
         try {
-            const newHistory: GroqMessage[] = [
+            // Utiliser processVoiceCommand avec historique conversationnel et confiance
+            const llmResult: LLMResult = await processVoiceCommand(
+                transcript,
+                groqHistoryRef.current,
+            );
+
+            const replyText = llmResult.text;
+            const action = llmResult.action;
+            const confidence = llmResult.confidence;
+
+            // Mettre a jour l'historique Groq
+            groqHistoryRef.current = [
                 ...groqHistoryRef.current,
                 { role: 'user', content: transcript },
+                { role: 'assistant', content: replyText },
             ];
 
-            // Timeout de securite : 12s max pour le LLM (le timeout interne est 10s)
-            const rawReply = await Promise.race([
-                chatWithHistory(newHistory),
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('TIMEOUT')), 12000)
-                ),
-            ]);
-            const { text, action } = parseAction(rawReply);
-            const replyText = text || rawReply;
-
-            groqHistoryRef.current = [...newHistory, { role: 'assistant', content: rawReply }];
-
             addAssistantMessage(replyText);
-            setPendingAction(action);
+
             if (action) {
-                setState('confirming');
-                speakText(replyText);
+                if (confidence >= 0.7) {
+                    // Confiance haute : executer directement
+                    await executeAction(action);
+                } else {
+                    // Confiance basse : demander confirmation
+                    setPendingAction(action);
+                    setState('confirming');
+                    speakText(replyText);
+                }
             } else {
                 setState('speaking');
                 speakText(replyText, () => setState('idle'));
             }
         } catch (err: any) {
-            console.log('ERREUR chatWithHistory:', err?.message ?? err);
+            console.log('ERREUR processVoiceCommand:', err?.message ?? err);
             // Fallback : essayer le parser local
             const localResult = parseLocalCommand(transcript);
             if (localResult.action) {

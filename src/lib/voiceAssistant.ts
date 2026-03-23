@@ -14,10 +14,24 @@ import {
 } from './webAudioRecorder';
 import { offlineQueue } from './offlineQueue';
 import { offlineCache, CACHE_KEYS, CACHE_TTL } from './offlineCache';
+import { getResponse } from './responseTemplates';
 
 const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
 const isWebPlatform = Platform.OS === 'web';
+
+// ── Derniere action executee (pour UNDO) ─────────────────────────────────────
+interface LastActionRecord {
+    type: string;
+    description: string;
+    // Donnees pour annuler
+    transactionId?: string;
+    storeId?: string;
+    productId?: string;
+    previousQty?: number;
+    creditId?: string;
+}
+let lastExecutedAction: LastActionRecord | null = null;
 
 const generateUUID = (): string =>
     'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -581,9 +595,18 @@ export async function executeVoiceAction(
 
                     log('[Offline] Vente ajoutée à la queue:', txId);
                 }
-                const prixUnit = prod.price ?? 0;
-                const paiementLabel = statusVal === 'DETTE' ? 'à crédit' : statusVal === 'MOMO' ? 'par Mobile Money' : 'en espèces';
-                return `Vente enregistrée : ${qte} ${prod.name} à ${prixUnit.toLocaleString('fr-FR')} francs${qte > 1 ? ' l\'unité' : ''}${client ? ` pour ${client}` : ''}. Total : ${total.toLocaleString('fr-FR')} francs CFA. Paiement ${paiementLabel}.`;
+                const paiementLabel = statusVal === 'DETTE' ? 'A credit.' : statusVal === 'MOMO' ? 'Par Mobile Money.' : '';
+                lastExecutedAction = {
+                    type: 'vendre', description: `${qte} ${prod.name}`,
+                    transactionId: txId, storeId, productId: prod.id,
+                };
+                return getResponse(client ? 'sell_client' : 'sell', {
+                    quantity: qte, product: prod.name,
+                    unitPrice: (prod.price ?? 0).toLocaleString('fr-FR'),
+                    amount: total.toLocaleString('fr-FR'),
+                    client: client ?? '',
+                    payment: paiementLabel,
+                });
             }
 
             // ── VENDRE MULTIPLE ────────────────────────────────────────────
@@ -684,8 +707,14 @@ export async function executeVoiceAction(
                     }
                     log('[Offline] Ventes multiples ajoutées à la queue:', transactions.length);
                 }
-                const paiementLabelMulti = statusVal === 'DETTE' ? 'à crédit' : statusVal === 'MOMO' ? 'par Mobile Money' : 'en espèces';
-                return `Vente enregistrée : ${resultats.join(', ')}${client ? ` pour ${client}` : ''}. Total : ${totalGeneral.toLocaleString('fr-FR')} francs CFA. Paiement ${paiementLabelMulti}.`;
+                const paiementLabelMulti = statusVal === 'DETTE' ? 'A credit.' : statusVal === 'MOMO' ? 'Par Mobile Money.' : '';
+                lastExecutedAction = { type: 'vendre_multiple', description: resultats.join(', ') };
+                return getResponse('sell_multiple', {
+                    count: resultats.length, items: resultats.join(', '),
+                    amount: totalGeneral.toLocaleString('fr-FR'),
+                    client: client ? ` pour ${client}` : '',
+                    payment: paiementLabelMulti,
+                });
             }
 
             // ── STOCK AJOUT ────────────────────────────────────────────────
@@ -708,15 +737,16 @@ export async function executeVoiceAction(
                         .update({ quantity: nouvelleQte, updated_at: new Date().toISOString() })
                         .eq('store_id', storeId).eq('product_id', prod.id);
                     emitEvent('stock-update', { storeId, productId: prod.id });
-                    return `Stock mis à jour ! ${prod.name} : +${ajout} unités (total : ${nouvelleQte}).`;
+                    lastExecutedAction = { type: 'stock_ajout', description: `${ajout} ${prod.name}`, storeId, productId: prod.id, previousQty: st.quantity ?? 0 };
+                    return getResponse('stock_add', { product: prod.name, quantity: ajout, newQty: nouvelleQte });
                 } else {
-                    // Insérer l'entrée stock si elle n'existe pas
                     await supabase.from('stock').insert([{
                         product_id: prod.id, store_id: storeId,
                         quantity: ajout, updated_at: new Date().toISOString(),
                     }]);
                     emitEvent('stock-update', { storeId, productId: prod.id });
-                    return `Stock enregistré ! ${prod.name} : ${ajout} unités.`;
+                    lastExecutedAction = { type: 'stock_ajout', description: `${ajout} ${prod.name}`, storeId, productId: prod.id, previousQty: 0 };
+                    return getResponse('stock_add', { product: prod.name, quantity: ajout, newQty: ajout });
                 }
             }
 
@@ -795,7 +825,7 @@ export async function executeVoiceAction(
                 }]);
                 if (error) throw error;
 
-                return `Dette enregistrée ! ${client} vous doit ${montant.toLocaleString('fr-FR')} F.`;
+                return getResponse('debt_add', { client, amount: montant.toLocaleString('fr-FR') });
             }
 
             // ── DETTE PAYÉE ────────────────────────────────────────────────
@@ -812,7 +842,7 @@ export async function executeVoiceAction(
                     .neq('statut', 'paye')
                     .limit(5);
 
-                if (!dettes?.length) return `Aucune dette en cours trouvée pour "${client}".`;
+                if (!dettes?.length) return getResponse('debt_not_found', { client });
 
                 // Marquer toutes ses dettes comme payées
                 const ids = dettes.map((d: any) => d.id);
@@ -821,7 +851,8 @@ export async function executeVoiceAction(
                     .in('id', ids);
 
                 const totalPaye = dettes.reduce((a: number, d: any) => a + (d.montant_du ?? 0), 0);
-                return `C'est enregistré ! ${client} a payé ses dettes (${totalPaye.toLocaleString('fr-FR')} F au total).`;
+                lastExecutedAction = { type: 'dette_payee', description: `dette ${client} ${totalPaye} F`, creditId: ids[0] };
+                return getResponse('debt_paid', { client, details: `${totalPaye.toLocaleString('fr-FR')} francs au total.` });
             }
 
             // ── PUBLIER PRODUIT (PRODUCTEUR) ───────────────────────────────
@@ -1164,6 +1195,252 @@ export async function executeVoiceAction(
 
                 await supabase.from('profiles').update({ role: roleNormalise }).eq('id', profil.id);
                 return `Rôle mis à jour ! ${profil.full_name} est maintenant "${roleNormalise}".`;
+            }
+
+            // ── CHECK_STOCK (verifier stock d'un produit) ─────────────────
+            case 'check_stock': {
+                if (!storeId) return "Aucun store trouve.";
+                const nomProduit = String(d.produit ?? d.product ?? '').trim();
+                if (!nomProduit) return "Quel produit veux-tu verifier ?";
+
+                const prod = await findProductInStore(nomProduit, storeId, 'id, name, price');
+                if (!prod) return `Je n'ai pas trouve "${nomProduit}" dans ton stock.`;
+
+                const { data: st } = await supabase.from('stock')
+                    .select('quantity').eq('store_id', storeId).eq('product_id', prod.id).maybeSingle();
+                const qty = st?.quantity ?? 0;
+
+                if (qty <= 5 && qty > 0) {
+                    return getResponse('stock_low', { product: prod.name, quantity: qty, unit: 'unites' });
+                }
+                if (qty === 0) {
+                    return `Le ${prod.name} est en rupture de stock ! Il faut commander.`;
+                }
+                return getResponse('check_stock', { product: prod.name, quantity: qty, unit: 'unites' });
+            }
+
+            // ── CHECK_STOCK_ALL (tout le stock) ──────────────────────────
+            case 'check_stock_all': {
+                if (!storeId) return "Aucun store trouve.";
+
+                const { data: stockRows } = await supabase.from('stock')
+                    .select('product_id, quantity').eq('store_id', storeId).limit(50);
+                if (!stockRows?.length) return "Tu n'as aucun produit en stock.";
+
+                const productIds = stockRows.map((s: any) => s.product_id).filter(Boolean);
+                const { data: prodRows } = await supabase
+                    .from('products').select('id, name').in('id', productIds);
+                const prodMap: Record<string, string> = {};
+                (prodRows ?? []).forEach((p: any) => { prodMap[p.id] = p.name; });
+
+                const sorted = [...stockRows].sort((a: any, b: any) => (a.quantity ?? 0) - (b.quantity ?? 0));
+                const lowItems = sorted.slice(0, 3)
+                    .map((s: any) => `${prodMap[s.product_id] ?? '?'} (${s.quantity ?? 0})`)
+                    .join(', ');
+
+                return getResponse('check_stock_all', { total: stockRows.length, lowItems });
+            }
+
+            // ── STOCK_ALERTS (produits en alerte) ────────────────────────
+            case 'stock_alerts': {
+                if (!storeId) return "Aucun store trouve.";
+
+                const { data: stockRows } = await supabase.from('stock')
+                    .select('product_id, quantity').eq('store_id', storeId)
+                    .lte('quantity', 5).gt('quantity', -1).limit(20);
+                if (!stockRows?.length) return getResponse('stock_alerts_none');
+
+                const productIds = stockRows.map((s: any) => s.product_id).filter(Boolean);
+                const { data: prodRows } = await supabase
+                    .from('products').select('id, name').in('id', productIds);
+                const prodMap: Record<string, string> = {};
+                (prodRows ?? []).forEach((p: any) => { prodMap[p.id] = p.name; });
+
+                const items = stockRows
+                    .map((s: any) => `${prodMap[s.product_id] ?? '?'} (${s.quantity ?? 0})`)
+                    .join(', ');
+
+                return getResponse('stock_alerts', { count: stockRows.length, items });
+            }
+
+            // ── STATS (statistiques par periode) ──────────────────────────
+            case 'stats': {
+                if (!storeId) return "Aucun store trouve.";
+                const period = String(d.period ?? 'today').toLowerCase();
+
+                let dateFrom: string;
+                let periodLabel: string;
+                const now = new Date();
+                if (period === 'yesterday') {
+                    const y = new Date(now); y.setDate(y.getDate() - 1);
+                    dateFrom = y.toISOString().split('T')[0] + 'T00:00:00';
+                    periodLabel = 'hier';
+                } else if (period === 'week') {
+                    const w = new Date(now); w.setDate(w.getDate() - 7);
+                    dateFrom = w.toISOString();
+                    periodLabel = 'cette semaine';
+                } else if (period === 'month') {
+                    dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+                    periodLabel = 'ce mois';
+                } else {
+                    dateFrom = now.toISOString().split('T')[0] + 'T00:00:00';
+                    periodLabel = "aujourd'hui";
+                }
+
+                const { data: txRows } = await supabase.from('transactions')
+                    .select('price, quantity, product_name, product_id')
+                    .eq('store_id', storeId).gte('created_at', dateFrom);
+
+                const count = (txRows ?? []).length;
+                const amount = (txRows ?? []).reduce((a: number, t: any) => a + (t.price ?? 0), 0);
+
+                // Top produit
+                let topLine = '';
+                if (count > 0) {
+                    const byProd: Record<string, { qty: number; name: string }> = {};
+                    (txRows ?? []).forEach((t: any) => {
+                        const key = t.product_id ?? t.product_name ?? '?';
+                        if (!byProd[key]) byProd[key] = { qty: 0, name: t.product_name ?? '?' };
+                        byProd[key].qty += (t.quantity ?? 1);
+                    });
+                    const top = Object.values(byProd).sort((a, b) => b.qty - a.qty)[0];
+                    if (top) topLine = `Ton produit star c'est le ${top.name}.`;
+                }
+
+                const template = period === 'today' ? 'stats_today' : 'stats_period';
+                return getResponse(template, {
+                    amount: amount.toLocaleString('fr-FR'),
+                    count,
+                    period: periodLabel,
+                    topLine,
+                });
+            }
+
+            // ── TOP_PRODUCTS ──────────────────────────────────────────────
+            case 'top_products': {
+                if (!storeId) return "Aucun store trouve.";
+                const period = String(d.period ?? 'week').toLowerCase();
+                const limit = parseInt(String(d.limit ?? 5), 10);
+
+                const now = new Date();
+                let dateFrom: string;
+                let periodLabel: string;
+                if (period === 'month') {
+                    dateFrom = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+                    periodLabel = 'ce mois';
+                } else {
+                    const w = new Date(now); w.setDate(w.getDate() - 7);
+                    dateFrom = w.toISOString();
+                    periodLabel = 'cette semaine';
+                }
+
+                const { data: txRows } = await supabase.from('transactions')
+                    .select('price, quantity, product_name, product_id')
+                    .eq('store_id', storeId).gte('created_at', dateFrom);
+
+                if (!txRows?.length) return `Pas de ventes ${periodLabel}.`;
+
+                const byProd: Record<string, { qty: number; amount: number; name: string }> = {};
+                txRows.forEach((t: any) => {
+                    const key = t.product_id ?? t.product_name ?? '?';
+                    if (!byProd[key]) byProd[key] = { qty: 0, amount: 0, name: t.product_name ?? '?' };
+                    byProd[key].qty += (t.quantity ?? 1);
+                    byProd[key].amount += (t.price ?? 0);
+                });
+
+                const sorted = Object.values(byProd).sort((a, b) => b.amount - a.amount).slice(0, limit);
+                const items = sorted.map((p, i) =>
+                    `${i + 1}. ${p.name} (${p.qty} vendus, ${p.amount.toLocaleString('fr-FR')} francs)`
+                ).join(', ');
+
+                return getResponse('top_products', { period: periodLabel, items });
+            }
+
+            // ── LIST_DEBTS (voir toutes les dettes) ──────────────────────
+            case 'list_debts': {
+                if (!userId) return "Erreur utilisateur.";
+                const { data: dettes } = await supabase.from('credits_clients')
+                    .select('client_nom, montant_du')
+                    .eq('marchand_id', userId).neq('statut', 'paye').limit(20);
+
+                if (!dettes?.length) return getResponse('debt_none');
+
+                const total = dettes.reduce((a: number, d: any) => a + (d.montant_du ?? 0), 0);
+                const details = dettes.slice(0, 5)
+                    .map((d: any) => `${d.client_nom} : ${(d.montant_du ?? 0).toLocaleString('fr-FR')} francs`)
+                    .join(', ');
+
+                return getResponse('debt_list', {
+                    count: dettes.length,
+                    amount: total.toLocaleString('fr-FR'),
+                    details,
+                });
+            }
+
+            // ── CHECK_DEBT (dette d'un client specifique) ────────────────
+            case 'check_debt': {
+                if (!userId) return "Erreur utilisateur.";
+                const client = String(d.client ?? '').trim();
+                if (!client) return "Quel client veux-tu verifier ?";
+
+                const { data: dettes } = await supabase.from('credits_clients')
+                    .select('montant_du')
+                    .eq('marchand_id', userId).ilike('client_nom', `%${client}%`)
+                    .neq('statut', 'paye').limit(10);
+
+                if (!dettes?.length) return getResponse('debt_not_found', { client });
+
+                const total = dettes.reduce((a: number, d: any) => a + (d.montant_du ?? 0), 0);
+                return getResponse('debt_check', { client, amount: total.toLocaleString('fr-FR') });
+            }
+
+            // ── SHOW_NOTIFICATIONS ────────────────────────────────────────
+            case 'show_notifications': {
+                navigate('/(tabs)/notifications');
+                return "Je t'ouvre les notifications.";
+            }
+
+            // ── UNDO_LAST (annuler la derniere action) ───────────────────
+            case 'undo_last': {
+                if (!lastExecutedAction) return getResponse('undo_nothing');
+
+                const last = lastExecutedAction;
+                lastExecutedAction = null;
+
+                try {
+                    if (last.type === 'vendre' && last.transactionId && last.storeId) {
+                        // Supprimer la transaction
+                        await supabase.from('transactions').delete().eq('id', last.transactionId);
+                        // Restaurer le stock si possible
+                        if (last.productId) {
+                            const { data: st } = await supabase.from('stock')
+                                .select('quantity').eq('store_id', last.storeId).eq('product_id', last.productId).maybeSingle();
+                            if (st) {
+                                const restoredQty = (st.quantity ?? 0) + parseInt(last.description.split(' ')[0], 10) || 0;
+                                await supabase.from('stock')
+                                    .update({ quantity: restoredQty, updated_at: new Date().toISOString() })
+                                    .eq('store_id', last.storeId).eq('product_id', last.productId);
+                            }
+                        }
+                        return getResponse('undo_success', { description: `vente de ${last.description}` });
+                    }
+
+                    if (last.type === 'stock_ajout' && last.storeId && last.productId && last.previousQty != null) {
+                        await supabase.from('stock')
+                            .update({ quantity: last.previousQty, updated_at: new Date().toISOString() })
+                            .eq('store_id', last.storeId).eq('product_id', last.productId);
+                        return getResponse('undo_success', { description: `ajout stock de ${last.description}` });
+                    }
+
+                    return getResponse('undo_success', { description: last.description });
+                } catch {
+                    return "Erreur lors de l'annulation. Verifie manuellement.";
+                }
+            }
+
+            // ── HELP ─────────────────────────────────────────────────────
+            case 'help': {
+                return getResponse('help');
             }
 
             // ── NAVIGATION ─────────────────────────────────────────────────
