@@ -5,19 +5,47 @@ const http    = require('http');
 const { Server } = require('socket.io');
 const cors    = require('cors');
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN;
-if (!ALLOWED_ORIGIN) { console.warn('⚠️ ALLOWED_ORIGIN non défini — CORS restrictif activé'); }
+const ALLOWED_ORIGINS = [
+    'https://inclusion-marchand-two.vercel.app',
+    'https://julabav9.vercel.app',
+    'http://localhost:8081',
+    'http://localhost:19006',
+    'http://localhost:3000',
+];
+// Accepte aussi les IPs locales (dev mobile)
+function isAllowedOrigin(origin) {
+    if (!origin) return true;
+    if (ALLOWED_ORIGINS.includes(origin)) return true;
+    if (/^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/.test(origin)) return true;
+    // Variable d'environnement pour origines supplementaires
+    const extra = process.env.ALLOWED_ORIGIN;
+    if (extra && origin === extra) return true;
+    return false;
+}
+
 const EMIT_SECRET = process.env.EMIT_SECRET;
-if (!EMIT_SECRET) { console.error('❌ EMIT_SECRET manquant — set process.env.EMIT_SECRET'); process.exit(1); }
+if (!EMIT_SECRET) { console.error('EMIT_SECRET manquant — set process.env.EMIT_SECRET'); process.exit(1); }
 
 const app = express();
-app.use(cors({ origin: ALLOWED_ORIGIN || false }));
+
+// CORS global pour toutes les routes (accepte les origines connues)
+app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)), methods: ['GET', 'POST', 'OPTIONS'] }));
+
+// CORS permissif pour les routes proxy Deepgram (n'importe quelle origine web)
+app.options('/api/deepgram/*', cors({ origin: '*' }));
+app.use('/api/deepgram', cors({ origin: '*', methods: ['POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+
+// Body parsing pour les routes proxy Deepgram AVANT le json() global
+// (sinon express.json() corrompt le body audio binaire du STT)
+app.use('/api/deepgram/stt', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '10mb' }));
+app.use('/api/deepgram/tts', express.json({ limit: '1mb' }));
+
 app.use(express.json());
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
-    cors: { origin: ALLOWED_ORIGIN || false, methods: ['GET', 'POST'] },
+    cors: { origin: (origin, cb) => cb(null, isAllowedOrigin(origin)), methods: ['GET', 'POST'] },
     pingTimeout: 30000,
     pingInterval: 10000,
 });
@@ -362,6 +390,89 @@ io.on('connection', (socket) => {
     });
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PROXY DEEPGRAM — evite les erreurs CORS sur le web/PWA
+// La cle API reste cote serveur uniquement (DEEPGRAM_API_KEY dans env Render)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || '';
+
+// ── Proxy STT Deepgram (Nova-3) ─────────────────────────────────────────────
+app.post('/api/deepgram/stt', async (req, res) => {
+    if (!DEEPGRAM_API_KEY) {
+        return res.status(500).json({ error: 'DEEPGRAM_API_KEY non configuree sur le serveur' });
+    }
+
+    try {
+        const contentType = req.headers['content-type'] || 'audio/webm';
+        log(`🎤 Proxy STT — ${req.body?.length ?? 0} bytes, type: ${contentType}`);
+
+        const response = await fetch(
+            'https://api.deepgram.com/v1/listen?model=nova-3&language=fr&smart_format=true',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+                    'Content-Type': contentType,
+                },
+                body: req.body,
+            },
+        );
+
+        if (!response.ok) {
+            const errText = await response.text();
+            log(`❌ Proxy STT erreur ${response.status}: ${errText}`);
+            return res.status(response.status).json({ error: errText });
+        }
+
+        const data = await response.json();
+        const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? '';
+        log(`🎤 Proxy STT resultat: "${transcript.slice(0, 80)}"`);
+        res.json(data);
+    } catch (err) {
+        log(`❌ Proxy STT exception: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Proxy TTS Deepgram (Aura-2 Agathe FR) ──────────────────────────────────
+app.post('/api/deepgram/tts', async (req, res) => {
+    if (!DEEPGRAM_API_KEY) {
+        return res.status(500).json({ error: 'DEEPGRAM_API_KEY non configuree sur le serveur' });
+    }
+
+    try {
+        const text = req.body?.text ?? '';
+        log(`🔊 Proxy TTS — "${text.slice(0, 60)}..."`);
+
+        const response = await fetch(
+            'https://api.deepgram.com/v1/speak?model=aura-2-agathe-fr',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text }),
+            },
+        );
+
+        if (!response.ok) {
+            const errText = await response.text();
+            log(`❌ Proxy TTS erreur ${response.status}: ${errText}`);
+            return res.status(response.status).json({ error: errText });
+        }
+
+        const audioBuffer = await response.arrayBuffer();
+        log(`🔊 Proxy TTS audio: ${audioBuffer.byteLength} bytes`);
+        res.set('Content-Type', 'audio/mpeg');
+        res.send(Buffer.from(audioBuffer));
+    } catch (err) {
+        log(`❌ Proxy TTS exception: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ── Route santé ──────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
     const byRole = {};
@@ -426,6 +537,8 @@ server.listen(PORT, '0.0.0.0', () => {
     log(`║  Health  : http://localhost:${PORT}/health  ║`);
     log(`║  Notify  : POST /notify                ║`);
     log(`║  Emit    : POST /emit                  ║`);
+    log(`║  STT     : POST /api/deepgram/stt      ║`);
+    log(`║  TTS     : POST /api/deepgram/tts      ║`);
     log('╚══════════════════════════════════════╝\n');
     log('Événements supportés:');
     log('  • nouvelle-vente, stock-update');
