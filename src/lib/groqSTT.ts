@@ -10,18 +10,8 @@ const log = (...args: any[]) => { if (__DEV__) console.log('[GroqSTT]', ...args)
 const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
 const GROQ_STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 
-// Prompt riche pour guider Whisper avec le vocabulaire du marche ivoirien
-const WHISPER_PROMPT = [
-    'Transcription en francais d\'un marchand ou commercant ivoirien sur un marche vivrier.',
-    'Produits courants : tomates, oignons, piment, gombo, aubergine, riz, riz brise, attiéké, banane plantain, igname, manioc, mais, mil, sorgho, arachide, haricot, patate douce, chou, carotte, salade, concombre, poivron, ail, gingembre.',
-    'Proteines : poisson, poulet, viande, oeuf, sardine, maquereau, thon, crevette, crabe.',
-    'Epicerie : huile, sel, sucre, farine, lait, beurre, pate, tomate concentree, cube Maggi, savon, eau, jus, biscuit.',
-    'Unites : kilo, tas, sac, carton, caisse, paquet, bidon, boite, piece, douzaine.',
-    'Monnaie : francs CFA, mille francs, cinq cents francs.',
-    'Paiement : especes, Mobile Money, Orange Money, MTN MoMo, Wave, Moov Money, credit, dette.',
-    'Prenoms ivoiriens : Kouassi, Adjoua, Awa, Fatou, Bakary, Moussa, Konate, Coulibaly, Bamba, Diabate, Kone, Ouattara, Toure, Yao, Akissi, Amoin, Tra Bi.',
-    'Expressions : combien, vendre, acheter, stock, bilan, carnet, commande, livraison, produit, prix, quantite, client.',
-].join(' ');
+// Prompt court (<896 chars) pour guider Whisper avec le vocabulaire ivoirien
+const WHISPER_PROMPT = "Marchand vivrier Cote d'Ivoire. Vends tomates riz oignons igname manioc banane plantain aubergine piment gombo avocat papaye ananas huile sucre mil fonio arachide carotte chou patate douce pomme de terre. Trois kilos cinq unites dix sacs. Francs FCFA especes Mobile Money Wave. Awa Kouassi Adjoua Konate Bamba. Combien reste stock dette credit bilan recette aujourd'hui.";
 
 // URL du serveur proxy (meme serveur que Socket.io)
 const PROXY_BASE_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://inclusion-marchand.onrender.com';
