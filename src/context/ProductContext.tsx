@@ -1,11 +1,10 @@
-// Contexte produits — migré depuis Next.js
-// Dexie/IndexedDB → AsyncStorage
+// Contexte produits — cache offline unifié + Supabase
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useProfileContext } from './ProfileContext';
+import { useNetwork } from './NetworkContext';
+import { offlineCache, CACHE_KEYS, CACHE_TTL } from '@/src/lib/offlineCache';
 
 export interface Product {
     id: string;
@@ -34,47 +33,51 @@ const ProductContext = createContext<ProductContextType | undefined>(undefined);
 
 export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { activeProfile } = useProfileContext();
+    const { isOnline } = useNetwork();
     const [products, setProducts] = useState<Product[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
-    const cacheKey = activeProfile ? `products_${activeProfile.id}` : null;
+    const cacheKey = activeProfile ? CACHE_KEYS.products(activeProfile.id) : null;
 
     const fetchProducts = useCallback(async () => {
         if (!activeProfile || !cacheKey) return;
         setIsLoading(true);
 
-        // Cache local
-        const cached = await AsyncStorage.getItem(cacheKey);
-        if (cached) setProducts(JSON.parse(cached));
+        // 1. Cache d'abord (instantané)
+        const cached = await offlineCache.get<Product[]>(cacheKey);
+        if (cached) setProducts(cached.data);
 
-        // Sync Supabase
-        const netState = await NetInfo.fetch();
-        if (netState.isConnected) {
-            const { data } = await supabase
-                .from('products')
-                .select('*')
-                .eq('store_id', activeProfile.id);
+        // 2. Puis réseau si online
+        if (isOnline) {
+            try {
+                const { data } = await supabase
+                    .from('products')
+                    .select('*')
+                    .eq('store_id', activeProfile.id);
 
-            if (data) {
-                const mapped: Product[] = data.map(p => ({
-                    id: p.id,
-                    name: p.name,
-                    price: p.price,
-                    delivery_price: p.delivery_price,
-                    audioName: p.audio_name || p.name,
-                    category: p.category,
-                    barcode: p.barcode,
-                    imageUrl: p.image_url,
-                    color: p.color || '#ecfdf5',
-                    iconColor: p.icon_color || colors.primary,
-                    store_id: p.store_id,
-                }));
-                setProducts(mapped);
-                await AsyncStorage.setItem(cacheKey, JSON.stringify(mapped));
+                if (data) {
+                    const mapped: Product[] = data.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        price: p.price,
+                        delivery_price: p.delivery_price,
+                        audioName: p.audio_name || p.name,
+                        category: p.category,
+                        barcode: p.barcode,
+                        imageUrl: p.image_url,
+                        color: p.color || '#ecfdf5',
+                        iconColor: p.icon_color || colors.primary,
+                        store_id: p.store_id,
+                    }));
+                    setProducts(mapped);
+                    await offlineCache.set(cacheKey, mapped, CACHE_TTL.CRITICAL);
+                }
+            } catch (err) {
+                console.error('[ProductContext] fetchProducts network error:', err);
             }
         }
         setIsLoading(false);
-    }, [activeProfile]);
+    }, [activeProfile, isOnline]);
 
     useEffect(() => {
         if (!activeProfile) { setProducts([]); return; }
@@ -96,8 +99,7 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
             console.error('[ProductContext] addProduct — activeProfile null');
             return false;
         }
-        const netState = await NetInfo.fetch();
-        if (!netState.isConnected) {
+        if (!isOnline) {
             console.warn('[ProductContext] addProduct — hors-ligne, impossible d\'ajouter');
             return false;
         }

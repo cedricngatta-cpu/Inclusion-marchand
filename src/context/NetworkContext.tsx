@@ -1,24 +1,34 @@
-// Contexte réseau — détecte la connectivité en temps réel + compteur offline
+// Contexte réseau — détecte la connectivité en temps réel + état de sync + compteur offline
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import NetInfo from '@react-native-community/netinfo';
+import { syncManager, SyncState } from '@/src/lib/syncManager';
+import { actionQueue } from '@/src/lib/offlineQueue';
 
 interface NetworkContextType {
     isOnline: boolean;
     pendingCount: number;
+    syncState: SyncState;
+    syncResult: { synced: number; failed: number };
     addToPendingCount: (n: number) => void;
     resetPendingCount: () => void;
+    triggerSync: () => Promise<void>;
 }
 
 const NetworkContext = createContext<NetworkContextType>({
     isOnline: true,
     pendingCount: 0,
+    syncState: 'idle',
+    syncResult: { synced: 0, failed: 0 },
     addToPendingCount: () => {},
     resetPendingCount: () => {},
+    triggerSync: async () => {},
 });
 
 export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isOnline, setIsOnline] = useState(true);
     const [pendingCount, setPendingCount] = useState(0);
+    const [syncState, setSyncState] = useState<SyncState>('idle');
+    const [syncResult, setSyncResult] = useState({ synced: 0, failed: 0 });
 
     useEffect(() => {
         // Vérification initiale
@@ -34,6 +44,24 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return unsub;
     }, []);
 
+    // Écouter les changements d'état du syncManager
+    useEffect(() => {
+        const unsub = syncManager.on((state, detail) => {
+            setSyncState(state);
+            if (detail) setSyncResult(detail);
+            // Après sync réussi, recalculer le pending count
+            if (state === 'done' || state === 'error') {
+                actionQueue.getPendingCount().then(setPendingCount);
+            }
+        });
+        return unsub;
+    }, []);
+
+    // Rafraîchir le pending count au démarrage et quand isOnline change
+    useEffect(() => {
+        actionQueue.getPendingCount().then(setPendingCount);
+    }, [isOnline]);
+
     const addToPendingCount = useCallback((n: number) => {
         setPendingCount(prev => prev + n);
     }, []);
@@ -42,8 +70,15 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setPendingCount(0);
     }, []);
 
+    const triggerSync = useCallback(async () => {
+        await syncManager.sync();
+    }, []);
+
     return (
-        <NetworkContext.Provider value={{ isOnline, pendingCount, addToPendingCount, resetPendingCount }}>
+        <NetworkContext.Provider value={{
+            isOnline, pendingCount, syncState, syncResult,
+            addToPendingCount, resetPendingCount, triggerSync,
+        }}>
             {children}
         </NetworkContext.Provider>
     );

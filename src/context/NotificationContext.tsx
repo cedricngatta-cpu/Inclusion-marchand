@@ -1,9 +1,10 @@
-// Contexte notifications — rôle-specific, Supabase persistant + AsyncStorage offline-first
+// Contexte notifications — rôle-specific, Supabase persistant + cache offline unifié
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { storage } from '@/src/lib/storage';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from './AuthContext';
 import { onSocketEvent } from '@/src/lib/socket';
+import { useNetwork } from './NetworkContext';
+import { offlineCache, CACHE_KEYS, CACHE_TTL } from '@/src/lib/offlineCache';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export interface Notification {
@@ -38,12 +39,22 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user } = useAuth();
+    const { isOnline } = useNetwork();
     const [notifications, setNotifications] = useState<Notification[]>([]);
 
-    // ── Chargement depuis Supabase (+ fallback AsyncStorage) ─────────────────
+    // ── Chargement : cache d'abord, puis Supabase si online ─────────────────
     const loadFromStorage = async () => {
-        try {
-            if (user?.id) {
+        const cacheKey = user?.id ? CACHE_KEYS.notifications(user.id) : null;
+
+        // 1. Cache d'abord (instantané)
+        if (cacheKey) {
+            const cached = await offlineCache.get<Notification[]>(cacheKey);
+            if (cached) setNotifications(cached.data);
+        }
+
+        // 2. Puis réseau si online
+        if (isOnline && user?.id) {
+            try {
                 const { data } = await supabase
                     .from('notifications')
                     .select('id, user_id, titre, message, type, data, lu, created_at')
@@ -64,15 +75,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                         created_at: new Date(n.created_at).getTime(),
                     }));
                     setNotifications(mapped);
-                    await storage.setItem('app_notifications', JSON.stringify(mapped));
-                    return;
+                    if (cacheKey) await offlineCache.set(cacheKey, mapped, CACHE_TTL.OPTIONAL);
                 }
-            }
-        } catch { /* réseau indisponible */ }
-
-        const saved = await storage.getItem('app_notifications');
-        if (saved) {
-            try { setNotifications(JSON.parse(saved)); } catch { /* ignore */ }
+            } catch { /* réseau indisponible */ }
         }
     };
 
@@ -113,7 +118,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
             setNotifications(prev => {
                 const updated = [newNotif, ...prev];
-                storage.setItem('app_notifications', JSON.stringify(updated));
+                if (user?.id) offlineCache.set(CACHE_KEYS.notifications(user.id), updated, CACHE_TTL.OPTIONAL);
                 return updated;
             });
         };
@@ -421,7 +426,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // ── Actions ───────────────────────────────────────────────────────────────
     const saveNotifications = async (newItems: Notification[]) => {
         setNotifications(newItems);
-        await storage.setItem('app_notifications', JSON.stringify(newItems));
+        if (user?.id) await offlineCache.set(CACHE_KEYS.notifications(user.id), newItems, CACHE_TTL.OPTIONAL);
     };
 
     const markAsRead = async (id: string) => {

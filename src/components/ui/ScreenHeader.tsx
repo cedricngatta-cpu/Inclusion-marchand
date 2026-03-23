@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, Bell, Eye, EyeOff, User } from 'lucide-react-native';
 import { useRouter, useNavigation } from 'expo-router';
 import { useNotifications } from '@/src/context/NotificationContext';
+import { useNetwork } from '@/src/context/NetworkContext';
 import { colors } from '@/src/lib/colors';
 
 interface ScreenHeaderProps {
@@ -42,6 +43,7 @@ export function ScreenHeader({
     const router = useRouter();
     const navigation = useNavigation();
     const { unreadCount } = useNotifications();
+    const { isOnline } = useNetwork();
     const { width } = useWindowDimensions();
 
     // Sur desktop web, la sidebar remplace le header
@@ -89,7 +91,11 @@ export function ScreenHeader({
                 {/* Titre centré */}
                 <View style={styles.titleWrap}>
                     <Text style={styles.title} numberOfLines={1}>{title}</Text>
-                    {subtitle ? <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text> : null}
+                    {!isOnline ? (
+                        <Text style={styles.offlineHint} numberOfLines={1}>Mode hors ligne</Text>
+                    ) : subtitle ? (
+                        <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
+                    ) : null}
                 </View>
 
                 {/* Droite */}
@@ -161,6 +167,12 @@ const styles = StyleSheet.create({
     subtitle: {
         fontSize: 12,
         color: 'rgba(255,255,255,0.75)',
+        marginTop: 2,
+    },
+    offlineHint: {
+        fontSize: 10,
+        color: '#FDE68A',
+        fontWeight: '600',
         marginTop: 2,
     },
     iconBtn: {

@@ -1,14 +1,12 @@
-// Contexte stock — migré depuis Next.js
-// Dexie/IndexedDB → AsyncStorage (simplifié pour Expo Go)
-// navigator.onLine → NetInfo
+// Contexte stock — cache offline unifié + Supabase
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import NetInfo from '@react-native-community/netinfo';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/src/lib/supabase';
 import { useProfileContext } from './ProfileContext';
 import { emitEvent, onSocketEvent } from '@/src/lib/socket';
 import { useNetwork } from './NetworkContext';
 import { offlineQueue } from '@/src/lib/offlineQueue';
+import { offlineCache, CACHE_KEYS, CACHE_TTL } from '@/src/lib/offlineCache';
 
 const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
@@ -33,18 +31,15 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const fetchStock = useCallback(async () => {
         if (!activeProfile) return;
+        const key = CACHE_KEYS.stock(activeProfile.id);
 
         try {
-            // 1. Lire le cache local (AsyncStorage remplace Dexie/IndexedDB)
-            const cacheKey = `stock_${activeProfile.id}`;
-            const cached = await AsyncStorage.getItem(cacheKey);
-            if (cached) {
-                setStock(JSON.parse(cached));
-            }
+            // 1. Cache d'abord (instantané)
+            const cached = await offlineCache.get<StockLevels>(key);
+            if (cached) setStock(cached.data);
 
-            // 2. Synchroniser depuis Supabase si connecté
-            const netState = await NetInfo.fetch();
-            if (netState.isConnected) {
+            // 2. Puis réseau si online
+            if (isOnline) {
                 const { data } = await supabase
                     .from('stock')
                     .select('*')
@@ -54,13 +49,13 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     const levels: StockLevels = {};
                     data.forEach(s => { levels[s.product_id] = s.quantity; });
                     setStock(levels);
-                    await AsyncStorage.setItem(cacheKey, JSON.stringify(levels));
+                    await offlineCache.set(key, levels, CACHE_TTL.CRITICAL);
                 }
             }
         } catch (err) {
             console.error('[StockContext] fetchStock error:', err);
         }
-    }, [activeProfile]);
+    }, [activeProfile, isOnline]);
 
     // Sync hors-ligne au retour de connexion
     useEffect(() => {
@@ -127,15 +122,13 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const updatedStock = { ...stock, [productId]: newQty };
         setStock(updatedStock);
 
-        // Cache local
-        const cacheKey = `stock_${activeProfile.id}`;
-        await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedStock));
+        // Cache local via offlineCache
+        await offlineCache.set(CACHE_KEYS.stock(activeProfile.id), updatedStock, CACHE_TTL.CRITICAL);
 
         // Synchroniser si connecté
-        const netState = await NetInfo.fetch();
-        log('[StockContext] connecté:', netState.isConnected, '— store_id:', activeProfile.id);
+        log('[StockContext] connecté:', isOnline, '— store_id:', activeProfile.id);
 
-        if (netState.isConnected) {
+        if (isOnline) {
             const upsertPayload = {
                 store_id:   activeProfile.id,
                 product_id: productId,

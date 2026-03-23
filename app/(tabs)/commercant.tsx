@@ -26,6 +26,7 @@ import { useProfileContext } from '@/src/context/ProfileContext';
 import { onSocketEvent } from '@/src/lib/socket';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
+import OfflineBadge from '@/src/components/OfflineBadge';
 
 const quickActions = [
     { id: 'vendre',  name: 'Vendre',     icon: ShoppingBag, bg: colors.primaryBg, color: colors.primary, path: '/(tabs)/vendre' },
@@ -208,6 +209,7 @@ export default function CommercantScreen() {
                     <Text style={{ fontSize: 14, color: '#6B7280', marginTop: 4 }}>
                         Voici votre tableau de bord du jour
                     </Text>
+                    <OfflineBadge showPending />
                 </View>
 
                 {/* LIGNE 1 — 4 KPIs */}
@@ -344,6 +346,9 @@ export default function CommercantScreen() {
                             </TouchableOpacity>
                         </View>
                     )}
+
+                    {/* Badge offline */}
+                    <OfflineBadge showPending />
 
                     {/* Grille des actions rapides */}
                     <View style={styles.actionsCard}>

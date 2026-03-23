@@ -1,5 +1,4 @@
-// Contexte d'authentification — migré depuis Next.js
-// Utilise AsyncStorage au lieu de localStorage + AppState au lieu de visibilityChange
+// Contexte d'authentification — cache offline unifié
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Alert, AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,6 +7,7 @@ import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { storage } from '@/src/lib/storage';
 import { connectSocket, disconnectSocket } from '@/src/lib/socket';
+import { offlineCache, CACHE_KEYS, CACHE_TTL } from '@/src/lib/offlineCache';
 
 export interface User {
     id: string;
@@ -130,10 +130,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             setUser(updatedUser);
                             setProfile(data);
                             await storage.setItem('auth_user', JSON.stringify(updatedUser));
+                            await offlineCache.set(CACHE_KEYS.profile(updatedUser.id), data, CACHE_TTL.CRITICAL);
                             connectSocket(updatedUser.id, updatedUser.name, updatedUser.role);
                         }
                     } catch (err) {
                         console.error('[Auth] Sync profile error:', err);
+                        // Fallback : restaurer le profil depuis le cache offline
+                        const cachedProfile = await offlineCache.get<Record<string, any>>(CACHE_KEYS.profile(parsed.id));
+                        if (cachedProfile) setProfile(cachedProfile.data);
                     }
 
                     const wasLocked = await storage.getItem('app_locked');
@@ -205,6 +209,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.log('[Auth] ✅ Login OK:', userData.name, '| role:', userData.role, '| id:', userData.id);
 
             setProfile(data);
+            await offlineCache.set(CACHE_KEYS.profile(userData.id), data, CACHE_TTL.CRITICAL);
             if (data.pin === '0101') setMustChangePin(true);
             await handleAuthSuccess(userData);
             await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline

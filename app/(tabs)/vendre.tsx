@@ -76,6 +76,7 @@ export default function VendreScreen() {
     const [momoOperator, setMomoOperator]   = useState<'ORANGE' | 'MTN' | 'WAVE' | 'MOOV' | null>(null);
     const [clientPhone,  setClientPhone]    = useState('');
     const [showSuccess, setShowSuccess]     = useState(false);
+    const [offlineSale, setOfflineSale]     = useState(false);
     const [isLoading, setIsLoading]         = useState(false);
 
     const total     = cart.reduce((acc, i) => acc + i.price * i.quantity, 0);
@@ -225,6 +226,7 @@ export default function VendreScreen() {
             }
             addToPendingCount(cart.length);
             setIsLoading(false);
+            setOfflineSale(true);
             setShowSuccess(true);
             setTimeout(() => {
                 setCart([]);
@@ -233,6 +235,7 @@ export default function VendreScreen() {
                 setPaymentStatus('PAYÉ');
                 setMomoOperator(null);
                 setShowSuccess(false);
+                setOfflineSale(false);
             }, 2500);
             return;
         }
@@ -689,9 +692,16 @@ export default function VendreScreen() {
             <Modal visible={showSuccess} transparent animationType="fade">
                 <View style={styles.successOverlay}>
                     <View style={styles.successCard}>
-                        <CheckCircle color={colors.primary} size={56} />
-                        <Text style={styles.successTitle}>VENTE VALIDÉE !</Text>
+                        <CheckCircle color={offlineSale ? '#b45309' : colors.primary} size={56} />
+                        <Text style={styles.successTitle}>
+                            {offlineSale ? 'VENTE ENREGISTRÉE' : 'VENTE VALIDÉE !'}
+                        </Text>
                         <Text style={styles.successAmount}>{total.toLocaleString()} F</Text>
+                        {offlineSale && (
+                            <Text style={styles.successOfflineHint}>
+                                Sera synchronisée au retour du réseau
+                            </Text>
+                        )}
                     </View>
                 </View>
             </Modal>
@@ -856,6 +866,7 @@ const styles = StyleSheet.create({
     },
     successTitle:  { fontSize: 22, fontWeight: '900', color: colors.slate900, letterSpacing: -0.5 },
     successAmount: { fontSize: 32, fontWeight: '900', color: colors.primary },
+    successOfflineHint: { fontSize: 12, color: '#b45309', fontWeight: '600', marginTop: 6, textAlign: 'center' as const },
 });
 
 // ── Styles desktop uniquement ─────────────────────────────────────────────

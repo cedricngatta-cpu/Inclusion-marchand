@@ -15,6 +15,7 @@ import { AuthProvider, useAuth } from '@/src/context/AuthContext';
 import JulabaLogo from '@/src/components/JulabaLogo';
 import { setupGlobalErrorHandler, reportRenderError } from '@/src/lib/errorReporter';
 import { colors } from '@/src/lib/colors';
+import { syncManager } from '@/src/lib/syncManager';
 
 // Capture les erreurs JS imprévues pour éviter un écran blanc sans info
 class ErrorBoundary extends React.Component<
@@ -331,6 +332,8 @@ export default function RootLayout() {
             style.textContent = 'input,textarea,select,div[contenteditable]{outline:none!important;outline-width:0!important;outline-style:none!important;}input:focus,textarea:focus,select:focus{outline:none!important;}';
             document.head.appendChild(style);
         }
+        // Initialiser le SyncManager (sync automatique offline → Supabase)
+        syncManager.init();
         // Enregistrement du Service Worker pour le mode offline PWA
         if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
             window.addEventListener('load', () => {

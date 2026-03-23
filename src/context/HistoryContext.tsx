@@ -1,13 +1,12 @@
-// Contexte historique transactions — migré depuis Next.js
-// Dexie/IndexedDB → AsyncStorage, navigator.onLine → NetInfo
+// Contexte historique transactions — cache offline unifié + Supabase
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/src/lib/supabase';
 import { useProfileContext } from './ProfileContext';
 import { emitEvent, onSocketEvent } from '@/src/lib/socket';
 import { useNetwork } from './NetworkContext';
 import { offlineQueue } from '@/src/lib/offlineQueue';
+import { offlineCache, CACHE_KEYS, CACHE_TTL } from '@/src/lib/offlineCache';
 
 export type TransactionType = 'VENTE' | 'LIVRAISON' | 'RETRAIT';
 
@@ -50,43 +49,44 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const { isOnline }     = useNetwork();
     const prevIsOnline     = useRef<boolean | null>(null);
 
-    const cacheKey = activeProfile ? `history_${activeProfile.id}` : null;
+    const cacheKey = activeProfile ? CACHE_KEYS.transactions(activeProfile.id) : null;
 
     const fetchHistory = async () => {
         if (!activeProfile || !cacheKey) return;
 
-        // 1. Cache local AsyncStorage
-        const cached = await AsyncStorage.getItem(cacheKey);
-        if (cached) {
-            setHistory(JSON.parse(cached));
-        }
+        // 1. Cache d'abord (instantané)
+        const cached = await offlineCache.get<Transaction[]>(cacheKey);
+        if (cached) setHistory(cached.data);
 
-        // 2. Sync depuis Supabase si connecté
-        const netState = await NetInfo.fetch();
-        if (netState.isConnected) {
-            const { data } = await supabase
-                .from('transactions')
-                .select('*')
-                .eq('store_id', activeProfile.id)
-                .order('created_at', { ascending: false })
-                .limit(500);
+        // 2. Puis réseau si online
+        if (isOnline) {
+            try {
+                const { data } = await supabase
+                    .from('transactions')
+                    .select('*')
+                    .eq('store_id', activeProfile.id)
+                    .order('created_at', { ascending: false })
+                    .limit(500);
 
-            if (data && data.length > 0) {
-                const mapped: Transaction[] = data.map(t => ({
-                    id: t.id,
-                    type: t.type,
-                    productId: t.product_id,
-                    productName: t.product_name,
-                    quantity: t.quantity,
-                    price: t.price,
-                    timestamp: new Date(t.created_at).getTime(),
-                    clientName: t.client_name,
-                    status: t.status,
-                    operator: t.operator,
-                    clientPhone: t.client_phone,
-                }));
-                setHistory(mapped);
-                await AsyncStorage.setItem(cacheKey, JSON.stringify(mapped));
+                if (data && data.length > 0) {
+                    const mapped: Transaction[] = data.map(t => ({
+                        id: t.id,
+                        type: t.type,
+                        productId: t.product_id,
+                        productName: t.product_name,
+                        quantity: t.quantity,
+                        price: t.price,
+                        timestamp: new Date(t.created_at).getTime(),
+                        clientName: t.client_name,
+                        status: t.status,
+                        operator: t.operator,
+                        clientPhone: t.client_phone,
+                    }));
+                    setHistory(mapped);
+                    await offlineCache.set(cacheKey, mapped, CACHE_TTL.IMPORTANT);
+                }
+            } catch (err) {
+                console.error('[HistoryContext] fetchHistory network error:', err);
             }
         }
     };
@@ -154,19 +154,18 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         console.log('[HistoryContext] addTransaction — id:', newTx.id, 'type:', newTx.type, 'produit:', newTx.productName, 'prix:', newTx.price);
 
-        // Mise à jour optimiste locale (AsyncStorage)
+        // Mise à jour optimiste locale (offlineCache)
         const key = cacheKey;
         setHistory(prev => {
             const updated = [newTx, ...prev];
-            AsyncStorage.setItem(key, JSON.stringify(updated)).catch(console.error);
+            offlineCache.set(key, updated, CACHE_TTL.IMPORTANT).catch(console.error);
             return updated;
         });
 
         // Sync Supabase si connecté
-        const netState = await NetInfo.fetch();
-        console.log('[HistoryContext] connecté:', netState.isConnected, '— store_id:', activeProfile.id);
+        console.log('[HistoryContext] connecté:', isOnline, '— store_id:', activeProfile.id);
 
-        if (netState.isConnected) {
+        if (isOnline) {
             const insertPayload = {
                 id:           newTx.id,
                 store_id:     activeProfile.id,
@@ -228,10 +227,9 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // Mise à jour optimiste locale
         const updated = history.map(t => t.id === transactionId ? { ...t, status: 'PAYÉ' as const } : t);
         setHistory(updated);
-        if (cacheKey) await AsyncStorage.setItem(cacheKey, JSON.stringify(updated));
+        if (cacheKey) await offlineCache.set(cacheKey, updated, CACHE_TTL.IMPORTANT);
 
-        const netState = await NetInfo.fetch();
-        if (netState.isConnected) {
+        if (isOnline) {
             const { error } = await supabase
                 .from('transactions')
                 .update({ status: 'PAYÉ' })
@@ -241,7 +239,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 console.error('[HistoryContext] ❌ markAsPaid UPDATE erreur:', error.message);
                 // Rollback local si Supabase échoue
                 setHistory(history);
-                if (cacheKey) await AsyncStorage.setItem(cacheKey, JSON.stringify(history));
+                if (cacheKey) await offlineCache.set(cacheKey, history, CACHE_TTL.IMPORTANT);
                 throw new Error(error.message);
             } else {
                 console.log('[HistoryContext] ✅ markAsPaid OK — id:', transactionId);
@@ -253,7 +251,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const clearHistory = async () => {
         setHistory([]);
-        if (cacheKey) await AsyncStorage.removeItem(cacheKey);
+        if (cacheKey) await offlineCache.remove(cacheKey);
     };
 
     const todayTransactions = useMemo(() => {
