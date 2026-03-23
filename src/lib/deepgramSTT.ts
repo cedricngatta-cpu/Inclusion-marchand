@@ -1,14 +1,21 @@
 // Deepgram STT (Nova-3) — transcription audio francais
-// Mobile : envoie fichier m4a via FormData
-// Web : envoie Blob webm directement
+// Web : passe par le proxy serveur Express (evite CORS)
+// Mobile : appel direct Deepgram (pas de CORS)
 // Fallback mobile : expo-speech-recognition | Fallback web : Web Speech API
 import { Platform } from 'react-native';
 import { reportApiError } from './errorReporter';
 
 const log = (...args: any[]) => { if (__DEV__) console.log('[DeepgramSTT]', ...args); };
 
+// Cle API pour mobile uniquement (sur web, le serveur proxy gere la cle)
 const DEEPGRAM_API_KEY = process.env.EXPO_PUBLIC_DEEPGRAM_API_KEY ?? '';
 const DEEPGRAM_STT_URL = 'https://api.deepgram.com/v1/listen?model=nova-3&language=fr&smart_format=true';
+
+// URL du serveur proxy (meme serveur que Socket.io)
+const PROXY_BASE_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://inclusion-marchand.onrender.com';
+const PROXY_STT_URL = `${PROXY_BASE_URL}/api/deepgram/stt`;
+
+const isWeb = Platform.OS === 'web';
 
 export interface DeepgramSTTResult {
     text: string;
@@ -16,7 +23,7 @@ export interface DeepgramSTTResult {
     confidence?: number;
 }
 
-// ── Transcription mobile (fichier URI -> FormData) ────────────────────────────
+// ── Transcription mobile (fichier URI -> FormData -> Deepgram direct) ────────
 export async function deepgramTranscribe(audioUri: string): Promise<DeepgramSTTResult> {
     if (!DEEPGRAM_API_KEY) {
         log('Pas de cle API Deepgram, fallback natif');
@@ -24,7 +31,7 @@ export async function deepgramTranscribe(audioUri: string): Promise<DeepgramSTTR
     }
 
     try {
-        log('[Voice] 3. Sending to Deepgram STT (mobile)...');
+        log('[Voice] 3. Sending to Deepgram STT (mobile direct)...');
 
         const fileUri = Platform.OS === 'ios' ? audioUri.replace('file://', '') : audioUri;
 
@@ -35,11 +42,33 @@ export async function deepgramTranscribe(audioUri: string): Promise<DeepgramSTTR
             name: 'recording.m4a',
         } as any);
 
-        const result = await sendToDeepgram(formData);
-        if (!result) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const res = await fetch(DEEPGRAM_STT_URL, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+            },
+            body: formData,
+            signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+            const errBody = await res.text();
+            log('Erreur Deepgram (mobile):', res.status, errBody);
+            throw new Error(`Deepgram STT ${res.status}: ${errBody}`);
+        }
+
+        const data = await res.json();
+        const result = parseDeepgramResponse(data);
+
+        if (!result.text) {
             log('Transcription Deepgram vide, fallback natif');
             return fallbackNativeSTT();
         }
+
         log('[Voice] 4. STT result:', result.text);
         return result;
     } catch (err: any) {
@@ -49,15 +78,9 @@ export async function deepgramTranscribe(audioUri: string): Promise<DeepgramSTTR
     }
 }
 
-// ── Transcription web (Blob webm -> binary body) ─────────────────────────────
+// ── Transcription web (Blob -> proxy serveur Express -> Deepgram) ────────────
 export async function deepgramTranscribeWeb(audioBlob: Blob): Promise<DeepgramSTTResult> {
-    log('[Voice] 3. Sending to Deepgram STT (web), size:', audioBlob.size, 'type:', audioBlob.type);
-    log('Deepgram key present:', !!DEEPGRAM_API_KEY);
-
-    if (!DEEPGRAM_API_KEY) {
-        log('Pas de cle API Deepgram, fallback Web Speech');
-        return fallbackWebSTT();
-    }
+    log('[Voice] 3. Sending to proxy STT (web), size:', audioBlob.size, 'type:', audioBlob.type);
 
     // Blob trop petit = pas de voix capturee
     if (audioBlob.size < 1000) {
@@ -66,16 +89,15 @@ export async function deepgramTranscribeWeb(audioBlob: Blob): Promise<DeepgramST
     }
 
     try {
-        // Deepgram accepte le binaire brut avec Content-Type explicite
         const contentType = audioBlob.type || 'audio/webm';
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-        const res = await fetch(DEEPGRAM_STT_URL, {
+        // Passer par le proxy serveur pour eviter CORS
+        const res = await fetch(PROXY_STT_URL, {
             method: 'POST',
             headers: {
-                'Authorization': `Token ${DEEPGRAM_API_KEY}`,
                 'Content-Type': contentType,
             },
             body: audioBlob,
@@ -85,8 +107,8 @@ export async function deepgramTranscribeWeb(audioBlob: Blob): Promise<DeepgramST
 
         if (!res.ok) {
             const errBody = await res.text();
-            log('Erreur Deepgram (web):', res.status, errBody);
-            throw new Error(`Deepgram STT ${res.status}: ${errBody}`);
+            log('Erreur proxy STT:', res.status, errBody);
+            throw new Error(`Proxy STT ${res.status}: ${errBody}`);
         }
 
         const data = await res.json();
@@ -94,18 +116,16 @@ export async function deepgramTranscribeWeb(audioBlob: Blob): Promise<DeepgramST
 
         log('[Voice] 4. STT result:', transcript.text || '(vide)', 'confidence:', transcript.confidence);
 
-        // Transcript vide = pas de voix detectee, retourne vide au lieu de fallback
-        // (le fallback Web Speech ne peut pas reecouter un audio deja enregistre)
+        // Transcript vide = pas de voix detectee
         if (!transcript.text) {
             return { text: '', source: 'deepgram', confidence: 0 };
         }
 
         return transcript;
     } catch (err: any) {
-        log('Erreur Deepgram STT web:', err?.message ?? err);
+        log('Erreur STT web:', err?.message ?? err);
         reportApiError('Deepgram STT Web', err, 'deepgramSTT.deepgramTranscribeWeb');
 
-        // Sur erreur reseau/timeout, propager l'erreur (pas de fallback car le micro est ferme)
         if (err?.name === 'AbortError') {
             throw new Error('La transcription a pris trop de temps. Reessayez.');
         }
@@ -114,31 +134,6 @@ export async function deepgramTranscribeWeb(audioBlob: Blob): Promise<DeepgramST
 }
 
 // ── Helpers communs ──────────────────────────────────────────────────────────
-
-async function sendToDeepgram(body: FormData): Promise<DeepgramSTTResult | null> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const res = await fetch(DEEPGRAM_STT_URL, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Token ${DEEPGRAM_API_KEY}`,
-        },
-        body,
-        signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-        const errBody = await res.text();
-        log('Erreur Deepgram:', res.status, errBody);
-        throw new Error(`Deepgram STT ${res.status}: ${errBody}`);
-    }
-
-    const data = await res.json();
-    const result = parseDeepgramResponse(data);
-    return result.text ? result : null;
-}
 
 function parseDeepgramResponse(data: any): DeepgramSTTResult {
     const channel = data?.results?.channels?.[0];

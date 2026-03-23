@@ -1,6 +1,6 @@
 // Deepgram TTS (Aura-2 Agathe) — synthese vocale francaise haute qualite
-// Mobile : expo-audio + expo-file-system
-// Web : Audio API navigateur (new Audio)
+// Web : passe par le proxy serveur Express (evite CORS)
+// Mobile : appel direct Deepgram (pas de CORS)
 // Fallback mobile : expo-speech | Fallback web : Web Speech Synthesis
 import { Platform } from 'react-native';
 import { cleanTextForSpeech } from './voiceAssistant';
@@ -8,8 +8,13 @@ import { reportApiError } from './errorReporter';
 
 const log = (...args: any[]) => { if (__DEV__) console.log('[DeepgramTTS]', ...args); };
 
+// Cle API pour mobile uniquement (sur web, le serveur proxy gere la cle)
 const DEEPGRAM_API_KEY = process.env.EXPO_PUBLIC_DEEPGRAM_API_KEY ?? '';
 const DEEPGRAM_TTS_URL = 'https://api.deepgram.com/v1/speak?model=aura-2-agathe-fr';
+
+// URL du serveur proxy (meme serveur que Socket.io)
+const PROXY_BASE_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://inclusion-marchand.onrender.com';
+const PROXY_TTS_URL = `${PROXY_BASE_URL}/api/deepgram/tts`;
 
 const isWeb = Platform.OS === 'web';
 
@@ -25,33 +30,51 @@ let activeWebObjectUrl: string | null = null;
 export async function deepgramSpeak(text: string, onDone?: () => void): Promise<void> {
     const cleanText = cleanTextForSpeech(text);
 
-    if (!DEEPGRAM_API_KEY || !cleanText) {
+    // Sur mobile : besoin de la cle API. Sur web : le proxy gere la cle.
+    const canCallAPI = isWeb || !!DEEPGRAM_API_KEY;
+
+    if (!canCallAPI || !cleanText) {
         fallbackSpeak(cleanText || text, onDone);
         return;
     }
 
     try {
-        log('Envoi texte a Deepgram TTS...');
+        log('[Voice] 7. Sending to TTS...');
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-        const res = await fetch(DEEPGRAM_TTS_URL, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Token ${DEEPGRAM_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ text: cleanText }),
-            signal: controller.signal,
-        });
+        let res: Response;
+
+        if (isWeb) {
+            // Web : passer par le proxy serveur (evite CORS)
+            res = await fetch(PROXY_TTS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: cleanText }),
+                signal: controller.signal,
+            });
+        } else {
+            // Mobile : appel direct Deepgram
+            res = await fetch(DEEPGRAM_TTS_URL, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text: cleanText }),
+                signal: controller.signal,
+            });
+        }
         clearTimeout(timeoutId);
 
         if (!res.ok) {
             const errBody = await res.text();
-            log('Erreur Deepgram TTS:', res.status, errBody);
-            throw new Error(`Deepgram TTS ${res.status}: ${errBody}`);
+            log('Erreur TTS:', res.status, errBody);
+            throw new Error(`TTS ${res.status}: ${errBody}`);
         }
+
+        log('[Voice] 8. TTS playing');
 
         if (isWeb) {
             await playOnWeb(res, onDone);
@@ -59,7 +82,7 @@ export async function deepgramSpeak(text: string, onDone?: () => void): Promise<
             await playOnMobile(res, onDone);
         }
     } catch (err: any) {
-        log('Erreur Deepgram TTS, fallback:', err?.message ?? err);
+        log('Erreur TTS, fallback:', err?.message ?? err);
         reportApiError('Deepgram TTS', err, 'deepgramTTS.deepgramSpeak');
         fallbackSpeak(cleanText, onDone);
     }
@@ -114,7 +137,7 @@ async function playOnWeb(res: Response, onDone?: () => void): Promise<void> {
     activeWebAudio = audio;
 
     audio.onended = () => {
-        log('Deepgram TTS termine (web)');
+        log('TTS termine (web)');
         URL.revokeObjectURL(url);
         activeWebAudio = null;
         activeWebObjectUrl = null;
@@ -171,7 +194,7 @@ async function playOnMobile(res: Response, onDone?: () => void): Promise<void> {
 
     player.addListener('playbackStatusUpdate', (status: any) => {
         if (status.didJustFinish) {
-            log('Deepgram TTS termine (mobile)');
+            log('TTS termine (mobile)');
             activeMobilePlayer = null;
             deleteAsync(filePath, { idempotent: true }).catch(() => {});
             onDone?.();

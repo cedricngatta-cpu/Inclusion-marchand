@@ -11,6 +11,12 @@ if (!EMIT_SECRET) { console.error('❌ EMIT_SECRET manquant — set process.env.
 
 const app = express();
 app.use(cors({ origin: ALLOWED_ORIGIN }));
+
+// Body parsing pour les routes proxy Deepgram AVANT le json() global
+// (sinon express.json() corrompt le body audio binaire du STT)
+app.use('/api/deepgram/stt', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '10mb' }));
+app.use('/api/deepgram/tts', express.json({ limit: '1mb' }));
+
 app.use(express.json());
 
 const server = http.createServer(app);
@@ -361,6 +367,92 @@ io.on('connection', (socket) => {
     });
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PROXY DEEPGRAM — evite les erreurs CORS sur le web/PWA
+// La cle API reste cote serveur uniquement (DEEPGRAM_API_KEY dans env Render)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY || '';
+
+// CORS permissif pour les routes proxy (appels depuis le navigateur)
+app.use('/api/deepgram', cors({ origin: '*' }));
+
+// ── Proxy STT Deepgram (Nova-3) ─────────────────────────────────────────────
+app.post('/api/deepgram/stt', async (req, res) => {
+    if (!DEEPGRAM_API_KEY) {
+        return res.status(500).json({ error: 'DEEPGRAM_API_KEY non configuree sur le serveur' });
+    }
+
+    try {
+        const contentType = req.headers['content-type'] || 'audio/webm';
+        log(`🎤 Proxy STT — ${req.body?.length ?? 0} bytes, type: ${contentType}`);
+
+        const response = await fetch(
+            'https://api.deepgram.com/v1/listen?model=nova-3&language=fr&smart_format=true',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+                    'Content-Type': contentType,
+                },
+                body: req.body,
+            },
+        );
+
+        if (!response.ok) {
+            const errText = await response.text();
+            log(`❌ Proxy STT erreur ${response.status}: ${errText}`);
+            return res.status(response.status).json({ error: errText });
+        }
+
+        const data = await response.json();
+        const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? '';
+        log(`🎤 Proxy STT resultat: "${transcript.slice(0, 80)}"`);
+        res.json(data);
+    } catch (err) {
+        log(`❌ Proxy STT exception: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Proxy TTS Deepgram (Aura-2 Agathe FR) ──────────────────────────────────
+app.post('/api/deepgram/tts', async (req, res) => {
+    if (!DEEPGRAM_API_KEY) {
+        return res.status(500).json({ error: 'DEEPGRAM_API_KEY non configuree sur le serveur' });
+    }
+
+    try {
+        const text = req.body?.text ?? '';
+        log(`🔊 Proxy TTS — "${text.slice(0, 60)}..."`);
+
+        const response = await fetch(
+            'https://api.deepgram.com/v1/speak?model=aura-2-agathe-fr',
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ text }),
+            },
+        );
+
+        if (!response.ok) {
+            const errText = await response.text();
+            log(`❌ Proxy TTS erreur ${response.status}: ${errText}`);
+            return res.status(response.status).json({ error: errText });
+        }
+
+        const audioBuffer = await response.arrayBuffer();
+        log(`🔊 Proxy TTS audio: ${audioBuffer.byteLength} bytes`);
+        res.set('Content-Type', 'audio/mpeg');
+        res.send(Buffer.from(audioBuffer));
+    } catch (err) {
+        log(`❌ Proxy TTS exception: ${err.message}`);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ── Route santé ──────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
     const byRole = {};
@@ -425,6 +517,8 @@ server.listen(PORT, '0.0.0.0', () => {
     log(`║  Health  : http://localhost:${PORT}/health  ║`);
     log(`║  Notify  : POST /notify                ║`);
     log(`║  Emit    : POST /emit                  ║`);
+    log(`║  STT     : POST /api/deepgram/stt      ║`);
+    log(`║  TTS     : POST /api/deepgram/tts      ║`);
     log('╚══════════════════════════════════════╝\n');
     log('Événements supportés:');
     log('  • nouvelle-vente, stock-update');
