@@ -1,7 +1,8 @@
-// Bouton micro flottant — présent sur tous les écrans
-// Masqué automatiquement pendant la vente manuelle (scanner, panier, clavier)
+// Bouton micro flottant — visible uniquement sur les dashboards et pages principales
+// Masqué sur vendre, scanner, profil, notifications, auth, formulaires
 import React, { useState, useRef, useEffect } from 'react';
 import { TouchableOpacity, StyleSheet, Animated, Keyboard, Platform } from 'react-native';
+import { usePathname } from 'expo-router';
 import { Mic } from 'lucide-react-native';
 import { colors } from '@/src/lib/colors';
 import { useVoiceButton } from '@/src/context/VoiceButtonContext';
@@ -11,12 +12,30 @@ import { isMediaRecorderAvailable } from '@/src/lib/webAudioRecorder';
 import { isWebSpeechSupported } from '@/src/lib/webSpeech';
 import VoiceModal from './VoiceModal';
 
+// Pages où le bouton micro doit apparaître
+const VOICE_PAGES = [
+    '/commercant',
+    '/stock',
+    '/bilan',
+    '/revenus',
+    '/carnet',
+    '/finance',
+    '/marche',
+    '/achats-groupes',
+    '/mes-commandes',
+    '/producteur',
+    '/agent',
+    '/cooperative',
+    '/admin',
+];
+
 export default function VoiceButton() {
     const [modalOpen, setModalOpen] = useState(false);
     const [keyboardVisible, setKeyboardVisible] = useState(false);
     const scale = useRef(new Animated.Value(1)).current;
     const { voiceButtonVisible } = useVoiceButton();
     const { user } = useAuth();
+    const pathname = usePathname();
 
     // Masquer quand le clavier est ouvert (saisie nom client, etc.)
     useEffect(() => {
@@ -30,6 +49,10 @@ export default function VoiceButton() {
 
     // Garde défensive : ne rien afficher si pas authentifié
     if (!user) return null;
+
+    // Vérifier si la page courante est dans la liste autorisée
+    const shouldShow = VOICE_PAGES.some(p => pathname === p || pathname.startsWith(p + '/'));
+    if (!shouldShow) return null;
 
     // Ne pas rendre si masqué par le contexte (scanner, panier) ou par le clavier
     if (!voiceButtonVisible || keyboardVisible) return null;
@@ -67,9 +90,9 @@ export default function VoiceButton() {
 const styles = StyleSheet.create({
     wrapper: {
         position: 'absolute',
-        bottom: 16,
+        bottom: 30,
         right: 20,
-        zIndex: 999,
+        zIndex: 100,
     },
     btn: {
         width: 56, height: 56, borderRadius: 10,
