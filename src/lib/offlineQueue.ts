@@ -180,15 +180,44 @@ export const actionQueue = {
 
                 switch (action.type) {
                     case 'SELL': {
+                        // INSERT simple — la transaction n'existe pas encore dans Supabase
+                        // Colonnes exactes du schema : id, store_id, type, product_id, product_name,
+                        // quantity, price, client_name, status, operator, client_phone, source, created_at
+                        const d = action.data;
+                        const row: Record<string, any> = {
+                            store_id:     d.store_id,
+                            type:         d.type || 'VENTE',
+                            product_id:   d.product_id || null,
+                            product_name: d.product_name,
+                            quantity:     d.quantity,
+                            price:        d.price,
+                            client_name:  d.client_name || null,
+                            status:       d.status || 'PAYE',
+                            operator:     d.operator || null,
+                            client_phone: d.client_phone || null,
+                            source:       d.source || 'manual',
+                            created_at:   d.created_at || new Date().toISOString(),
+                        };
+                        // Inclure l'id seulement s'il est un UUID valide (pas temp_xxx)
+                        if (d.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(d.id)) {
+                            row.id = d.id;
+                        }
                         const res = await withTimeout<SupaResult>(
-                            supabase.from('transactions').upsert([action.data], { onConflict: 'id', ignoreDuplicates: true })
+                            supabase.from('transactions').insert(row)
                         );
                         error = res.error;
                         break;
                     }
                     case 'UPDATE_STOCK': {
+                        // Stock upsert sur product_id (cle composite store_id + product_id)
+                        const d = action.data;
                         const res = await withTimeout<SupaResult>(
-                            supabase.from('stock').upsert([action.data])
+                            supabase.from('stock').upsert({
+                                store_id:   d.store_id,
+                                product_id: d.product_id,
+                                quantity:   d.quantity,
+                                updated_at: d.updated_at || new Date().toISOString(),
+                            })
                         );
                         error = res.error;
                         break;
@@ -208,11 +237,18 @@ export const actionQueue = {
                         break;
                     }
                     case 'MARK_DEBT_PAID': {
-                        const { id: creditId, ...rest } = action.data;
-                        const res = creditId
-                            ? await withTimeout<SupaResult>(supabase.from('credits_clients').update(rest).eq('id', creditId))
-                            : await withTimeout<SupaResult>(supabase.from('transactions').update({ status: 'PAYE' }).eq('id', action.data.transactionId));
-                        error = res.error;
+                        const { id: creditId, transactionId, ...rest } = action.data;
+                        if (creditId) {
+                            const res = await withTimeout<SupaResult>(
+                                supabase.from('credits_clients').update(rest).eq('id', creditId)
+                            );
+                            error = res.error;
+                        } else if (transactionId) {
+                            const res = await withTimeout<SupaResult>(
+                                supabase.from('transactions').update({ status: 'PAYE' }).eq('id', transactionId)
+                            );
+                            error = res.error;
+                        }
                         break;
                     }
                 }
@@ -309,6 +345,7 @@ export const offlineQueue = {
 };
 
 // ── Synchronisation legacy (conservee pour compatibilite) ────────────────────
+// IMPORTANT : utilise INSERT simple, pas upsert (les transactions offline n'existent pas dans Supabase)
 export async function syncOfflineQueue(storeId: string): Promise<number> {
     const pending = await offlineQueue.getTransactions(storeId);
     if (pending.length === 0) return 0;
@@ -320,9 +357,24 @@ export async function syncOfflineQueue(storeId: string): Promise<number> {
 
     for (const tx of pending) {
         try {
-            const { error } = await supabase
-                .from('transactions')
-                .upsert([tx], { onConflict: 'id', ignoreDuplicates: true });
+            const row: Record<string, any> = {
+                store_id:     tx.store_id,
+                type:         tx.type || 'VENTE',
+                product_id:   tx.product_id || null,
+                product_name: tx.product_name,
+                quantity:     tx.quantity,
+                price:        tx.price,
+                client_name:  tx.client_name || null,
+                status:       tx.status || 'PAYE',
+                operator:     tx.operator || null,
+                client_phone: tx.client_phone || null,
+                source:       tx.source || 'manual',
+                created_at:   tx.created_at || new Date().toISOString(),
+            };
+            if (tx.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tx.id)) {
+                row.id = tx.id;
+            }
+            const { error } = await supabase.from('transactions').insert(row);
             if (!error) synced++;
             else failed.push(tx);
         } catch {

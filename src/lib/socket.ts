@@ -120,9 +120,9 @@ export const connectSocket = (userId: string, name?: string, role?: string): voi
     socket = io(SOCKET_URL, {
         transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 2000,
-        reconnectionDelayMax: 10000,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 5000,
+        reconnectionDelayMax: 30000,
         timeout: 10000,
     });
 

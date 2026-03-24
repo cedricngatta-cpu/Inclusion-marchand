@@ -60,24 +60,11 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         lastFetched.current = Date.now();
     }, [activeProfile, isOnline]);
 
-    // Sync hors-ligne au retour de connexion
+    // La sync offline est geree exclusivement par syncManager.ts
+    // Au retour de connexion : rafraichir le stock depuis Supabase
     useEffect(() => {
         if (prevIsOnline.current === false && isOnline && activeProfile) {
-            (async () => {
-                const pending = await offlineQueue.getStockUpdates(activeProfile.id);
-                if (!pending.length) return;
-                log('[StockContext] Sync offline:', pending.length, 'mise(s) à jour stock...');
-                try {
-                    for (const update of pending) {
-                        await supabase.from('stock').upsert(update);
-                    }
-                    await offlineQueue.clearStockUpdates(activeProfile.id);
-                    log('[StockContext] ✅ Sync stock offline OK');
-                    await fetchStock();
-                } catch (err) {
-                    console.error('[StockContext] ❌ Sync stock offline erreur:', err);
-                }
-            })();
+            fetchStock(true);
         }
         prevIsOnline.current = isOnline;
     }, [isOnline, activeProfile?.id]); // eslint-disable-line
@@ -89,20 +76,22 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (activeProfile) {
             fetchStock();
 
-            // Abonnement realtime Supabase (fonctionne identiquement sur mobile)
-            subscription = supabase
-                .channel(`stock_changes_${activeProfile.id}`)
-                .on(
-                    'postgres_changes' as any,
-                    {
-                        event: '*',
-                        table: 'stock',
-                        schema: 'public',
-                        filter: `store_id=eq.${activeProfile.id}`,
-                    },
-                    () => { if (isMounted) fetchStock(); }
-                )
-                .subscribe();
+            // Abonnement realtime Supabase — seulement quand online (evite le spam offline)
+            if (isOnline) {
+                subscription = supabase
+                    .channel(`stock_changes_${activeProfile.id}`)
+                    .on(
+                        'postgres_changes' as any,
+                        {
+                            event: '*',
+                            table: 'stock',
+                            schema: 'public',
+                            filter: `store_id=eq.${activeProfile.id}`,
+                        },
+                        () => { if (isMounted) fetchStock(); }
+                    )
+                    .subscribe();
+            }
         } else {
             setStock({});
         }
@@ -111,7 +100,7 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             isMounted = false;
             if (subscription) supabase.removeChannel(subscription).catch(console.error);
         };
-    }, [activeProfile, fetchStock]);
+    }, [activeProfile, fetchStock, isOnline]);
 
     const updateStock = useCallback(async (productId: string, amount: number) => {
         if (!activeProfile) return;

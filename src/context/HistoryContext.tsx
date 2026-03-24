@@ -101,26 +101,13 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         lastFetched.current = Date.now();
     }, [activeProfile, isOnline, cacheKey]);
 
-    // Sync hors-ligne au retour de connexion
+    // La sync offline est geree exclusivement par syncManager.ts
+    // Au retour de connexion : rafraichir l'historique depuis Supabase
     useEffect(() => {
-        if (prevIsOnline.current === false && isOnline && activeProfile && cacheKey) {
-            (async () => {
-                const pending = await offlineQueue.getTransactions(activeProfile.id);
-                if (!pending.length) return;
-                console.log('[HistoryContext] Sync offline:', pending.length, 'transaction(s) en attente...');
-                try {
-                    const { error } = await supabase
-                        .from('transactions')
-                        .upsert(pending, { onConflict: 'id' });
-                    if (!error) {
-                        await offlineQueue.clearTransactions(activeProfile.id);
-                        console.log('[HistoryContext] ✅ Sync offline OK');
-                        await fetchHistory();
-                    }
-                } catch (err) {
-                    console.error('[HistoryContext] ❌ Sync offline erreur:', err);
-                }
-            })();
+        if (prevIsOnline.current === false && isOnline && activeProfile) {
+            // Apres que syncManager ait sync les transactions, on rafraichit depuis Supabase
+            // (le syncManager appelle onPostSync qui declenche refreshHistory)
+            fetchHistory(true);
         }
         prevIsOnline.current = isOnline;
     }, [isOnline, activeProfile?.id]); // eslint-disable-line
@@ -130,7 +117,8 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         fetchHistory();
 
-        // Realtime Supabase
+        // Realtime Supabase — seulement quand online (evite le spam de reconnection offline)
+        if (!isOnline) return;
         const subscription = supabase
             .channel(`transactions_${activeProfile.id}`)
             .on('postgres_changes' as any, {
@@ -140,7 +128,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             .subscribe();
 
         return () => { supabase.removeChannel(subscription); };
-    }, [activeProfile?.id]);
+    }, [activeProfile?.id, isOnline]);
 
     // Recevoir les ventes des autres appareils en temps réel
     useEffect(() => {
