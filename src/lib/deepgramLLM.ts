@@ -1,5 +1,5 @@
-// Deepgram LLM — Intent parsing intelligent pour commandes vocales Julaba
-// Utilise Groq Llama 3.3 (gratuit, rapide) comme moteur LLM
+// LLM wrapper — Intent parsing intelligent pour commandes vocales Julaba
+// Utilise Mistral Small (principal) / Groq Llama (fallback) via chatWithHistory
 // Historique conversationnel pour comprendre le contexte (raccourcis, corrections)
 import { chatWithHistory, GroqMessage, parseAction, VoiceAction } from './groqAI';
 import { reportApiError } from './errorReporter';
@@ -18,7 +18,7 @@ PERSONNALITE :
 - Tu tutoies le marchand comme une collegue de confiance
 - Tu es proactive : tu donnes des conseils sans qu'on te demande
 - Tu es encourageante : tu felicites les bonnes performances
-- Tu es concise : reponses courtes et directes, maximum 2-3 phrases
+- Tu es concise : reponses courtes et directes, maximum 1-2 phrases. JAMAIS plus.
 
 LANGAGE IVOIRIEN :
 Tu comprends parfaitement ces expressions courantes :
@@ -108,7 +108,7 @@ ACTION::{"type":"navigate","details":{"route":"/(tabs)/stock"}}
 
 QUESTIONS GENERALES :
 Si le marchand pose une question generale (pas une commande), reponds en texte normal (pas d'ACTION::) :
-- Sois concise (2-3 phrases max)
+- Sois concise (1-2 phrases max)
 - Donne des conseils pratiques de commerce
 - Si tu ne sais pas, dis-le honnetement
 
@@ -133,8 +133,13 @@ REGLES STRICTES :
 - Le JSON ACTION:: doit TOUJOURS etre sur une seule ligne a la fin de ta reponse
 - Jamais de backticks, de markdown ou de formatage autour du JSON
 - Ne dis jamais "en tant qu'IA" ou "je suis un programme"
-- 2-3 phrases max dans ta reponse texte
-- Pas d'emojis, pas de listes a puces, pas de formatage special`;
+- 1-2 phrases max dans ta reponse texte. JAMAIS plus.
+- JAMAIS commencer par "Je vais verifier..." ou "Bien sur..." ou "Avec plaisir..."
+- Va DROIT AU BUT.
+- Pas d'emojis, pas de listes a puces, pas de formatage special
+- TOUJOURS les accents francais : e avec accent, a avec accent, c cedille
+- "trois" = 3, JAMAIS 23. "deux" = 2, JAMAIS 22. Toujours le nombre simple.
+- montant = quantite x prix unitaire du produit en stock. Ne JAMAIS inventer un prix.`;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // HISTORIQUE DE CONVERSATION (garde les derniers echanges pour le contexte)
@@ -166,7 +171,7 @@ export interface LLMResult {
     text: string;
     action: VoiceAction | null;
     confidence: number;
-    source: 'groq';
+    source: 'mistral' | 'groq';
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -225,16 +230,16 @@ export async function processVoiceCommand(
             text: text || rawReply,
             action,
             confidence,
-            source: 'groq',
+            source: 'mistral',
         };
     } catch (err: any) {
         log('Erreur LLM:', err?.message ?? err);
         reportApiError('LLM', err, 'deepgramLLM.processVoiceCommand');
 
         if (err?.message === 'TIMEOUT') {
-            return { text: 'Connexion lente. Reessaye.', action: null, confidence: 0, source: 'groq' };
+            return { text: 'Connexion lente. Reessaye.', action: null, confidence: 0, source: 'mistral' };
         }
-        return { text: "Desole, j'ai pas pu traiter ta demande.", action: null, confidence: 0, source: 'groq' };
+        return { text: "Desole, j'ai pas pu traiter ta demande.", action: null, confidence: 0, source: 'mistral' };
     }
 }
 
@@ -288,7 +293,7 @@ export async function generateWelcomeMessage(
             text: text || rawReply,
             action: null,
             confidence: 1,
-            source: 'groq',
+            source: 'mistral',
         };
     } catch (err: any) {
         log('Erreur welcome LLM:', err?.message ?? err);

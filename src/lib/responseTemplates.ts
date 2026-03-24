@@ -1,5 +1,5 @@
-// Templates de reponses variees pour l'assistant vocal Julaba
-// Chaque categorie a plusieurs variantes pour un rendu naturel et humain
+// Templates de réponses variées pour l'assistant vocal Julaba
+// Chaque catégorie a plusieurs variantes pour un rendu naturel et humain
 
 function pick<T>(arr: T[]): T {
     return arr[Math.floor(Math.random() * arr.length)];
@@ -18,33 +18,33 @@ export function getResponse(category: string, vars: Record<string, string | numb
     return fill(pick(templates), vars);
 }
 
-// ── Templates par categorie ─────────────────────────────────────────────────
+// ── Templates par catégorie ─────────────────────────────────────────────────
 
 const TEMPLATES: Record<string, string[]> = {
 
     // Vente simple (sans client)
     sell: [
         "C'est fait ! {quantity} {product} pour {amount} francs. {payment}",
-        "Vente enregistree. {quantity} {product}, {amount} francs. {payment}",
-        "OK ! {product}, {quantity}, {amount} francs. C'est note.",
-        "Parfait ! {quantity} {product} a {amount} francs. {payment}",
+        "Vente enregistrée. {quantity} {product}, {amount} francs. {payment}",
+        "OK ! {product}, {quantity}, {amount} francs. C'est noté.",
+        "Parfait ! {quantity} {product} à {amount} francs. {payment}",
     ],
 
     // Vente avec client
     sell_client: [
         "C'est fait ! {quantity} {product} pour {client}, {amount} francs. {payment}",
-        "Vente pour {client} enregistree. {quantity} {product}, {amount} francs. {payment}",
-        "OK ! {product} pour {client}, {quantity}, {amount} francs. C'est note.",
+        "Vente pour {client} enregistrée. {quantity} {product}, {amount} francs. {payment}",
+        "OK ! {product} pour {client}, {quantity}, {amount} francs. C'est noté.",
     ],
 
     // Vente multiple
     sell_multiple: [
-        "J'ai enregistre {count} ventes : {items}. Total : {amount} francs{client}. {payment}",
+        "J'ai enregistré {count} ventes : {items}. Total : {amount} francs{client}. {payment}",
         "C'est fait ! {items}. Total : {amount} francs{client}.",
-        "Tout est note : {items}. Ca fait {amount} francs{client}.",
+        "Tout est noté : {items}. Ça fait {amount} francs{client}.",
     ],
 
-    // Stock verifie (produit specifique)
+    // Stock vérifié (produit spécifique)
     check_stock: [
         "Il te reste {quantity} {unit} de {product} en stock.",
         "{product} : {quantity} {unit} en stock.",
@@ -53,8 +53,8 @@ const TEMPLATES: Record<string, string[]> = {
 
     // Stock bas
     stock_low: [
-        "Attention, il reste que {quantity} {unit} de {product}. Pense a commander.",
-        "{product} est bientot en rupture : {quantity} {unit} restants.",
+        "Attention, il reste que {quantity} {unit} de {product}. Pense à commander.",
+        "{product} est bientôt en rupture : {quantity} {unit} restants.",
         "Alerte ! Seulement {quantity} {unit} de {product}. Commande vite.",
     ],
 
@@ -66,21 +66,21 @@ const TEMPLATES: Record<string, string[]> = {
 
     // Stock ajout
     stock_add: [
-        "Stock mis a jour ! {product} : plus {quantity} unites, total {newQty}.",
-        "C'est fait ! {quantity} {product} ajoutes. Nouveau stock : {newQty}.",
-        "OK ! {product} reapprovisionne, maintenant {newQty} en stock.",
+        "Stock mis à jour ! {product} : plus {quantity} unités, total {newQty}.",
+        "C'est fait ! {quantity} {product} ajoutés. Nouveau stock : {newQty}.",
+        "OK ! {product} réapprovisionné, maintenant {newQty} en stock.",
     ],
 
     // Alertes stock
     stock_alerts: [
         "Attention, {count} produits en alerte : {items}. Tu devrais commander.",
-        "{count} produits bas : {items}. Pense a te reapprovisionner.",
-        "Alerte stock ! {items}. Il faut reapprovisionner.",
+        "{count} produits bas : {items}. Pense à te réapprovisionner.",
+        "Alerte stock ! {items}. Il faut réapprovisionner.",
     ],
 
     stock_alerts_none: [
         "Ton stock est bon, rien en alerte pour le moment.",
-        "Tout est bon cote stock, pas d'alerte.",
+        "Tout est bon côté stock, pas d'alerte.",
         "RAS sur le stock, tout est en ordre.",
     ],
 
@@ -119,38 +119,38 @@ const TEMPLATES: Record<string, string[]> = {
     ],
 
     debt_add: [
-        "C'est note. {client} te doit {amount} francs.",
-        "Dette de {amount} francs ajoutee pour {client}.",
+        "C'est noté. {client} te doit {amount} francs.",
+        "Dette de {amount} francs ajoutée pour {client}.",
         "OK, {client} doit maintenant {amount} francs.",
     ],
 
     debt_paid: [
-        "Parfait ! La dette de {client} est reglee. {details}",
-        "C'est bon, {client} a paye. Solde a zero. {details}",
-        "Dette de {client} marquee comme payee. {details}",
+        "Parfait ! La dette de {client} est réglée. {details}",
+        "C'est bon, {client} a payé. Solde à zéro. {details}",
+        "Dette de {client} marquée comme payée. {details}",
     ],
 
     debt_not_found: [
-        "Aucune dette en cours trouvee pour {client}.",
+        "Aucune dette en cours trouvée pour {client}.",
         "Je ne trouve pas de dette pour {client}.",
     ],
 
     // Undo
     undo_success: [
-        "J'ai annule la derniere action : {description}.",
-        "C'est annule : {description}.",
-        "Action annulee : {description}.",
+        "J'ai annulé la dernière action : {description}.",
+        "C'est annulé : {description}.",
+        "Action annulée : {description}.",
     ],
 
     undo_nothing: [
-        "Rien a annuler pour le moment.",
-        "Il n'y a pas d'action recente a annuler.",
+        "Rien à annuler pour le moment.",
+        "Il n'y a pas d'action récente à annuler.",
     ],
 
     // Aide
     help: [
-        "Tu peux me dire : vends, stock, dettes, bilan, alertes, annule. Par exemple : vends 3 kilos de tomates a Awa.",
-        "Dis-moi ce que tu veux : vendre, verifier le stock, voir les dettes, faire le bilan. Je comprends aussi les raccourcis comme '2 tomates' ou 'le riz ?'.",
+        "Tu peux me dire : vends, stock, dettes, bilan, alertes, annule. Par exemple : vends 3 kilos de tomates à Awa.",
+        "Dis-moi ce que tu veux : vendre, vérifier le stock, voir les dettes, faire le bilan. Je comprends aussi les raccourcis comme '2 tomates' ou 'le riz ?'.",
     ],
 
     // Notifications
@@ -166,32 +166,32 @@ const TEMPLATES: Record<string, string[]> = {
 
     // Erreurs
     not_understood: [
-        "Excuse-moi, j'ai pas bien compris. Tu peux repeter ?",
-        "Pardon, tu peux dire ca autrement ?",
+        "Excuse-moi, j'ai pas bien compris. Tu peux répéter ?",
+        "Pardon, tu peux dire ça autrement ?",
         "J'ai pas saisi. Essaie de reformuler.",
     ],
 
     no_audio: [
-        "Je t'ecoute, mais j'ai rien entendu. Appuie sur le micro et parle.",
-        "J'ai pas entendu. Rapproche-toi du micro et reessaie.",
+        "Je t'écoute, mais j'ai rien entendu. Appuie sur le micro et parle.",
+        "J'ai pas entendu. Rapproche-toi du micro et réessaie.",
     ],
 
-    // Confirmation demandee (confiance basse)
+    // Confirmation demandée (confiance basse)
     confirm_action: [
         "Tu veux {description} ? Dis oui pour confirmer.",
-        "J'ai compris : {description}. C'est bien ca ?",
+        "J'ai compris : {description}. C'est bien ça ?",
         "Je fais {description} ? Confirme.",
     ],
 
     // Greeting
     greeting_with_stats: [
-        "{timeGreeting} {name} ! Tu as deja fait {amount} francs aujourd'hui. Comment je peux t'aider ?",
+        "{timeGreeting} {name} ! Tu as déjà fait {amount} francs aujourd'hui. Comment je peux t'aider ?",
         "{timeGreeting} {name} ! {count} ventes aujourd'hui pour {amount} francs. Qu'est-ce que je peux faire pour toi ?",
     ],
 
     greeting_simple: [
         "{timeGreeting} {name} ! Comment je peux t'aider ?",
         "{timeGreeting} {name} ! Qu'est-ce que je peux faire pour toi ?",
-        "{timeGreeting} {name} ! Je suis la. Dis-moi.",
+        "{timeGreeting} {name} ! Je suis là. Dis-moi.",
     ],
 };

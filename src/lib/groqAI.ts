@@ -1,14 +1,15 @@
-// Intégration Groq API — STT (Whisper) + IA conversationnelle (Llama 3.3 70B)
+// Intégration LLM — Mistral Small (principal) + Groq Llama (fallback) + Whisper STT
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import { reportApiError } from './errorReporter';
+import { mistralChat, isMistralAvailable } from './mistralAI';
 
 const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
 const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY ?? '';
 const WHISPER_URL  = 'https://api.groq.com/openai/v1/audio/transcriptions';
-const CHAT_URL     = 'https://api.groq.com/openai/v1/chat/completions';
-const CHAT_MODEL   = 'llama-3.3-70b-versatile';
+const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_CHAT_MODEL = 'llama-3.3-70b-versatile';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface GroqMessage {
@@ -95,22 +96,40 @@ export async function transcribeAudio(uri: string): Promise<string> {
     return transcription;
 }
 
-// ── Chat multi-tour : tout l'historique est envoyé à Groq ─────────────────
-export async function chatWithHistory(messages: GroqMessage[], maxTokens = 800): Promise<string> {
+// ── Chat multi-tour : Mistral (principal) → Groq Llama (fallback) ─────────
+export async function chatWithHistory(messages: GroqMessage[], maxTokens = 300): Promise<string> {
+    // Essayer Mistral d'abord
+    if (isMistralAvailable()) {
+        try {
+            const result = await mistralChat(messages, maxTokens);
+            log('[LLM] Mistral OK');
+            return result;
+        } catch (err: any) {
+            log('[LLM] Mistral échoué, fallback Groq:', err?.message);
+            reportApiError('Mistral Chat', err, 'groqAI.chatWithHistory');
+            // Continuer vers Groq fallback
+        }
+    }
+
+    // Fallback Groq Llama
+    return groqChatFallback(messages, maxTokens);
+}
+
+async function groqChatFallback(messages: GroqMessage[], maxTokens: number): Promise<string> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
-        const res = await fetch(CHAT_URL, {
+        const res = await fetch(GROQ_CHAT_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${GROQ_API_KEY}`,
             },
             body: JSON.stringify({
-                model: CHAT_MODEL,
+                model: GROQ_CHAT_MODEL,
                 messages,
-                temperature: 0.7,
+                temperature: 0.3,
                 max_tokens: maxTokens,
             }),
             signal: controller.signal,
@@ -119,6 +138,7 @@ export async function chatWithHistory(messages: GroqMessage[], maxTokens = 800):
 
         if (!res.ok) throw new Error(`Groq Chat ${res.status}: ${await res.text()}`);
         const data = await res.json();
+        log('[LLM] Groq fallback OK');
         return (data.choices?.[0]?.message?.content ?? '').trim();
     } catch (err: any) {
         clearTimeout(timeoutId);
@@ -345,6 +365,44 @@ export function buildSystemPrompt(nom: string, role: string, donneesContext: str
     const prenom = nomSafe.split(' ')[0];
 
     const styleCommun = `
+RÈGLES ABSOLUES (à suivre sans exception) :
+
+CONCISION :
+- Maximum 1 à 2 phrases par réponse. JAMAIS plus de 2 phrases.
+- JAMAIS de paragraphe. JAMAIS d'explication longue.
+- JAMAIS commencer par "Je vais vérifier..." ou "Bien sûr..." ou "Avec plaisir..."
+- Va DROIT AU BUT.
+
+NOMBRES :
+- Les marchands vendent entre 1 et 20 kg maximum par vente.
+- Si tu vois un grand nombre supérieur à 20, c'est probablement une erreur de transcription.
+- "trois" = 3. "deux" = 2. "cinq" = 5. Toujours le nombre simple.
+- Ne JAMAIS transformer un petit nombre en grand nombre.
+
+ORTHOGRAPHE :
+- TOUJOURS les accents : é, è, ê, à, ù, ô, î, ç
+- "noté" pas "note". "enregistré" pas "enregistre". "vérifié" pas "verifie".
+
+CONTEXTE IVOIRIEN :
+- "Madame" seul = nom du client est "Madame". "Madame Awa" = client est "Awa".
+- "Monsieur Konaté" = client est "Konaté".
+- Prix courants : tomates 300 à 700 francs le kilo, riz 400 à 800, oignons 500 à 1000.
+- Si le calcul semble faux, utilise le prix réel du produit en base.
+
+CALCULS :
+- montant = quantité multiplié par prix unitaire du produit en stock.
+- Ne JAMAIS inventer un prix. Utilise le prix de la base de données.
+
+EXEMPLES DE BONNES RÉPONSES :
+- "C'est fait ! 3 kg de tomates pour Awa, mille six cent cinquante francs."
+- "Il reste 12 kg de riz."
+- "Awa te doit trois mille francs."
+- "Aujourd'hui : quarante-sept mille cinq cents francs, 12 ventes."
+
+EXEMPLES DE RÉPONSES INTERDITES :
+- "Je vais vérifier si nous avons suffisamment de tomates..." = INTERDIT (trop long)
+- "Bien sûr ! La vente de vingt-trois kilos sera facturée selon..." = INTERDIT (trop long + nombre faux)
+
 CONTEXTE GÉOGRAPHIQUE :
 Tu es en Côte d'Ivoire, Afrique de l'Ouest. La monnaie est le Franc CFA.
 
@@ -377,7 +435,7 @@ Tes réponses seront lues à voix haute par un moteur de synthèse vocale. Tu do
 
 5. FORMAT RÉPONSE :
    Texte naturel parlé uniquement. Pas de listes, pas de formatage, pas de tirets décoratifs.
-   Maximum 3 phrases sauf si analyse demandée.
+   Maximum 1 à 2 phrases. Sois ultra-concise.
 
 INTELLIGENCE DE COMPRÉHENSION :
 
@@ -433,21 +491,13 @@ QUAND TU HÉSITES :
 - Ex: transcription bizarre "tomato tri kil" = tu proposes vendre 3 kg de tomates, confidence 0.6
 - L'utilisateur verra "Vendre 3 kg de tomates ?" avec Confirmer / Annuler
 
-RÉPONSES NATURELLES :
-- Sois concise : 2 phrases max
-- Sois chaleureuse : tutoie le marchand
-- Après une action réussie : confirme avec les détails
-- Si tu corriges une erreur : dis-le naturellement ("Tu voulais dire tomates ? C'est fait !")
-- JAMAIS de jargon technique
-- JAMAIS mentionner la transcription, l'IA, ou les erreurs techniques
-
 STYLE DE CONVERSATION :
 - Réponds TOUJOURS en français naturel et chaleureux (pas soutenu, langage ivoirien ok)
-- 2-4 phrases max sauf si résumé ou analyse demandé
+- 1 à 2 phrases max sauf si résumé demandé explicitement
 - Appelle l'utilisateur par son prénom "${prenom}" de temps en temps
 - Si "merci"/"ok"/"c'est bon" = réponse brève + propose une autre aide
-- Si "bonjour"/"salut" = accueil chaleureux + résumé de l'activité
-- Si "oui"/"ok"/"vas-y"/"confirme" = confirmation de l'action précédente (sera traitée automatiquement)
+- Si "bonjour"/"salut" = accueil chaleureux + résumé court de l'activité
+- Si "oui"/"ok"/"vas-y"/"confirme" = confirmation (sera traitée automatiquement)
 - Si "non"/"annule" = annule et propose autre chose`;
 
     // ── MARCHAND ──────────────────────────────────────────────────────────
@@ -459,7 +509,7 @@ PERSONNALITE :
 - Tu tutoies le marchand comme une collegue de confiance
 - Tu es proactive : tu donnes des conseils sans qu'on te demande
 - Tu es encourageante : tu felicites les bonnes performances
-- Tu es concise : reponses courtes et directes, maximum 2-3 phrases
+- Tu es concise : reponses courtes et directes, maximum 1-2 phrases
 
 LANGAGE IVOIRIEN :
 Tu comprends parfaitement ces expressions :

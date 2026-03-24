@@ -3,7 +3,7 @@
 ## Projet
 Application mobile Android React Native / Expo SDK 54 pour l'inclusion économique des commerçants informels en Afrique.
 Backend : Supabase (PostgreSQL) + Socket.io (realtime)
-IA vocale : Groq API (Llama 3.3 + Whisper STT) + Web Speech Synthesis (web) / expo-speech (mobile)
+IA vocale : Mistral Small (LLM principal) + Groq (Whisper STT mobile + Llama fallback LLM) + Web Speech Synthesis (web) / expo-speech (mobile)
 Objectif : Build APK via EAS Build pour démo investisseurs
 Cible : Commerçants peu alphabétisés, marchés vivriers, zones à connexion instable
 
@@ -160,12 +160,14 @@ EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, QR Code
 ### Pipeline vocal (online)
 1. **STT Web** : Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) — natif Chrome, gratuit, temps réel avec `interimResults`
 2. **STT Mobile** : Groq Whisper (`whisper-large-v3-turbo`) — fallback mobile uniquement (direct API)
-3. **LLM** : Groq Llama 3.3 70B — compréhension + actions + tolérance erreurs STT
-4. **TTS** : Web Speech Synthesis (web) / expo-speech (mobile) — instantané, pas d'appel réseau
-5. **ElevenLabs** : désactivé (free tier bloqué) — code conservé en commentaire pour activation future avec clé payante
+3. **LLM** : Mistral Small (`mistral-small-latest`) — principal, appel direct (CORS OK), temperature 0.3, max_tokens 300
+4. **LLM Fallback** : Groq Llama 3.3 70B — si Mistral échoue (rate limit, réseau)
+5. **TTS** : Web Speech Synthesis (web) / expo-speech (mobile) — instantané, pas d'appel réseau
+6. **ElevenLabs** : désactivé (free tier bloqué) — code conservé en commentaire pour activation future avec clé payante
 
 ### Clés API nécessaires (.env)
-- `EXPO_PUBLIC_GROQ_API_KEY` — LLM Llama + STT Whisper (mobile uniquement)
+- `EXPO_PUBLIC_MISTRAL_API_KEY` — LLM Mistral Small (principal)
+- `EXPO_PUBLIC_GROQ_API_KEY` — STT Whisper (mobile) + LLM Llama fallback
 - `EXPO_PUBLIC_SOCKET_URL` — URL du serveur proxy Render (aussi utilisé pour Socket.io)
 - `EXPO_PUBLIC_ELEVENLABS_API_KEY` — optionnel (désactivé, tier payant requis)
 
@@ -179,7 +181,7 @@ Défini dans `src/lib/groqSTT.ts` (constante `WHISPER_PROMPT`) et dans le proxy 
 - Commandes différentes par rôle
 - TTS confirmation + vibration
 
-### Mode IA (online via Groq)
+### Mode IA (online via Mistral/Groq)
 - Conversation continue avec historique
 - Données Supabase réelles dans le prompt (stock, ventes, commandes...)
 - Données DIFFÉRENTES selon le rôle (fetchRoleContext)
@@ -187,6 +189,11 @@ Défini dans `src/lib/groqSTT.ts` (constante `WHISPER_PROMPT`) et dans le proxy 
 - Message d'accueil personnalisé avec résumé d'activité
 - Intelligence proactive (alertes stock bas, suggestions)
 - Tolérance ultra-forte aux erreurs de transcription STT (correction automatique par le LLM)
+- Réponses ultra-courtes (1-2 phrases max), jamais de paragraphes
+- Règles nombres : quantités marché (1-20 kg), correction "vingt-trois" → "trois"
+- Vérification calculs : montant = quantité × prix unitaire (prix de la BDD)
+- Contexte ivoirien : montants courants, "Madame" = client anonyme
+- Orthographe : accents français obligatoires dans les réponses
 
 ### Actions vocales exécutables par rôle
 
@@ -200,7 +207,8 @@ Défini dans `src/lib/groqSTT.ts` (constante `WHISPER_PROMPT`) et dans le proxy 
 
 - `src/lib/groqSTT.ts` : Groq Whisper STT (mobile direct uniquement) + fallback natif — **web abandonné** (hallucination prompt)
 - `src/lib/elevenlabsTTS.ts` : TTS principal — Web Speech Synthesis (web) / expo-speech (mobile) — ElevenLabs en option commentée
-- `src/lib/groqAI.ts` : Groq Llama LLM + fetchRoleContext + buildSystemPrompt + parseAction + `isOnline()` / `setOnlineStatus()` (état réseau global synchronisé par NetworkContext)
+- `src/lib/mistralAI.ts` : Mistral Small LLM — appel direct API (CORS OK), temperature 0.3, max_tokens 300
+- `src/lib/groqAI.ts` : chatWithHistory (Mistral principal → Groq fallback) + fetchRoleContext + buildSystemPrompt + parseAction + `isOnline()` / `setOnlineStatus()`
 - `src/lib/voiceAssistant.ts` : Web Speech API STT (web) + enregistrement audio (mobile) + TTS + executeVoiceAction (actions Supabase) — exporte `startWebSpeechRecognition()` / `stopWebSpeechRecognition()` avec callbacks `onInterim` / `onFinal`
 - `src/lib/webAudioRecorder.ts` : MediaRecorder web + volume metering — conservé pour usage mobile
 - `src/components/VoiceModal.tsx` : UI du modal (conversation, confirmation, micro, transcription temps réel via `interimText`)
@@ -411,7 +419,8 @@ Chaque transaction enregistre le mode de paiement (status) et l'opérateur (oper
 - expo-camera, expo-image-picker, expo-av, expo-speech
 - expo-router (Stack Navigator)
 - lucide-react-native + react-native-svg
-- Groq API (Llama 3.3 70B + Whisper large-v3-turbo)
+- Mistral API (mistral-small-latest) — LLM principal
+- Groq API (Llama 3.3 70B fallback LLM + Whisper large-v3-turbo STT mobile)
 - ElevenLabs API (TTS eleven_flash_v2_5) — désactivé, code conservé pour activation future
 - react-native-chart-kit (ou alternative compatible Expo Go)
 
