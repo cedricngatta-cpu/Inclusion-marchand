@@ -1,6 +1,10 @@
-// Bandeau "Hors ligne" — overlay avec etat de synchronisation + progression + retry
-// Marchands/Producteurs : mode offline complet (orange)
-// Agents/Coops/Admins : connexion requise (rouge)
+// Bandeau offline WhatsApp-like — 6 etats visuels
+// 1. Online, rien a sync -> INVISIBLE
+// 2. Offline, pas d'actions -> Banniere orange "Mode hors ligne"
+// 3. Offline, actions en attente -> Banniere orange "Mode hors ligne — X actions en attente"
+// 4. Online, sync en cours -> Banniere bleue "Synchronisation 2/5..." avec spinner
+// 5. Online, sync terminee -> Banniere verte "Tout est a jour" (3s puis disparait)
+// 6. Online, erreurs -> Banniere orange "X synchronisees, Y en erreur — [Reessayer]"
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Platform, StyleSheet, Text, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,18 +14,17 @@ import { useAuth } from '@/src/context/AuthContext';
 import { isOfflineEligible } from '@/src/lib/offlineCache';
 import { colors } from '@/src/lib/colors';
 
+type BannerPhase = 'hidden' | 'offline' | 'offline_pending' | 'syncing' | 'done' | 'error';
+
 export default function OfflineBanner() {
     const { isOnline, pendingCount, syncState, syncResult, syncProgress, triggerSync } = useNetwork();
     const { user } = useAuth();
     const eligible = isOfflineEligible(user?.role);
-    const insets     = useSafeAreaInsets();
+    const insets = useSafeAreaInsets();
     const translateY = useRef(new Animated.Value(-80)).current;
-    const hideTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [visible, setVisible] = useState(false);
-
-    // Phase actuelle du bandeau
-    type BannerPhase = 'offline' | 'syncing' | 'done' | 'error';
-    const [phase, setPhase] = useState<BannerPhase>('offline');
+    const [phase, setPhase] = useState<BannerPhase>('hidden');
 
     const clearTimer = () => {
         if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
@@ -38,6 +41,7 @@ export default function OfflineBanner() {
     };
 
     const slideOut = (delay = 0) => {
+        clearTimer();
         hideTimer.current = setTimeout(() => {
             Animated.timing(translateY, {
                 toValue: -80,
@@ -45,111 +49,122 @@ export default function OfflineBanner() {
                 useNativeDriver: Platform.OS !== 'web',
             }).start(() => {
                 setVisible(false);
-                setPhase('offline');
+                setPhase('hidden');
             });
         }, delay);
     };
 
-    // Réagir aux changements de connectivité
+    // Reagir aux changements de connectivite + pendingCount
     useEffect(() => {
         clearTimer();
-        if (!isOnline) {
-            setPhase('offline');
-            slideIn();
-        } else if (visible && phase === 'offline') {
-            // Vient de revenir online — passer en mode syncing
-            setPhase('syncing');
-        }
-        return clearTimer;
-    }, [isOnline]);
 
-    // Réagir aux changements d'état du sync
-    useEffect(() => {
-        if (syncState === 'syncing' && isOnline) {
+        if (!isOnline) {
+            // Hors ligne
+            if (pendingCount > 0) {
+                setPhase('offline_pending');
+            } else {
+                setPhase('offline');
+            }
+            slideIn();
+        } else if (syncState === 'syncing') {
             setPhase('syncing');
             slideIn();
         } else if (syncState === 'done') {
             setPhase('done');
             slideIn();
-            clearTimer();
-            slideOut(2500);
+            slideOut(3000);
         } else if (syncState === 'error') {
             setPhase('error');
             slideIn();
-            // Ne pas auto-hide en erreur — laisser le bouton retry visible
+        } else {
+            // Online, idle, rien a sync -> invisible
+            if (visible) slideOut(0);
         }
-    }, [syncState]);
+
+        return clearTimer;
+    }, [isOnline, syncState, pendingCount]);
 
     if (!visible) return null;
 
     const paddingTop = insets.top + 8;
 
-    const bannerStyle = phase === 'offline'
-        ? (eligible ? styles.bannerOffline : styles.bannerRequired)
+    // Couleurs par phase
+    const bannerBg =
+        phase === 'offline' || phase === 'offline_pending'
+            ? (eligible ? styles.bannerOffline : styles.bannerRequired)
         : phase === 'syncing' ? styles.bannerSyncing
         : phase === 'done' ? styles.bannerDone
-        : styles.bannerError;
-
-    // Texte de progression pendant la sync
-    const progressText = syncProgress.total > 0
-        ? `${syncProgress.current}/${syncProgress.total}`
-        : '';
+        : phase === 'error' ? styles.bannerError
+        : styles.bannerOffline;
 
     return (
         <Animated.View
-            style={[styles.banner, bannerStyle, { transform: [{ translateY }], paddingTop }]}
+            style={[styles.banner, bannerBg, { transform: [{ translateY }], paddingTop }]}
         >
+            {/* Etat 2 : Offline, pas d'actions */}
             {phase === 'offline' && (
                 <>
                     <WifiOff color="#fff" size={15} />
                     <Text style={styles.text}>
+                        {eligible ? 'MODE HORS LIGNE' : 'CONNEXION INTERNET REQUISE'}
+                    </Text>
+                </>
+            )}
+
+            {/* Etat 3 : Offline, actions en attente */}
+            {phase === 'offline_pending' && (
+                <>
+                    <WifiOff color="#fff" size={15} />
+                    <Text style={styles.text}>
                         {eligible
-                            ? (pendingCount > 0
-                                ? `MODE HORS LIGNE — ${pendingCount} action(s) sauvegardée(s)`
-                                : 'MODE HORS LIGNE — Vos données sont disponibles')
+                            ? `MODE HORS LIGNE \u2014 ${pendingCount} action${pendingCount > 1 ? 's' : ''} en attente \u23F3`
                             : 'CONNEXION INTERNET REQUISE'
                         }
                     </Text>
                 </>
             )}
+
+            {/* Etat 4 : Sync en cours */}
             {phase === 'syncing' && (
                 <>
                     <ActivityIndicator size="small" color="#fff" />
                     <Text style={styles.text}>
-                        {progressText
-                            ? `Synchronisation ${progressText}...`
+                        {syncProgress.total > 0
+                            ? `Synchronisation ${syncProgress.current}/${syncProgress.total}...`
                             : 'Synchronisation en cours...'
                         }
                     </Text>
                 </>
             )}
+
+            {/* Etat 5 : Sync terminee */}
             {phase === 'done' && (
                 <>
                     <Check color="#fff" size={15} />
                     <Text style={styles.text}>
-                        {syncResult.synced > 0
-                            ? `Tout est à jour — ${syncResult.synced} action(s) synchronisée(s)`
-                            : 'Tout est à jour'
-                        }
+                        {'\u2713'} Tout est a jour
+                        {syncResult.synced > 0 ? ` \u2014 ${syncResult.synced} synchronisee${syncResult.synced > 1 ? 's' : ''}` : ''}
                     </Text>
                 </>
             )}
+
+            {/* Etat 6 : Erreurs */}
             {phase === 'error' && (
                 <>
                     <AlertTriangle color="#fff" size={15} />
                     <Text style={styles.text}>
-                        {syncResult.failed > 0
-                            ? `${syncResult.synced} sync / ${syncResult.failed} erreur(s)`
-                            : 'Erreur de synchronisation'
+                        {syncResult.synced > 0
+                            ? `${syncResult.synced} synchronisee${syncResult.synced > 1 ? 's' : ''}, ${syncResult.failed} en erreur`
+                            : `${syncResult.failed} erreur${syncResult.failed > 1 ? 's' : ''} de synchronisation`
                         }
                     </Text>
                     <TouchableOpacity
                         style={styles.retryBtn}
-                        onPress={() => { triggerSync(); }}
+                        onPress={() => triggerSync()}
                         activeOpacity={0.7}
                     >
                         <RefreshCw color="#fff" size={12} />
-                        <Text style={styles.retryText}>Réessayer</Text>
+                        <Text style={styles.retryText}>Reessayer</Text>
                     </TouchableOpacity>
                 </>
             )}
@@ -173,9 +188,9 @@ const styles = StyleSheet.create({
     },
     bannerOffline:  { backgroundColor: '#b45309' },
     bannerRequired: { backgroundColor: '#DC2626' },
-    bannerSyncing:  { backgroundColor: colors.primary },
+    bannerSyncing:  { backgroundColor: '#2563EB' },
     bannerDone:     { backgroundColor: '#059669' },
-    bannerError:    { backgroundColor: '#DC2626' },
+    bannerError:    { backgroundColor: '#b45309' },
     text: {
         color: '#fff',
         fontSize: 11,

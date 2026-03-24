@@ -1,4 +1,4 @@
-// Contexte réseau — détecte la connectivité en temps réel + état de sync + compteur offline
+// Contexte reseau — detecte la connectivite en temps reel + etat de sync + compteur offline
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import { syncManager, SyncState, SyncProgress } from '@/src/lib/syncManager';
@@ -40,15 +40,22 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [syncProgress, setSyncProgress] = useState<SyncProgress>({ current: 0, total: 0, synced: 0, failed: 0 });
     const [userRole, setUserRole] = useState('');
 
+    // Rafraichir le compteur pending depuis la queue persistee
+    const refreshPendingCount = useCallback(async () => {
+        const count = await actionQueue.getActionCount();
+        const failed = await actionQueue.getFailedCount();
+        setPendingCount(count + failed);
+    }, []);
+
     useEffect(() => {
-        // Vérification initiale
+        // Verification initiale
         NetInfo.fetch().then(state => {
             const connected = state.isConnected === true;
             setIsOnline(connected);
             setOnlineStatus(connected);
         });
 
-        // Écouter les changements en temps réel
+        // Ecouter les changements en temps reel
         const unsub = NetInfo.addEventListener(state => {
             const connected = state.isConnected === true;
             setIsOnline(connected);
@@ -58,24 +65,24 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return unsub;
     }, []);
 
-    // Écouter les changements d'état du syncManager
+    // Ecouter les changements d'etat du syncManager
     useEffect(() => {
         const unsub = syncManager.on((state, detail, progress) => {
             setSyncState(state);
             if (detail) setSyncResult(detail);
             if (progress) setSyncProgress(progress);
-            // Après sync réussi, recalculer le pending count
+            // Apres sync reussi ou erreur, recalculer le pending count
             if (state === 'done' || state === 'error') {
-                actionQueue.getPendingCount().then(setPendingCount);
+                refreshPendingCount();
             }
         });
         return unsub;
-    }, []);
+    }, [refreshPendingCount]);
 
-    // Rafraîchir le pending count au démarrage et quand isOnline change
+    // Rafraichir le pending count au demarrage et quand isOnline change
     useEffect(() => {
-        actionQueue.getPendingCount().then(setPendingCount);
-    }, [isOnline]);
+        refreshPendingCount();
+    }, [isOnline, refreshPendingCount]);
 
     const addToPendingCount = useCallback((n: number) => {
         setPendingCount(prev => prev + n);

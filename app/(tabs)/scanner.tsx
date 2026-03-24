@@ -200,15 +200,10 @@ export default function ScannerScreen() {
         } else {
             // Mode offline : sauvegarder dans la queue
             try {
-                await actionQueue.add({
-                    type: 'ADD_PRODUCT',
-                    table: 'products',
-                    data: {
-                        ...productData,
-                        store_id: storeId,
-                        image_uri: imageUri, // sera uploadee a la sync
-                    },
-                    storeId: storeId || 'unknown',
+                await actionQueue.addAction('ADD_PRODUCT', {
+                    ...productData,
+                    store_id: storeId,
+                    image_uri: imageUri, // sera uploadee a la sync
                 });
                 setShowAddModal(false);
                 setResult({ found: true, code: scannedBarcode, name: productData.name, price: productData.price });

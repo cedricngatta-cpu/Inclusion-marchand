@@ -10,6 +10,8 @@ import { offlineCache, CACHE_KEYS, CACHE_TTL } from '@/src/lib/offlineCache';
 
 export type TransactionType = 'VENTE' | 'LIVRAISON' | 'RETRAIT';
 
+export type SyncStatus = 'online' | 'pending' | 'syncing' | 'synced' | 'failed';
+
 export interface Transaction {
     id: string;
     type: TransactionType;
@@ -24,6 +26,7 @@ export interface Transaction {
     operator?: 'ORANGE' | 'MTN' | 'WAVE' | 'MOOV';
     clientPhone?: string;
     source?: 'manual' | 'voice' | 'voice_offline';
+    syncStatus?: SyncStatus;
 }
 
 interface HistoryContextType {
@@ -158,6 +161,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             id: generateUUID(),
             timestamp: Date.now(),
             unitPrice: transaction.quantity > 0 ? Math.round(transaction.price / transaction.quantity) : transaction.price,
+            syncStatus: isOnline ? 'online' : 'pending',
         };
 
         console.log('[HistoryContext] addTransaction — id:', newTx.id, 'type:', newTx.type, 'produit:', newTx.productName, 'prix:', newTx.price);

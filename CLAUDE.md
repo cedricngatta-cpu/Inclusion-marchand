@@ -367,12 +367,67 @@ Chaque transaction enregistre le mode de paiement (status) et l'opérateur (oper
 
 ---
 
-## OFFLINE-FIRST
+## OFFLINE-FIRST (WhatsApp-like)
 
-- Stockage local : AsyncStorage (pas d'expo-sqlite)
-- File de synchronisation : `src/lib/offlineQueue.ts` (transactions + stock)
-- Cache offline : ProfileContext, HistoryContext, StockContext, ProductContext, NotificationContext
-- L'app doit fonctionner sans connexion pour les opérations basiques (ventes, stock)
+### Comportement
+L'app fonctionne comme WhatsApp hors connexion : les actions s'exécutent instantanément en local avec une icône d'attente, puis se synchronisent automatiquement quand la connexion revient.
+
+### Qui bénéficie du mode offline
+- **Marchands et Producteurs** : offline complet (ventes, stock, dettes, produits)
+- **Agents, Coopératives, Admins** : "Connexion internet requise" (bannière rouge)
+- Guard : `isOfflineEligible(role)` dans `src/lib/offlineCache.ts`
+
+### Actions offline (Marchands + Producteurs)
+| Action | Type queue | Effet local | Sync Supabase |
+|--------|-----------|-------------|---------------|
+| Vente | SELL | Transaction en cache + stock décrémenté | INSERT transactions + UPDATE stock |
+| Ajout stock | UPDATE_STOCK | Stock cache mis à jour | UPSERT stock |
+| Ajout produit | ADD_PRODUCT | Produit en cache (image base64) | INSERT products + upload Storage |
+| Ajout dette | ADD_DEBT | Cache credits_clients | INSERT credits_clients |
+| Dette payée | MARK_DEBT_PAID | Cache mis à jour | UPDATE credits_clients |
+
+### Architecture offline
+- `src/lib/offlineQueue.ts` : PendingAction queue persistante (localStorage web / AsyncStorage mobile), clé `julaba_offline_queue`
+- `src/lib/syncManager.ts` : sync auto quand online revient (300ms), retry auto 30s pour les failed, callback post-sync pour refresh contextes
+- `src/lib/offlineCache.ts` : cache unifié avec TTL, clés structurées `julaba:<type>:<id>`
+- `src/lib/networkStatus.ts` : EventEmitter réseau (window online/offline + NetInfo mobile)
+- `src/lib/dataPrefetch.ts` : pré-chargement données au login (produits, stock, transactions, crédits, notifications)
+- `src/context/NetworkContext.tsx` : expose isOnline, pendingCount, syncState, syncProgress, triggerSync
+- `src/components/OfflineBanner.tsx` : bannière animée 6 états visuels
+- `src/components/TransactionCard.tsx` : badge sync par transaction (pending/syncing/synced/failed)
+
+### 6 états visuels de la bannière OfflineBanner
+1. **Online, rien à sync** → INVISIBLE
+2. **Offline, pas d'actions** → Bannière orange "MODE HORS LIGNE"
+3. **Offline, actions en attente** → Bannière orange "MODE HORS LIGNE — 3 actions en attente"
+4. **Online, sync en cours** → Bannière bleue "Synchronisation 2/5..." avec spinner
+5. **Online, sync terminée** → Bannière verte "Tout est à jour" (3s puis disparaît)
+6. **Online, erreurs** → Bannière orange "2 synchronisées, 1 en erreur — [Réessayer]"
+
+### Badges sync par transaction (TransactionCard)
+- En ligne : pas de badge
+- Offline en attente : horloge grise "En attente"
+- En cours de sync : bleu "Synchronisation..."
+- Synchronisée : vert "Synchronisé" (disparaît après 1 minute)
+- Échouée : rouge "Erreur de sync"
+
+### Persistence de la queue
+La queue survit à la fermeture de l'app, au refresh de la page, au redémarrage. Clé : `julaba_offline_queue`. Sauvegarde immédiate à chaque modification. Au démarrage : chargement + sync auto si online.
+
+### Auth offline
+- Au login online réussi : profil + store + pinHash sauvés dans `julaba_offline_auth` (localStorage/AsyncStorage)
+- Au démarrage offline : auto-login depuis le cache (marchands/producteurs, < 30 jours)
+- PIN vérifié localement (SHA-256 web, hash 32-bit mobile) — clé `cached_pin_hash`
+- Agents/Coop/Admin offline → message "Connexion internet requise"
+
+### Service Worker (`public/sw.js`)
+- 3 caches : `julaba-v3` (app shell), `julaba-static-v3` (JS/CSS/fonts), `julaba-img-v1` (images)
+- Navigation : network-first, fallback `/index.html` (pas de dinosaure Chrome)
+- JS/CSS : stale-while-revalidate
+- Images Supabase : cache-first, LRU max 100
+- API Supabase REST : network-first avec fallback cache
+- Auth Supabase : network-only
+- Socket.io : ignoré
 
 ---
 

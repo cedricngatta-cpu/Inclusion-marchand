@@ -72,14 +72,12 @@ function SyncRefresher() {
         syncManager.setUserRole(user?.role ?? '');
     }, [user?.role]);
 
+    // Enregistrer le callback post-sync pour rafraichir les contextes
     useEffect(() => {
-        const unsub = syncManager.on((state) => {
-            if (state === 'done') {
-                // Rafraichir toutes les donnees depuis Supabase apres sync
-                refreshHistory().catch(() => {});
-                refreshStock().catch(() => {});
-                refreshProducts().catch(() => {});
-            }
+        const unsub = syncManager.onPostSync(() => {
+            refreshHistory().catch(() => {});
+            refreshStock().catch(() => {});
+            refreshProducts().catch(() => {});
         });
         return unsub;
     }, [refreshHistory, refreshStock, refreshProducts]);

@@ -1,9 +1,10 @@
 // Carte de transaction detaillee — utilisee dans bilan.tsx et revenus.tsx
-import React from 'react';
+// Affiche le statut de synchronisation offline (WhatsApp-like)
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { ShoppingBag, Package, Mic, WifiOff, CheckCircle } from 'lucide-react-native';
+import { ShoppingBag, Package, Mic, WifiOff, Clock, RefreshCw, Check, AlertTriangle } from 'lucide-react-native';
 import { colors } from '@/src/lib/colors';
-import type { Transaction } from '@/src/context/HistoryContext';
+import type { Transaction, SyncStatus } from '@/src/context/HistoryContext';
 
 interface Props {
     transaction: Transaction;
@@ -13,8 +14,57 @@ interface Props {
 const PAY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
     MOMO:  { bg: '#dbeafe', text: '#1d4ed8', label: 'Mobile Money' },
     DETTE: { bg: '#fff7ed', text: '#c2410c', label: 'Credit' },
-    PAYÉ:  { bg: '#d1fae5', text: '#065f46', label: 'Especes' },
+    PAYE:  { bg: '#d1fae5', text: '#065f46', label: 'Especes' },
 };
+
+// Badge de statut sync
+function SyncBadge({ syncStatus }: { syncStatus?: SyncStatus }) {
+    const [showSynced, setShowSynced] = useState(true);
+
+    // Masquer le badge "synced" apres 60 secondes
+    useEffect(() => {
+        if (syncStatus === 'synced') {
+            const timer = setTimeout(() => setShowSynced(false), 60_000);
+            return () => clearTimeout(timer);
+        }
+        setShowSynced(true);
+    }, [syncStatus]);
+
+    if (!syncStatus || syncStatus === 'online') return null;
+    if (syncStatus === 'synced' && !showSynced) return null;
+
+    const configs: Record<string, { icon: React.ReactNode; label: string; bg: string; color: string }> = {
+        pending:  { icon: <Clock size={10} color="#6B7280" />,          label: 'En attente',         bg: '#f3f4f6', color: '#6B7280' },
+        syncing:  { icon: <RefreshCw size={10} color="#2563EB" />,      label: 'Synchronisation...', bg: '#dbeafe', color: '#2563EB' },
+        synced:   { icon: <Check size={10} color="#059669" />,          label: 'Synchronise',        bg: '#d1fae5', color: '#059669' },
+        failed:   { icon: <AlertTriangle size={10} color="#DC2626" />,  label: 'Erreur de sync',     bg: '#fee2e2', color: '#DC2626' },
+    };
+
+    const cfg = configs[syncStatus];
+    if (!cfg) return null;
+
+    return (
+        <View style={[syncStyles.badge, { backgroundColor: cfg.bg }]}>
+            {cfg.icon}
+            <Text style={[syncStyles.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+        </View>
+    );
+}
+
+const syncStyles = StyleSheet.create({
+    badge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+    },
+    badgeText: {
+        fontSize: 11,
+        fontWeight: '700',
+    },
+});
 
 export default function TransactionCard({ transaction: t, showBorder = true }: Props) {
     const unitPrice = t.unitPrice ?? (t.quantity > 0 ? Math.round(t.price / t.quantity) : t.price);
@@ -23,8 +73,7 @@ export default function TransactionCard({ transaction: t, showBorder = true }: P
         + ' a ' + date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
     const isVocal = t.source === 'voice' || t.source === 'voice_offline';
-    const isOffline = t.source === 'voice_offline';
-    const pay = PAY_COLORS[t.status || 'PAYÉ'] || PAY_COLORS.PAYÉ;
+    const pay = PAY_COLORS[t.status || 'PAYE'] || PAY_COLORS.PAYE;
 
     const isSale = t.type === 'VENTE';
     const IconComp = isSale ? ShoppingBag : Package;
@@ -64,7 +113,7 @@ export default function TransactionCard({ transaction: t, showBorder = true }: P
                 )}
             </View>
 
-            {/* Ligne 5 : Badges */}
+            {/* Ligne 5 : Badges (paiement + vocal + sync) */}
             <View style={styles.badgeRow}>
                 <View style={[styles.badge, { backgroundColor: pay.bg }]}>
                     <Text style={[styles.badgeText, { color: pay.text }]}>{pay.label}</Text>
@@ -75,12 +124,7 @@ export default function TransactionCard({ transaction: t, showBorder = true }: P
                         <Text style={styles.badgeVocalText}>Vocal</Text>
                     </View>
                 )}
-                {isOffline && (
-                    <View style={[styles.badge, styles.badgeOffline]}>
-                        <WifiOff color="#d97706" size={10} />
-                        <Text style={styles.badgeOfflineText}>Hors ligne</Text>
-                    </View>
-                )}
+                <SyncBadge syncStatus={t.syncStatus} />
             </View>
         </View>
     );
@@ -197,13 +241,5 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '700',
         color: '#7c3aed',
-    },
-    badgeOffline: {
-        backgroundColor: '#fef3c7',
-    },
-    badgeOfflineText: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#d97706',
     },
 });
