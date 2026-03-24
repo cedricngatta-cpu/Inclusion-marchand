@@ -1,342 +1,203 @@
-// ElevenLabs TTS — synthese vocale haute qualite
-// Mobile : appel direct ElevenLabs (pas de CORS) + playback expo-audio
-// Web : passe par le proxy serveur Render (evite CORS) + playback Audio API
-// Fallback : expo-speech (mobile) / Web Speech Synthesis (web)
+// TTS Julaba — Web Speech Synthesis (web) / expo-speech (mobile) en principal
+// ElevenLabs conserve en option (cle payante) — desactive par defaut
 import { Platform } from 'react-native';
 import { cleanTextForSpeech } from './voiceUtils';
 import { formatForSpeech } from './ttsFormatter';
-import { reportApiError } from './errorReporter';
 
-const log = (...args: any[]) => { if (__DEV__) console.log('[ElevenLabsTTS]', ...args); };
-
-const ELEVENLABS_API_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY || '';
-// Aria — voix multilingue, fonctionne bien en francais
-const VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
-const ELEVENLABS_TTS_URL = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`;
-
-// URL du serveur proxy (meme serveur que Socket.io)
-const PROXY_BASE_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://inclusion-marchand.onrender.com';
-const PROXY_TTS_URL = `${PROXY_BASE_URL}/api/elevenlabs/tts`;
+const log = (...args: any[]) => { if (__DEV__) console.log('[TTS]', ...args); };
 
 const isWeb = Platform.OS === 'web';
 
-// ── Reference au player actif ────────────────────────────────────────────────
-let activeMobilePlayer: any = null;
-let activeWebAudio: HTMLAudioElement | null = null;
-let activeWebObjectUrl: string | null = null;
-
 // Tronque intelligemment le texte long pour le TTS
-function truncateForSpeech(text: string, maxLen = 250): string {
+function truncateForSpeech(text: string, maxLen = 300): string {
     if (text.length <= maxLen) return text;
-    const cut = text.slice(0, maxLen);
-    const lastSentence = Math.max(cut.lastIndexOf('.'), cut.lastIndexOf('!'), cut.lastIndexOf('?'));
-    if (lastSentence > maxLen * 0.4) return cut.slice(0, lastSentence + 1);
-    const lastSpace = cut.lastIndexOf(' ');
-    return lastSpace > 0 ? cut.slice(0, lastSpace) + '.' : cut + '.';
+    const lastSpace = text.lastIndexOf(' ', maxLen);
+    return lastSpace > 0 ? text.slice(0, lastSpace) : text.slice(0, maxLen);
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ======================================================================
 // POINT D'ENTREE PRINCIPAL
-// ══════════════════════════════════════════════════════════════════════════════
+// ======================================================================
 
 export async function elevenlabsSpeak(text: string, onDone?: () => void): Promise<void> {
     const cleanText = cleanTextForSpeech(text);
+    const formatted = formatForSpeech(cleanText || text);
+    const truncated = truncateForSpeech(formatted);
 
-    // Sur mobile : besoin de la cle API. Sur web : le proxy gere la cle.
-    const canCallAPI = isWeb || !!ELEVENLABS_API_KEY;
-
-    if (!canCallAPI || !cleanText) {
-        fallbackSpeak(formatForSpeech(cleanText || text), onDone);
-        return;
-    }
-
-    // Tronquer + formater les nombres en mots francais
-    const ttsText = formatForSpeech(truncateForSpeech(cleanText));
+    if (!truncated) { onDone?.(); return; }
 
     try {
-        log('[Voice] 7. Sending to ElevenLabs TTS...');
-
-        const controller = new AbortController();
-        const timeout = isWeb ? 8000 : 15000;
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-        let res: Response;
-
         if (isWeb) {
-            // Web : passer par le proxy serveur (evite CORS)
-            res = await fetch(PROXY_TTS_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: ttsText, voice_id: VOICE_ID }),
-                signal: controller.signal,
-            });
+            await webSpeechSpeak(truncated);
         } else {
-            // Mobile : appel direct ElevenLabs
-            res = await fetch(ELEVENLABS_TTS_URL, {
-                method: 'POST',
-                headers: {
-                    'xi-api-key': ELEVENLABS_API_KEY,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    text: ttsText,
-                    model_id: 'eleven_flash_v2_5',
-                    voice_settings: {
-                        stability: 0.5,
-                        similarity_boost: 0.75,
-                        style: 0.3,
-                    },
-                }),
-                signal: controller.signal,
-            });
+            await mobileSpeechSpeak(truncated);
         }
-        clearTimeout(timeoutId);
-
-        if (!res.ok) {
-            const errBody = await res.text();
-            log('Erreur ElevenLabs TTS:', res.status, errBody);
-            throw new Error(`ElevenLabs TTS ${res.status}: ${errBody}`);
-        }
-
-        log('[Voice] 8. TTS playing');
-
-        if (isWeb) {
-            await playOnWeb(res, onDone);
-        } else {
-            await playOnMobile(res, onDone);
-        }
-    } catch (err: any) {
-        log('Erreur ElevenLabs TTS, fallback:', err?.message ?? err);
-        reportApiError('ElevenLabs TTS', err, 'elevenlabsTTS.elevenlabsSpeak');
-        fallbackSpeak(ttsText, onDone);
+        onDone?.();
+    } catch (err) {
+        log('Erreur TTS:', err);
+        onDone?.();
     }
 }
 
 export function stopElevenlabsSpeaking(): void {
-    // Web Audio
-    if (activeWebAudio) {
-        try { activeWebAudio.pause(); activeWebAudio.currentTime = 0; } catch { /* ignore */ }
-        activeWebAudio = null;
-    }
-    if (activeWebObjectUrl) {
-        try { URL.revokeObjectURL(activeWebObjectUrl); } catch { /* ignore */ }
-        activeWebObjectUrl = null;
-    }
-
     // Web Speech Synthesis
     if (isWeb && typeof window !== 'undefined' && window.speechSynthesis) {
         try { window.speechSynthesis.cancel(); } catch { /* ignore */ }
     }
 
-    // Mobile expo-audio player
-    if (activeMobilePlayer) {
-        try { activeMobilePlayer.pause(); } catch { /* ignore */ }
-        activeMobilePlayer = null;
-    }
-
     // Mobile expo-speech
     if (!isWeb) {
-        try {
-            const Speech = require('expo-speech');
-            Speech.stop();
-        } catch { /* ignore */ }
+        try { require('expo-speech').stop(); } catch { /* ignore */ }
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// WEB : Audio API navigateur
-// ══════════════════════════════════════════════════════════════════════════════
+// ======================================================================
+// WEB : Web Speech Synthesis avec voix francaise fixe
+// ======================================================================
 
-async function playOnWeb(res: Response, onDone?: () => void): Promise<void> {
-    const audioBlob = await res.blob();
-    log('Audio recu, taille:', audioBlob.size, 'type:', audioBlob.type);
-
-    stopElevenlabsSpeaking();
-
-    const url = URL.createObjectURL(audioBlob);
-    activeWebObjectUrl = url;
-
-    const audio = new Audio(url);
-    activeWebAudio = audio;
-
-    audio.onended = () => {
-        log('TTS termine (web)');
-        URL.revokeObjectURL(url);
-        activeWebAudio = null;
-        activeWebObjectUrl = null;
-        onDone?.();
-    };
-
-    audio.onerror = () => {
-        log('Erreur lecture audio web, fallback');
-        URL.revokeObjectURL(url);
-        activeWebAudio = null;
-        activeWebObjectUrl = null;
-        fallbackSpeak('', onDone);
-    };
-
-    await audio.play();
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// MOBILE : expo-audio + expo-file-system
-// ══════════════════════════════════════════════════════════════════════════════
-
-async function playOnMobile(res: Response, onDone?: () => void): Promise<void> {
-    const { createAudioPlayer, setAudioModeAsync } = await import('expo-audio');
-    const { Paths } = await import('expo-file-system');
-    const { writeAsStringAsync, deleteAsync } = await import('expo-file-system');
-
-    // Convertir la reponse en base64
-    const arrayBuffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    const base64 = btoa(binary);
-
-    // Sauvegarder en fichier temporaire
-    const filePath = `${Paths.cache.uri}elevenlabs_tts_${Date.now()}.mp3`;
-    await writeAsStringAsync(filePath, base64, { encoding: 'base64' });
-    log('Audio sauvegarde:', filePath);
-
-    // Basculer en mode lecture haut-parleur
-    await setAudioModeAsync({
-        allowsRecording: false,
-        playsInSilentMode: true,
-        shouldPlayInBackground: false,
-        interruptionMode: 'duckOthers' as const,
-        shouldRouteThroughEarpiece: false,
-    });
-
-    // Jouer l'audio
-    stopElevenlabsSpeaking();
-    const player = createAudioPlayer(filePath);
-    activeMobilePlayer = player;
-
-    player.addListener('playbackStatusUpdate', (status: any) => {
-        if (status.didJustFinish) {
-            log('TTS termine (mobile)');
-            activeMobilePlayer = null;
-            deleteAsync(filePath, { idempotent: true }).catch(() => {});
-            onDone?.();
-        }
-    });
-
-    player.play();
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// FALLBACKS
-// ══════════════════════════════════════════════════════════════════════════════
-
-function fallbackSpeak(text: string, onDone?: () => void): void {
-    if (isWeb) {
-        fallbackWebSpeechSynthesis(text, onDone);
-    } else {
-        fallbackExpoSpeech(text, onDone);
-    }
-}
-
-// ── Cache voix feminine francaise ────────────────────────────────────────────
-let cachedFrFemaleVoice: SpeechSynthesisVoice | null = null;
+let cachedVoice: SpeechSynthesisVoice | null = null;
 let voiceCacheReady = false;
 
-function getFrenchFemaleVoice(): SpeechSynthesisVoice | null {
-    if (voiceCacheReady) return cachedFrFemaleVoice;
+function getFixedFrenchVoice(): SpeechSynthesisVoice | null {
+    if (voiceCacheReady) return cachedVoice;
     if (typeof window === 'undefined' || !window.speechSynthesis) return null;
 
     const voices = window.speechSynthesis.getVoices();
     if (!voices.length) return null;
 
-    cachedFrFemaleVoice =
-        voices.find(v => v.lang.startsWith('fr') && /female|femme|féminin/i.test(v.name)) ??
-        voices.find(v => v.lang.startsWith('fr') && /amelie|aurelie|marie|celine|lea|virginie|agathe/i.test(v.name)) ??
-        voices.find(v => v.lang.startsWith('fr')) ??
-        null;
+    // Chercher une voix francaise de qualite (ordre de preference)
+    const preferred = ['Google français', 'Microsoft Denise', 'Amelie', 'Marie', 'Thomas', 'French'];
+    for (const name of preferred) {
+        const v = voices.find(voice => voice.name.includes(name) && voice.lang.startsWith('fr'));
+        if (v) { cachedVoice = v; voiceCacheReady = true; return v; }
+    }
 
+    // Fallback : n'importe quelle voix francaise
+    cachedVoice = voices.find(v => v.lang.startsWith('fr')) ?? null;
     voiceCacheReady = true;
-    log('Voix selectionnee:', cachedFrFemaleVoice?.name ?? 'defaut');
-    return cachedFrFemaleVoice;
+    log('Voix selectionnee:', cachedVoice?.name ?? 'defaut navigateur');
+    return cachedVoice;
 }
 
+// Pre-charger les voix (Chrome les charge en async)
 if (isWeb && typeof window !== 'undefined' && window.speechSynthesis) {
     window.speechSynthesis.onvoiceschanged = () => {
         voiceCacheReady = false;
-        getFrenchFemaleVoice();
+        getFixedFrenchVoice();
     };
-    getFrenchFemaleVoice();
+    getFixedFrenchVoice();
 }
 
-function fallbackWebSpeechSynthesis(text: string, onDone?: () => void): void {
-    log('Utilisation Web Speech Synthesis (fallback web)');
+function webSpeechSpeak(text: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        if (typeof window === 'undefined' || !window.speechSynthesis) {
+            log('Web Speech Synthesis non disponible');
+            resolve();
+            return;
+        }
 
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
-        log('Web Speech Synthesis non disponible');
-        onDone?.();
-        return;
-    }
+        window.speechSynthesis.cancel();
 
-    window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'fr-FR';
+        utterance.rate = 0.95;
+        utterance.pitch = 1.1;
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'fr-FR';
-    utterance.rate = 0.9;
+        const voice = getFixedFrenchVoice();
+        if (voice) utterance.voice = voice;
 
-    const voice = getFrenchFemaleVoice();
-    if (voice) utterance.voice = voice;
+        utterance.onend = () => {
+            log('TTS Web Speech termine');
+            resolve();
+        };
+        utterance.onerror = (e) => {
+            log('TTS Web Speech erreur:', e);
+            reject(e);
+        };
 
-    utterance.onend = () => {
-        log('TTS Web Speech Synthesis termine');
-        onDone?.();
-    };
-
-    utterance.onerror = () => {
-        log('TTS Web Speech Synthesis erreur');
-        onDone?.();
-    };
-
-    setTimeout(() => {
-        window.speechSynthesis.speak(utterance);
-    }, 50);
+        // Petit delai pour Chrome qui peut ignorer speak() appele trop tot
+        setTimeout(() => {
+            window.speechSynthesis.speak(utterance);
+        }, 50);
+    });
 }
 
-function fallbackExpoSpeech(text: string, onDone?: () => void): void {
-    log('Utilisation expo-speech (fallback mobile)');
+// ======================================================================
+// MOBILE : expo-speech
+// ======================================================================
 
-    import('expo-audio').then(({ setAudioModeAsync }) => {
-        return setAudioModeAsync({
+async function mobileSpeechSpeak(text: string): Promise<void> {
+    // Basculer en mode haut-parleur avant de parler
+    try {
+        const { setAudioModeAsync } = await import('expo-audio');
+        await setAudioModeAsync({
             allowsRecording: false,
             playsInSilentMode: true,
             shouldPlayInBackground: false,
             interruptionMode: 'duckOthers' as const,
             shouldRouteThroughEarpiece: false,
         });
-    })
-    .then(() => new Promise<void>(resolve => setTimeout(resolve, 500)))
-    .then(() => {
-        const Speech = require('expo-speech');
+        // Petit delai pour laisser le mode audio se stabiliser
+        await new Promise<void>(r => setTimeout(r, 300));
+    } catch {
+        // Pas grave si le mode audio echoue
+    }
+
+    const Speech = require('expo-speech');
+    return new Promise<void>((resolve) => {
         Speech.speak(text, {
             language: 'fr-FR',
-            rate: 0.9,
             pitch: 1.1,
-            onDone: () => { log('TTS expo-speech termine'); onDone?.(); },
-            onError: () => { log('TTS expo-speech erreur'); onDone?.(); },
+            rate: 0.9,
+            onDone: () => { log('TTS expo-speech termine'); resolve(); },
+            onError: () => { log('TTS expo-speech erreur'); resolve(); },
         });
-    })
-    .catch(() => {
-        try {
-            const Speech = require('expo-speech');
-            Speech.speak(text, {
-                language: 'fr-FR',
-                rate: 0.9,
-                pitch: 1.1,
-                onDone: () => onDone?.(),
-                onError: () => onDone?.(),
-            });
-        } catch {
-            onDone?.();
-        }
     });
 }
+
+// ======================================================================
+// ELEVENLABS — OPTION DESACTIVEE (cle payante requise)
+// Decommenter elevenlabsSpeakPremium() et l'appeler dans elevenlabsSpeak()
+// si le tier payant est actif.
+// ======================================================================
+
+/*
+const ELEVENLABS_API_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY || '';
+const VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Aria
+const ELEVENLABS_TTS_URL = `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`;
+const PROXY_BASE_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://inclusion-marchand.onrender.com';
+const PROXY_TTS_URL = `${PROXY_BASE_URL}/api/elevenlabs/tts`;
+
+async function elevenlabsSpeakPremium(text: string, onDone?: () => void): Promise<void> {
+    const controller = new AbortController();
+    const timeout = isWeb ? 8000 : 15000;
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    let res: Response;
+    if (isWeb) {
+        res = await fetch(PROXY_TTS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, voice_id: VOICE_ID }),
+            signal: controller.signal,
+        });
+    } else {
+        res = await fetch(ELEVENLABS_TTS_URL, {
+            method: 'POST',
+            headers: { 'xi-api-key': ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text,
+                model_id: 'eleven_flash_v2_5',
+                voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.3 },
+            }),
+            signal: controller.signal,
+        });
+    }
+    clearTimeout(timeoutId);
+
+    if (!res.ok) throw new Error(`ElevenLabs ${res.status}`);
+
+    // Playback selon la plateforme...
+    // (voir code original pour playOnWeb / playOnMobile)
+}
+*/

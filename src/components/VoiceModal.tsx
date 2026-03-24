@@ -16,6 +16,7 @@ import {
     isVoiceConfirmation, isVoiceCancellation,
     getLocalRoute, isLogoutCommand, isLocalCommand, getLocalConfirmation,
     executeVoiceAction, transcribeRecording,
+    startWebSpeechRecognition, stopWebSpeechRecognition,
     AssistantState,
 } from '@/src/lib/voiceAssistant';
 import {
@@ -26,7 +27,7 @@ import { parseLocalCommand } from '@/src/lib/localCommandParser';
 import { processVoiceCommand, generateSmartGreeting, clearConversationMemory } from '@/src/lib/deepgramLLM';
 import type { LLMResult, GreetingStats } from '@/src/lib/deepgramLLM';
 import { offlineCache, CACHE_KEYS } from '@/src/lib/offlineCache';
-import { getVolume as getWebVolume } from '@/src/lib/webAudioRecorder';
+
 
 // ── Types UI ───────────────────────────────────────────────────────────────
 interface DisplayMsg {
@@ -108,6 +109,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const [error,         setError]        = useState('');
 
     const [volume, setVolume] = useState(0);
+    const [interimText, setInterimText] = useState('');
     const volumeRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const scrollRef = useRef<ScrollView>(null);
@@ -138,9 +140,11 @@ export default function VoiceModal({ visible, onClose }: Props) {
             // Nettoyage
             stopSpeaking();
             cancelRecording();
+            stopWebSpeechRecognition();
             if (timerRef.current) clearTimeout(timerRef.current);
             if (volumeRef.current) clearInterval(volumeRef.current);
             setVolume(0);
+            setInterimText('');
             return;
         }
 
@@ -374,25 +378,59 @@ export default function VoiceModal({ visible, onClose }: Props) {
         }
     }, [pendingAction, role, userId, userName, storeId]);
 
-    // ── Enregistrement (flux unifie web + mobile) ─────────────────────────
+    // ── Enregistrement (Web Speech API sur web, MediaRecorder+Groq sur mobile) ──
     const handleStartListening = useCallback(async () => {
         try {
             setError('');
+            setInterimText('');
             setState('listening');
 
-            // startRecording() gere web (MediaRecorder) et mobile (expo-audio)
-            await startRecording();
-
-            // Polling volume web pour feedback visuel
             if (isWeb) {
-                volumeRef.current = setInterval(() => {
-                    setVolume(getWebVolume());
-                }, 150);
-            }
+                // ── WEB : Web Speech API natif Chrome ──
+                const started = startWebSpeechRecognition({
+                    onInterim: (text) => {
+                        setInterimText(text);
+                    },
+                    onFinal: (text) => {
+                        setInterimText('');
+                        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+                        setSttSource('web');
+                        setMode('ai');
+                        setState('processing');
+                        processTranscript(text);
+                    },
+                    onError: (msg) => {
+                        if (!msg) return; // aborted volontaire
+                        setInterimText('');
+                        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+                        setError(msg);
+                        setState('error');
+                    },
+                    onEnd: () => {
+                        // Si on est encore en listening (pas de final reçu), forcer idle
+                        setState(prev => prev === 'listening' ? 'idle' : prev);
+                        setInterimText('');
+                    },
+                });
 
-            timerRef.current = setTimeout(async () => {
-                await handleStopListening();
-            }, 15_000);
+                if (!started) {
+                    setState('error');
+                    return;
+                }
+
+                // Timeout max 15s
+                timerRef.current = setTimeout(() => {
+                    stopWebSpeechRecognition();
+                }, 15_000);
+
+            } else {
+                // ── MOBILE : MediaRecorder + Groq Whisper ──
+                await startRecording();
+
+                timerRef.current = setTimeout(async () => {
+                    await handleStopListening();
+                }, 15_000);
+            }
         } catch (err: any) {
             console.log('ERREUR startRecording:', err?.message ?? err);
             const msg = err?.message?.includes('refusée') || err?.message?.includes('not-allowed') || err?.message?.includes('Permission')
@@ -407,6 +445,16 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
     const handleStopListening = useCallback(async () => {
         if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+        setInterimText('');
+
+        if (isWeb) {
+            // Web : arrêter la reconnaissance vocale (onFinal/onEnd gèrent le reste)
+            stopWebSpeechRecognition();
+            // Si pas de final reçu, setState sera géré par onEnd
+            return;
+        }
+
+        // ── MOBILE uniquement : pipeline MediaRecorder + Groq Whisper ──
         if (volumeRef.current) { clearInterval(volumeRef.current); volumeRef.current = null; }
         setVolume(0);
         setState('processing');
@@ -418,7 +466,6 @@ export default function VoiceModal({ visible, onClose }: Props) {
         }, 25000);
 
         try {
-        // stopRecording() retourne un URI (mobile) ou '__web_blob__' (web)
         const uri = await stopRecording();
         if (!uri) {
             setError("Aucun audio capturé. Vérifiez que le micro est autorisé.");
@@ -447,7 +494,6 @@ export default function VoiceModal({ visible, onClose }: Props) {
             return;
         }
 
-        // Transcript vide = aucune voix detectee
         if (!transcript.trim()) {
             setError("Je n'ai pas entendu de voix. Parlez plus fort ou plus près du micro.");
             setState('error');
@@ -509,14 +555,12 @@ export default function VoiceModal({ visible, onClose }: Props) {
     // Message contextuel selon l'etat et le volume
     const getStateLabel = (): string => {
         if (state === 'listening') {
-            if (isWeb && volume < 0.03) return 'Parlez plus fort ou rapprochez-vous du micro';
-            if (isWeb && volume > 0.15) return 'Je vous écoute bien !';
             return 'Je vous écoute...';
         }
         const labels: Record<string, string> = {
             idle:       'Appuyez sur le micro pour parler',
             welcome:    'Chargement...',
-            processing: 'Transcription en cours...',
+            processing: 'Traitement en cours...',
             speaking:   'En train de répondre... (appuyez pour interrompre)',
             confirming: 'Confirmez-vous cette action ?',
             error:      '',
@@ -543,7 +587,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
                                 <><WifiOff color="#94a3b8" size={12} /><Text style={styles.modeText}>Hors ligne</Text></>
                             ) : mode === 'ai' ? (
                                 <><Zap color={colors.success} size={12} /><Text style={[styles.modeText, { color: colors.success }]}>
-                                    {sttSource === 'groq' ? 'Groq IA' : 'IA active'}
+                                    {sttSource === 'web' ? 'Voice IA' : sttSource === 'groq' ? 'Groq IA' : 'IA active'}
                                 </Text></>
                             ) : (
                                 <><Wifi color="#64748b" size={12} /><Text style={styles.modeText}>Mode local</Text></>
@@ -588,12 +632,14 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
                     {/* ── Barres de volume / pulse + label ── */}
                     <VolumeBars active={isListening} volume={volume} />
-                    {stateLabel ? (
-                        <Text style={[
-                            styles.stateLabel,
-                            state === 'listening' && isWeb && volume < 0.03 && { color: colors.warning },
-                            state === 'listening' && isWeb && volume > 0.15 && { color: colors.success },
-                        ]}>{stateLabel}</Text>
+
+                    {/* Texte interim Web Speech (temps reel) */}
+                    {isListening && interimText ? (
+                        <Text style={styles.interimText}>{interimText}</Text>
+                    ) : null}
+
+                    {stateLabel && !interimText ? (
+                        <Text style={styles.stateLabel}>{stateLabel}</Text>
                     ) : null}
 
                     {/* ── Erreur ── */}
@@ -718,6 +764,7 @@ const styles = StyleSheet.create({
     barsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 44 },
     bar:     { width: 6, height: 32, borderRadius: 4, backgroundColor: colors.primary },
 
+    interimText: { textAlign: 'center', fontSize: 14, fontWeight: '600', color: '#94a3b8', fontStyle: 'italic', paddingHorizontal: 16 },
     stateLabel: { textAlign: 'center', fontSize: 12, fontWeight: '700', color: '#94a3b8' },
 
     errorBox:  { backgroundColor: '#fef2f2', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#fecaca' },

@@ -3,7 +3,7 @@
 ## Projet
 Application mobile Android React Native / Expo SDK 54 pour l'inclusion économique des commerçants informels en Afrique.
 Backend : Supabase (PostgreSQL) + Socket.io (realtime)
-IA vocale : Groq API (Llama 3.3 + Whisper STT) + ElevenLabs TTS + expo-speech (fallback)
+IA vocale : Groq API (Llama 3.3 + Whisper STT) + Web Speech Synthesis (web) / expo-speech (mobile)
 Objectif : Build APK via EAS Build pour démo investisseurs
 Cible : Commerçants peu alphabétisés, marchés vivriers, zones à connexion instable
 
@@ -158,19 +158,21 @@ EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, QR Code
 ## ASSISTANT VOCAL HYBRIDE
 
 ### Pipeline vocal (online)
-1. **STT** : Groq Whisper (`whisper-large-v3-turbo`) — mobile direct / web via proxy Render
-2. **LLM** : Groq Llama 3.3 70B — compréhension + actions + tolérance erreurs STT
-3. **TTS** : ElevenLabs (`eleven_flash_v2_5`, voix Aria) — mobile direct / web via proxy Render
-4. **Fallback TTS** : expo-speech (mobile) / Web Speech Synthesis (web)
+1. **STT Web** : Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) — natif Chrome, gratuit, temps réel avec `interimResults`
+2. **STT Mobile** : Groq Whisper (`whisper-large-v3-turbo`) — fallback mobile uniquement (direct API)
+3. **LLM** : Groq Llama 3.3 70B — compréhension + actions + tolérance erreurs STT
+4. **TTS** : Web Speech Synthesis (web) / expo-speech (mobile) — instantané, pas d'appel réseau
+5. **ElevenLabs** : désactivé (free tier bloqué) — code conservé en commentaire pour activation future avec clé payante
 
 ### Clés API nécessaires (.env)
-- `EXPO_PUBLIC_GROQ_API_KEY` — STT Whisper + LLM Llama
-- `EXPO_PUBLIC_ELEVENLABS_API_KEY` — TTS ElevenLabs
+- `EXPO_PUBLIC_GROQ_API_KEY` — LLM Llama + STT Whisper (mobile uniquement)
 - `EXPO_PUBLIC_SOCKET_URL` — URL du serveur proxy Render (aussi utilisé pour Socket.io)
+- `EXPO_PUBLIC_ELEVENLABS_API_KEY` — optionnel (désactivé, tier payant requis)
 
-### Prompt Whisper (< 896 caractères)
+### Prompt Whisper (mobile uniquement, < 896 caractères)
 Le prompt guide Whisper avec le vocabulaire du marché ivoirien : produits, unités, monnaie, actions, noms, titres.
 Défini dans `src/lib/groqSTT.ts` (constante `WHISPER_PROMPT`) et dans le proxy serveur (`server-deploy/index.js` + `server/index.js`).
+**Note** : Sur web, Whisper est remplacé par Web Speech API (problème d'hallucination du prompt).
 
 ### Mode local (offline)
 - Commandes par mots-clés → navigation directe
@@ -196,12 +198,12 @@ Défini dans `src/lib/groqSTT.ts` (constante `WHISPER_PROMPT`) et dans le proxy 
 
 ### Architecture de l'assistant vocal
 
-- `src/lib/groqSTT.ts` : Groq Whisper STT (mobile direct + web proxy) + fallback natif
-- `src/lib/elevenlabsTTS.ts` : ElevenLabs TTS (mobile direct + web proxy) + fallback expo-speech
+- `src/lib/groqSTT.ts` : Groq Whisper STT (mobile direct uniquement) + fallback natif — **web abandonné** (hallucination prompt)
+- `src/lib/elevenlabsTTS.ts` : TTS principal — Web Speech Synthesis (web) / expo-speech (mobile) — ElevenLabs en option commentée
 - `src/lib/groqAI.ts` : Groq Llama LLM + fetchRoleContext + buildSystemPrompt + parseAction + `isOnline()` / `setOnlineStatus()` (état réseau global synchronisé par NetworkContext)
-- `src/lib/voiceAssistant.ts` : audio (enregistrement/TTS) + executeVoiceAction (toutes les actions Supabase)
-- `src/lib/webAudioRecorder.ts` : MediaRecorder web + volume metering (AudioContext/AnalyserNode)
-- `src/components/VoiceModal.tsx` : UI du modal (conversation, confirmation, micro, indicateur volume)
+- `src/lib/voiceAssistant.ts` : Web Speech API STT (web) + enregistrement audio (mobile) + TTS + executeVoiceAction (actions Supabase) — exporte `startWebSpeechRecognition()` / `stopWebSpeechRecognition()` avec callbacks `onInterim` / `onFinal`
+- `src/lib/webAudioRecorder.ts` : MediaRecorder web + volume metering — conservé pour usage mobile
+- `src/components/VoiceModal.tsx` : UI du modal (conversation, confirmation, micro, transcription temps réel via `interimText`)
 - `src/lib/deepgramLLM.ts` : processVoiceCommand (wrapper LLM avec historique conversationnel)
 - Format ACTION:: : `ACTION::{"type":"vendre","details":{...}}` — parsé par parseAction()
 - Confirmation : boutons Confirmer/Annuler + voix "oui"/"non"
@@ -209,8 +211,8 @@ Défini dans `src/lib/groqSTT.ts` (constante `WHISPER_PROMPT`) et dans le proxy 
 - Messages d'erreur professionnels (jamais de codes techniques visibles par l'utilisateur)
 
 ### Proxy serveur (Render)
-- `POST /api/groq/stt` — proxy Groq Whisper (évite CORS web, multipart manuel Buffer)
-- `POST /api/elevenlabs/tts` — proxy ElevenLabs TTS (évite CORS web)
+- `POST /api/groq/stt` — proxy Groq Whisper (conservé pour mobile uniquement — web utilise Web Speech API)
+- `POST /api/elevenlabs/tts` — proxy ElevenLabs TTS (conservé mais inutilisé — tier payant requis)
 - Fichiers : `server-deploy/index.js` (déployé) + `server/index.js` (dev local) — toujours synchronisés
 
 ### Bouton micro
@@ -410,7 +412,7 @@ Chaque transaction enregistre le mode de paiement (status) et l'opérateur (oper
 - expo-router (Stack Navigator)
 - lucide-react-native + react-native-svg
 - Groq API (Llama 3.3 70B + Whisper large-v3-turbo)
-- ElevenLabs API (TTS eleven_flash_v2_5)
+- ElevenLabs API (TTS eleven_flash_v2_5) — désactivé, code conservé pour activation future
 - react-native-chart-kit (ou alternative compatible Expo Go)
 
 ---

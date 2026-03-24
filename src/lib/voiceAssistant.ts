@@ -1,6 +1,6 @@
 // Logique audio de l'assistant vocal + execution des actions metier
-// Web : MediaRecorder + Groq Whisper | Mobile : expo-audio + Groq Whisper
-// TTS : ElevenLabs (principal) → expo-speech (fallback)
+// Web : Web Speech API (SpeechRecognition natif Chrome) | Mobile : expo-audio + Groq Whisper
+// TTS : Web Speech Synthesis (web) / expo-speech (mobile)
 import { Platform } from 'react-native';
 import { fetchRoleContext, buildSystemPrompt, GroqMessage, VoiceAction, isOnline } from './groqAI';
 import { supabase } from './supabase';
@@ -198,6 +198,96 @@ export async function transcribeRecording(
     return { text: result.text, source: 'native' };
 }
 
+// ── Web Speech API (STT natif Chrome — remplace Groq Whisper sur web) ────
+
+export interface WebSpeechCallbacks {
+    onInterim?: (text: string) => void;
+    onFinal?: (text: string) => void;
+    onError?: (error: string) => void;
+    onEnd?: () => void;
+}
+
+let activeRecognition: any = null;
+
+export function startWebSpeechRecognition(callbacks: WebSpeechCallbacks): boolean {
+    if (!isWebPlatform || typeof window === 'undefined') return false;
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        log('Web Speech API non disponible');
+        callbacks.onError?.('Web Speech API non disponible. Utilisez Chrome.');
+        return false;
+    }
+
+    // Arreter toute reconnaissance en cours
+    stopWebSpeechRecognition();
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'fr-FR';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            if (result.isFinal) {
+                finalTranscript += result[0].transcript;
+            } else {
+                interimTranscript += result[0].transcript;
+            }
+        }
+
+        if (finalTranscript) {
+            log('Web Speech final:', finalTranscript);
+            callbacks.onFinal?.(finalTranscript.trim());
+        } else if (interimTranscript) {
+            callbacks.onInterim?.(interimTranscript.trim());
+        }
+    };
+
+    recognition.onerror = (event: any) => {
+        log('Web Speech erreur:', event.error);
+        const msg = event.error === 'no-speech'
+            ? "Je n'ai pas entendu de voix. Parlez plus fort."
+            : event.error === 'not-allowed'
+                ? "Microphone non autorisé. Autorisez l'accès au micro."
+                : event.error === 'network'
+                    ? 'Erreur réseau. Vérifiez votre connexion.'
+                    : event.error === 'aborted'
+                        ? '' // Arrêt volontaire, pas une erreur
+                        : `Erreur reconnaissance vocale : ${event.error}`;
+        if (msg) callbacks.onError?.(msg);
+    };
+
+    recognition.onend = () => {
+        log('Web Speech recognition ended');
+        activeRecognition = null;
+        callbacks.onEnd?.();
+    };
+
+    try {
+        recognition.start();
+        activeRecognition = recognition;
+        log('Web Speech recognition demarree (fr-FR)');
+        return true;
+    } catch (err: any) {
+        log('Web Speech start error:', err);
+        callbacks.onError?.('Impossible de démarrer la reconnaissance vocale.');
+        return false;
+    }
+}
+
+export function stopWebSpeechRecognition(): void {
+    if (activeRecognition) {
+        try { activeRecognition.stop(); } catch { /* ignore */ }
+        activeRecognition = null;
+    }
+}
+
 // ── Parser local offline ─────────────────────────────────────────────────
 export { parseLocalCommand } from './localCommandParser';
 
@@ -211,7 +301,7 @@ export function stopSpeaking(): void {
 
 export function speakText(text: string, onDone?: () => void): void {
     log('TTS → parle:', text.slice(0, 60));
-    // ElevenLabs TTS gere le fallback vers expo-speech automatiquement
+    // Web Speech Synthesis (web) / expo-speech (mobile) — instantane, pas d'appel reseau
     elevenlabsSpeak(text, onDone);
 }
 
