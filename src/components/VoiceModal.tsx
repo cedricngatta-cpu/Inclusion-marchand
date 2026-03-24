@@ -222,6 +222,21 @@ export default function VoiceModal({ visible, onClose }: Props) {
         }
     }, [role, userId, userName, storeId]);
 
+    // ── Détection de transcription suspecte ────────────────────────────────
+    function isGarbageTranscript(text: string): boolean {
+        const t = text.trim();
+        if (t.length < 2) return true;
+        // Compter les caractères latins + accents + chiffres + espaces + ponctuation
+        const latinChars = t.match(/[\u0000-\u024F\u1E00-\u1EFF\d\s.,!?;:'"()\-\u00C0-\u00FF]/g) || [];
+        const ratio = latinChars.length / t.length;
+        // Si moins de 60% de caractères latins → garbage
+        if (ratio < 0.6) return true;
+        // Moins de 1 mot reconnaissable
+        const words = t.split(/\s+/).filter(w => w.length > 1);
+        if (words.length < 1) return true;
+        return false;
+    }
+
     // ── Traitement commun après obtention du transcript ───────────────────
     // Appelé aussi bien depuis le chemin mobile (Whisper) que web (Web Speech)
     const processTranscript = useCallback(async (transcript: string) => {
@@ -230,7 +245,14 @@ export default function VoiceModal({ visible, onClose }: Props) {
             return;
         }
 
-        addUserMessage(transcript);
+        // Si la transcription semble bizarre, afficher un message neutre
+        // mais envoyer quand même au LLM qui corrigera
+        if (isGarbageTranscript(transcript)) {
+            addUserMessage('...');
+            addAssistantMessage('Je réfléchis à ce que vous avez dit...');
+        } else {
+            addUserMessage(transcript);
+        }
 
         // ── Confirmation/annulation vocale d'une action en attente ────────
         if (pendingAction) {
@@ -345,8 +367,8 @@ export default function VoiceModal({ visible, onClose }: Props) {
                 return;
             }
             const errTxt = err?.message === 'TIMEOUT'
-                ? 'Connexion lente. Reessayez ou utilisez des commandes directes.'
-                : "Desole, je n'ai pas pu traiter votre demande. Reessayez.";
+                ? 'Connexion lente. Réessayez ou utilisez des commandes directes.'
+                : "Désolé, je n'ai pas pu traiter votre demande. Réessayez.";
             addAssistantMessage(errTxt);
             speakText(errTxt, () => setState('idle'));
         }
@@ -375,8 +397,8 @@ export default function VoiceModal({ visible, onClose }: Props) {
             console.log('ERREUR startRecording:', err?.message ?? err);
             const msg = err?.message?.includes('refusée') || err?.message?.includes('not-allowed') || err?.message?.includes('Permission')
                 ? isWeb
-                    ? 'Microphone non autorise. Autorisez l\'acces au microphone dans les parametres du navigateur.'
-                    : 'Permission microphone refusee. Activez-la dans Reglages > Confidentialite.'
+                    ? 'Microphone non autorisé. Autorisez l\'accès au microphone dans les paramètres du navigateur.'
+                    : 'Permission microphone refusée. Activez-la dans Réglages > Confidentialité.'
                 : `Erreur micro : ${err?.message ?? 'inconnue'}`;
             setError(msg);
             setState('error');
@@ -391,7 +413,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
         // Timeout de securite global : si tout le pipeline prend > 25s, on abandonne
         const globalSafety = setTimeout(() => {
-            setError('Le traitement a pris trop de temps. Reessayez.');
+            setError('Le traitement a pris trop de temps. Réessayez.');
             setState('error');
         }, 25000);
 
@@ -399,7 +421,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
         // stopRecording() retourne un URI (mobile) ou '__web_blob__' (web)
         const uri = await stopRecording();
         if (!uri) {
-            setError("Aucun audio capture. Verifiez que le micro est autorise.");
+            setError("Aucun audio capturé. Vérifiez que le micro est autorisé.");
             setState('error');
             return;
         }
@@ -414,12 +436,12 @@ export default function VoiceModal({ visible, onClose }: Props) {
         } catch (err: any) {
             console.log('ERREUR STT dans VoiceModal:', err?.message ?? err);
             const msg = err?.message?.includes('trop de temps') || err?.name === 'AbortError'
-                ? 'La transcription a pris trop de temps. Reessayez.'
+                ? 'Excusez-moi, je n\'ai pas bien entendu. Pouvez-vous répéter ?'
                 : err?.message?.includes('reseau') || err?.message?.includes('network')
-                    ? 'Erreur de connexion. Verifiez votre internet.'
+                    ? 'Pas de connexion internet. Essayez en mode hors ligne.'
                     : err?.message?.includes('401') || err?.message?.includes('403')
-                        ? 'Cle API invalide. Contactez le support.'
-                        : `Erreur de transcription : ${err?.message ?? 'inconnue'}`;
+                        ? 'Service vocal temporairement indisponible. Réessayez.'
+                        : 'Excusez-moi, je n\'ai pas bien entendu. Pouvez-vous répéter ?';
             setError(msg);
             setState('error');
             return;
@@ -427,7 +449,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
         // Transcript vide = aucune voix detectee
         if (!transcript.trim()) {
-            setError("Je n'ai pas entendu de voix. Parlez plus fort ou plus pres du micro.");
+            setError("Je n'ai pas entendu de voix. Parlez plus fort ou plus près du micro.");
             setState('error');
             return;
         }
@@ -488,14 +510,14 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const getStateLabel = (): string => {
         if (state === 'listening') {
             if (isWeb && volume < 0.03) return 'Parlez plus fort ou rapprochez-vous du micro';
-            if (isWeb && volume > 0.15) return 'Je vous ecoute bien !';
-            return 'Je vous ecoute...';
+            if (isWeb && volume > 0.15) return 'Je vous écoute bien !';
+            return 'Je vous écoute...';
         }
         const labels: Record<string, string> = {
             idle:       'Appuyez sur le micro pour parler',
             welcome:    'Chargement...',
             processing: 'Transcription en cours...',
-            speaking:   'En train de repondre... (appuyez pour interrompre)',
+            speaking:   'En train de répondre... (appuyez pour interrompre)',
             confirming: 'Confirmez-vous cette action ?',
             error:      '',
         };

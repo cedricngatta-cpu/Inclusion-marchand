@@ -540,8 +540,8 @@ app.post('/api/groq/stt', async (req, res) => {
             `json${CRLF}`
         );
 
-        // Partie prompt — court (<896 chars) avec vocabulaire ivoirien essentiel
-        const whisperPrompt = "Marchand vivrier Cote d'Ivoire. Vends tomates riz oignons igname manioc banane plantain aubergine piment gombo avocat papaye ananas huile sucre mil fonio arachide carotte chou patate douce pomme de terre. Trois kilos cinq unites dix sacs. Francs FCFA especes Mobile Money Wave. Awa Kouassi Adjoua Konate Bamba. Combien reste stock dette credit bilan recette aujourd'hui.";
+        // Partie prompt Whisper (<896 chars) — vocabulaire marche ivoirien
+        const whisperPrompt = "Marchand vivrier Côte d'Ivoire. Produits : tomates riz oignons igname manioc banane plantain aubergine piment gombo avocat papaye ananas huile sucre mil fonio arachide patate douce carotte chou. Unités : kilos grammes unités sacs litres bouteilles. Monnaie : francs FCFA. Actions : vends vendre stock reste combien dette crédit bilan recette ajoute. Noms : Awa Kouassi Adjoua Konaté Bamba Traoré Diallo Coulibaly Koffi Yao. Titres : madame monsieur mademoiselle.";
         parts.push(
             `--${boundary}${CRLF}` +
             `Content-Disposition: form-data; name="prompt"${CRLF}${CRLF}` +

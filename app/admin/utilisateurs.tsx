@@ -294,7 +294,7 @@ export default function Utilisateurs() {
                     <User color="rgba(255,255,255,0.6)" size={16} />
                     <TextInput
                         style={s.searchInput}
-                        placeholder="Rechercher par nom ou telephone..."
+                        placeholder="Rechercher par nom ou téléphone..."
                         placeholderTextColor="rgba(255,255,255,0.5)"
                         value={search}
                         onChangeText={setSearch}

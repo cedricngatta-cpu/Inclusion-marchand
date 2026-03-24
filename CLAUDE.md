@@ -3,7 +3,7 @@
 ## Projet
 Application mobile Android React Native / Expo SDK 54 pour l'inclusion économique des commerçants informels en Afrique.
 Backend : Supabase (PostgreSQL) + Socket.io (realtime)
-IA vocale : Groq API (Llama 3.3 + Whisper) + expo-speech
+IA vocale : Groq API (Llama 3.3 + Whisper STT) + ElevenLabs TTS + expo-speech (fallback)
 Objectif : Build APK via EAS Build pour démo investisseurs
 Cible : Commerçants peu alphabétisés, marchés vivriers, zones à connexion instable
 
@@ -157,25 +157,38 @@ EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, QR Code
 
 ## ASSISTANT VOCAL HYBRIDE
 
+### Pipeline vocal (online)
+1. **STT** : Groq Whisper (`whisper-large-v3-turbo`) — mobile direct / web via proxy Render
+2. **LLM** : Groq Llama 3.3 70B — compréhension + actions + tolérance erreurs STT
+3. **TTS** : ElevenLabs (`eleven_flash_v2_5`, voix Aria) — mobile direct / web via proxy Render
+4. **Fallback TTS** : expo-speech (mobile) / Web Speech Synthesis (web)
+
+### Clés API nécessaires (.env)
+- `EXPO_PUBLIC_GROQ_API_KEY` — STT Whisper + LLM Llama
+- `EXPO_PUBLIC_ELEVENLABS_API_KEY` — TTS ElevenLabs
+- `EXPO_PUBLIC_SOCKET_URL` — URL du serveur proxy Render (aussi utilisé pour Socket.io)
+
+### Prompt Whisper (< 896 caractères)
+Le prompt guide Whisper avec le vocabulaire du marché ivoirien : produits, unités, monnaie, actions, noms, titres.
+Défini dans `src/lib/groqSTT.ts` (constante `WHISPER_PROMPT`) et dans le proxy serveur (`server-deploy/index.js` + `server/index.js`).
+
 ### Mode local (offline)
 - Commandes par mots-clés → navigation directe
 - Commandes différentes par rôle
 - TTS confirmation + vibration
 
 ### Mode IA (online via Groq)
-- STT : expo-av + Groq Whisper
-- Chat : Groq Llama 3.3 70B
-- TTS : expo-speech (fr-FR)
 - Conversation continue avec historique
 - Données Supabase réelles dans le prompt (stock, ventes, commandes...)
-- Données DIFFÉRENTES selon le rôle
+- Données DIFFÉRENTES selon le rôle (fetchRoleContext)
 - Actions exécutables après confirmation vocale (TOUTES les actions métier)
 - Message d'accueil personnalisé avec résumé d'activité
 - Intelligence proactive (alertes stock bas, suggestions)
+- Tolérance ultra-forte aux erreurs de transcription STT (correction automatique par le LLM)
 
 ### Actions vocales exécutables par rôle
 
-**MARCHAND** : vendre, vendre_multiple, stock_ajout, stock_nouveau, commander, dette_ajout, dette_payee, navigate
+**MARCHAND** : vendre, vendre_multiple, stock_ajout, stock_nouveau, commander, dette_ajout, dette_payee, check_stock, stats, navigate
 **PRODUCTEUR** : publier, produit_modifier, commande_accepter, commande_refuser, livraison_statut, navigate
 **AGENT** : enroler (avec extraction du nom de coopérative depuis la phrase vocale ex: "Inscris Bakary, coopérative AGRI-CI"), signaler, navigate
 **COOPÉRATIVE** : enrolement_valider, enrolement_rejeter, achat_groupe, navigate
@@ -183,12 +196,22 @@ EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, QR Code
 
 ### Architecture de l'assistant vocal
 
-- `src/lib/groqAI.ts` : Groq API + fetchRoleContext + buildSystemPrompt + parseAction
+- `src/lib/groqSTT.ts` : Groq Whisper STT (mobile direct + web proxy) + fallback natif
+- `src/lib/elevenlabsTTS.ts` : ElevenLabs TTS (mobile direct + web proxy) + fallback expo-speech
+- `src/lib/groqAI.ts` : Groq Llama LLM + fetchRoleContext + buildSystemPrompt + parseAction + `isOnline()` / `setOnlineStatus()` (état réseau global synchronisé par NetworkContext)
 - `src/lib/voiceAssistant.ts` : audio (enregistrement/TTS) + executeVoiceAction (toutes les actions Supabase)
-- `src/components/VoiceModal.tsx` : UI du modal (conversation, confirmation, micro)
+- `src/lib/webAudioRecorder.ts` : MediaRecorder web + volume metering (AudioContext/AnalyserNode)
+- `src/components/VoiceModal.tsx` : UI du modal (conversation, confirmation, micro, indicateur volume)
+- `src/lib/deepgramLLM.ts` : processVoiceCommand (wrapper LLM avec historique conversationnel)
 - Format ACTION:: : `ACTION::{"type":"vendre","details":{...}}` — parsé par parseAction()
 - Confirmation : boutons Confirmer/Annuler + voix "oui"/"non"
 - Recherche ILIKE pour noms de produits/profils (insensible à la casse et aux pluriels)
+- Messages d'erreur professionnels (jamais de codes techniques visibles par l'utilisateur)
+
+### Proxy serveur (Render)
+- `POST /api/groq/stt` — proxy Groq Whisper (évite CORS web, multipart manuel Buffer)
+- `POST /api/elevenlabs/tts` — proxy ElevenLabs TTS (évite CORS web)
+- Fichiers : `server-deploy/index.js` (déployé) + `server/index.js` (dev local) — toujours synchronisés
 
 ### Bouton micro
 - Carré arrondi 56x56, orange `colors.primary` (#C47316), borderRadius: 10
@@ -311,6 +334,8 @@ Chaque transaction enregistre le mode de paiement (status) et l'opérateur (oper
 - PIN temporaire : toujours `'0101'` (déclenche mustChangePin au login)
 - PINs bloqués : '0101', '0000', '1234', '1111' (impossible de les garder)
 - Actions admin vocales protégées par vérification de rôle (SUPERVISOR/COOPERATIVE)
+- PIN offline hashé via SHA-256 (web) ou hash 32-bit salté (mobile) — fonction `hashPin()` dans AuthContext
+- Clé de cache PIN : `cached_pin_hash` (jamais de PIN en clair dans AsyncStorage)
 
 ---
 
@@ -384,7 +409,8 @@ Chaque transaction enregistre le mode de paiement (status) et l'opérateur (oper
 - expo-camera, expo-image-picker, expo-av, expo-speech
 - expo-router (Stack Navigator)
 - lucide-react-native + react-native-svg
-- Groq API (Llama 3.3 + Whisper)
+- Groq API (Llama 3.3 70B + Whisper large-v3-turbo)
+- ElevenLabs API (TTS eleven_flash_v2_5)
 - react-native-chart-kit (ou alternative compatible Expo Go)
 
 ---

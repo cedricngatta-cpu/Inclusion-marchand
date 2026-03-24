@@ -10,8 +10,8 @@ const log = (...args: any[]) => { if (__DEV__) console.log('[GroqSTT]', ...args)
 const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
 const GROQ_STT_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 
-// Prompt court (<896 chars) pour guider Whisper avec le vocabulaire ivoirien
-const WHISPER_PROMPT = "Marchand vivrier Cote d'Ivoire. Vends tomates riz oignons igname manioc banane plantain aubergine piment gombo avocat papaye ananas huile sucre mil fonio arachide carotte chou patate douce pomme de terre. Trois kilos cinq unites dix sacs. Francs FCFA especes Mobile Money Wave. Awa Kouassi Adjoua Konate Bamba. Combien reste stock dette credit bilan recette aujourd'hui.";
+// Prompt Whisper (<896 chars) — vocabulaire marche ivoirien
+const WHISPER_PROMPT = "Marchand vivrier Côte d'Ivoire. Produits : tomates riz oignons igname manioc banane plantain aubergine piment gombo avocat papaye ananas huile sucre mil fonio arachide patate douce carotte chou. Unités : kilos grammes unités sacs litres bouteilles. Monnaie : francs FCFA. Actions : vends vendre stock reste combien dette crédit bilan recette ajoute. Noms : Awa Kouassi Adjoua Konaté Bamba Traoré Diallo Coulibaly Koffi Yao. Titres : madame monsieur mademoiselle.";
 
 // URL du serveur proxy (meme serveur que Socket.io)
 const PROXY_BASE_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'https://inclusion-marchand.onrender.com';

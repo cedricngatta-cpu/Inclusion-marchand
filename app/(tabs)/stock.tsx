@@ -385,7 +385,7 @@ export default function StockScreen() {
                         />
                     ) : (
                         <View style={styles.noPermBox}>
-                            <Text style={styles.noPermText}>Acces camera non autorise</Text>
+                            <Text style={styles.noPermText}>Accès caméra non autorisé</Text>
                             <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
                                 <Text style={styles.permBtnText}>AUTORISER</Text>
                             </TouchableOpacity>

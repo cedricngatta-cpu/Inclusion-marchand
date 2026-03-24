@@ -126,7 +126,7 @@ export default function MembresScreen() {
                     <Search color="rgba(255,255,255,0.6)" size={16} />
                     <TextInput
                         style={styles.searchInput}
-                        placeholder="Rechercher par nom, telephone, boutique..."
+                        placeholder="Rechercher par nom, téléphone, boutique..."
                         placeholderTextColor="rgba(255,255,255,0.5)"
                         value={search}
                         onChangeText={setSearch}

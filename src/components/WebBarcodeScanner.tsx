@@ -115,9 +115,9 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
                 if (cancelled) return;
                 console.error('[WebBarcodeScanner] camera error:', err);
                 if (err?.name === 'NotAllowedError') {
-                    setError('Camera non autorisee. Autorisez l\'acces dans les parametres du navigateur.');
+                    setError('Caméra non autorisée. Autorisez l\'accès dans les paramètres du navigateur.');
                 } else {
-                    setError('Impossible d\'acceder a la camera. Verifiez les permissions.');
+                    setError('Impossible d\'accéder à la caméra. Vérifiez les permissions.');
                 }
             }
         })();
@@ -148,7 +148,7 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
             if (results.length > 0) {
                 emitScan(results[0].format, results[0].rawValue);
             } else {
-                alert('Aucun code-barres detecte dans l\'image. Reessayez avec une photo plus nette.');
+                alert('Aucun code-barres détecté dans l\'image. Réessayez avec une photo plus nette.');
             }
         } catch {
             alert('Erreur lors de l\'analyse de l\'image.');

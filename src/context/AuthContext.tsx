@@ -61,6 +61,23 @@ const normalizeRole = (raw: string | undefined): User['role'] => {
     }
 };
 
+// Hash SHA-256 du PIN (web) ou hash 32-bit (mobile fallback)
+async function hashPin(pin: string): Promise<string> {
+    const salted = 'julaba_salt_' + pin;
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.crypto?.subtle) {
+        const data = new TextEncoder().encode(salted);
+        const buf = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    // Mobile fallback : hash 32-bit simple (suffisant pour PIN 4 chiffres + salt)
+    let h = 0;
+    for (let i = 0; i < salted.length; i++) {
+        h = ((h << 5) - h) + salted.charCodeAt(i);
+        h = h & h;
+    }
+    return 'h_' + Math.abs(h).toString(36);
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser]               = useState<User | null>(null);
     const [profile, setProfile]         = useState<Record<string, any> | null>(null);
@@ -187,8 +204,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const cached = JSON.parse(raw);
             if (!cached?.phone || !cached?.pinHash || !cached?.user) return false;
             if (!isOfflineEligible(cached.role)) return false;
-            // Verifier le PIN
-            if (cached.phone !== phoneNumber || cached.pinHash !== btoa(pin)) return false;
+            // Verifier le PIN (hash comparé)
+            const inputHash = await hashPin(pin);
+            if (cached.phone !== phoneNumber || cached.pinHash !== inputHash) return false;
             // Donnees pas trop vieilles (30 jours)
             if (Date.now() - (cached.timestamp ?? 0) > 30 * 24 * 3600 * 1000) return false;
 
@@ -244,7 +262,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     console.warn('[Auth] ⚠️ Mode DEMO activé — user.id = admin-001 (pas un UUID réel). Exécutez le seed pour des données réelles.');
                     const demoUser: User = { id: 'admin-001', phoneNumber: '0000', role: 'SUPERVISOR', name: 'Superviseur' };
                     await handleAuthSuccess(demoUser);
-                    await storage.setItem('cached_pin', pin);
+                    await storage.setItem('cached_pin_hash', await hashPin(pin));
                     clearAttempts(phoneNumber);
                     return true;
                 }
@@ -267,13 +285,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await offlineCache.set(CACHE_KEYS.profile(userData.id), data, CACHE_TTL.CRITICAL);
             if (data.pin === '0101') setMustChangePin(true);
             await handleAuthSuccess(userData);
-            await storage.setItem('cached_pin', pin); // Cache PIN pour déverrouillage offline
+            await storage.setItem('cached_pin_hash', await hashPin(pin)); // Cache PIN hashé pour déverrouillage offline
 
             // Sauvegarder les données d'auth offline pour marchands/producteurs
             if (isOfflineEligible(userData.role)) {
                 await storage.setItem('julaba_offline_auth', JSON.stringify({
                     phone: phoneNumber,
-                    pinHash: btoa(pin),
+                    pinHash: await hashPin(pin),
                     profile: data,
                     user: userData,
                     role: userData.role,
@@ -373,16 +391,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     .single();
 
                 if (data) {
-                    await storage.setItem('cached_pin', pin); // Rafraîchir le cache
+                    await storage.setItem('cached_pin_hash', await hashPin(pin));
                     await doUnlock();
                     return true;
                 }
                 recordFailedAttempt(unlockKey);
                 return false;
             } else {
-                // Hors-ligne : comparer avec le PIN mis en cache au dernier login
-                const cachedPin = await storage.getItem('cached_pin');
-                if (cachedPin && cachedPin === pin) {
+                // Hors-ligne : comparer avec le PIN hashé au dernier login
+                const cachedHash = await storage.getItem('cached_pin_hash');
+                const inputHash = await hashPin(pin);
+                if (cachedHash && cachedHash === inputHash) {
                     await doUnlock();
                     return true;
                 }
@@ -392,8 +411,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (err) {
             console.error('[Auth] Unlock error:', err);
             // Fallback cache si erreur réseau
-            const cachedPin = await storage.getItem('cached_pin');
-            if (cachedPin && cachedPin === pin) {
+            const cachedHash = await storage.getItem('cached_pin_hash');
+            const inputHash = await hashPin(pin);
+            if (cachedHash && cachedHash === inputHash) {
                 await doUnlock();
                 return true;
             }
