@@ -1,29 +1,43 @@
-// Service Worker Julaba — PWA offline
-const CACHE_NAME = 'julaba-v2';
+// Service Worker Julaba — PWA offline optimise
+const CACHE_NAME = 'julaba-v3';
+const STATIC_CACHE = 'julaba-static-v3';
+const IMG_CACHE = 'julaba-img-v1';
+
+// App shell a pre-cacher
+const APP_SHELL = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+];
 
 // Install : cache l'app shell
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll([
-        '/',
-        '/index.html',
-        '/manifest.json',
-      ]);
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
   );
   self.skipWaiting();
 });
 
 // Activate : nettoie les anciens caches
 self.addEventListener('activate', (event) => {
+  const validCaches = [CACHE_NAME, STATIC_CACHE, IMG_CACHE];
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => !validCaches.includes(k)).map((k) => caches.delete(k)))
     )
   );
   self.clients.claim();
 });
+
+// Limite la taille d'un cache (LRU simple)
+async function trimCache(cacheName, maxItems) {
+  const cache = await caches.open(cacheName);
+  const keys = await cache.keys();
+  if (keys.length > maxItems) {
+    await cache.delete(keys[0]);
+    return trimCache(cacheName, maxItems);
+  }
+}
 
 // Fetch : strategie selon le type de requete
 self.addEventListener('fetch', (event) => {
@@ -31,6 +45,9 @@ self.addEventListener('fetch', (event) => {
 
   // Ignorer les requetes non-GET
   if (event.request.method !== 'GET') return;
+
+  // Ignorer les requetes socket.io et websocket
+  if (url.pathname.startsWith('/socket.io')) return;
 
   // Navigations (pages) : network-first, fallback sur le cache
   if (event.request.mode === 'navigate') {
@@ -46,37 +63,57 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Assets statiques (JS, CSS, images, fonts) : cache-first
-  if (url.pathname.match(/\.(js|css|png|jpg|jpeg|svg|ico|woff|woff2|ttf)$/) ||
-      url.pathname.startsWith('/_expo/')) {
+  // Assets statiques JS/CSS : stale-while-revalidate (rapide + a jour)
+  if (url.pathname.match(/\.(js|css)$/) || url.pathname.startsWith('/_expo/')) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        }).catch(() => new Response('', { status: 404 }));
-      })
+      caches.open(STATIC_CACHE).then((cache) =>
+        cache.match(event.request).then((cached) => {
+          const fetchPromise = fetch(event.request).then((response) => {
+            if (response.ok) {
+              cache.put(event.request, response.clone());
+            }
+            return response;
+          }).catch(() => cached);
+
+          return cached || fetchPromise;
+        })
+      )
     );
     return;
   }
 
-  // Images Supabase Storage : cache-first
-  if (url.hostname.includes('supabase.co') && url.pathname.includes('/storage/')) {
+  // Images et fonts locales : cache-first
+  if (url.pathname.match(/\.(png|jpg|jpeg|svg|ico|webp|woff|woff2|ttf|eot)$/)) {
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached;
-        return fetch(event.request).then((response) => {
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        }).catch(() => new Response('', { status: 404 }));
-      })
+      caches.open(STATIC_CACHE).then((cache) =>
+        cache.match(event.request).then((cached) => {
+          if (cached) return cached;
+          return fetch(event.request).then((response) => {
+            if (response.ok) cache.put(event.request, response.clone());
+            return response;
+          }).catch(() => new Response('', { status: 404 }));
+        })
+      )
+    );
+    return;
+  }
+
+  // Images Supabase Storage : cache-first avec limite de taille
+  if (url.hostname.includes('supabase.co') && (url.pathname.includes('/storage/') || url.pathname.includes('/render/'))) {
+    event.respondWith(
+      caches.open(IMG_CACHE).then((cache) =>
+        cache.match(event.request).then((cached) => {
+          if (cached) return cached;
+          return fetch(event.request).then((response) => {
+            if (response.ok) {
+              cache.put(event.request, response.clone());
+              // Limiter le cache images a 100 entrees
+              trimCache(IMG_CACHE, 100);
+            }
+            return response;
+          }).catch(() => new Response('', { status: 404 }));
+        })
+      )
     );
     return;
   }
@@ -92,6 +129,11 @@ self.addEventListener('fetch', (event) => {
         return response;
       }).catch(() => caches.match(event.request))
     );
+    return;
+  }
+
+  // API Supabase Auth : network-only (pas de cache)
+  if (url.hostname.includes('supabase.co') && url.pathname.startsWith('/auth/')) {
     return;
   }
 

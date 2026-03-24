@@ -1,5 +1,5 @@
 // Contexte global pour masquer/afficher le bouton assistant vocal
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 interface VoiceButtonContextValue {
     voiceButtonVisible: boolean;
@@ -19,8 +19,12 @@ export function VoiceButtonProvider({ children }: { children: React.ReactNode })
     const hideVoiceButton = useCallback(() => setVoiceButtonVisible(false), []);
     const showVoiceButton = useCallback(() => setVoiceButtonVisible(true), []);
 
+    const value = useMemo(() => ({
+        voiceButtonVisible, hideVoiceButton, showVoiceButton,
+    }), [voiceButtonVisible, hideVoiceButton, showVoiceButton]);
+
     return (
-        <VoiceButtonContext.Provider value={{ voiceButtonVisible, hideVoiceButton, showVoiceButton }}>
+        <VoiceButtonContext.Provider value={value}>
             {children}
         </VoiceButtonContext.Provider>
     );

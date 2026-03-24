@@ -16,6 +16,7 @@ import {
 import { offlineQueue } from './offlineQueue';
 import { offlineCache, CACHE_KEYS, CACHE_TTL } from './offlineCache';
 import { getResponse } from './responseTemplates';
+import { matchProduct, MatchableProduct } from './productMatcher';
 
 const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
@@ -201,7 +202,6 @@ export async function transcribeRecording(
 // ── Web Speech API (STT natif Chrome — remplace Groq Whisper sur web) ────
 
 export interface WebSpeechCallbacks {
-    onInterim?: (text: string) => void;
     onFinal?: (text: string) => void;
     onError?: (error: string) => void;
     onEnd?: () => void;
@@ -229,23 +229,18 @@ export function startWebSpeechRecognition(callbacks: WebSpeechCallbacks): boolea
     recognition.maxAlternatives = 1;
 
     recognition.onresult = (event: any) => {
-        let interimTranscript = '';
         let finalTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             if (result.isFinal) {
                 finalTranscript += result[0].transcript;
-            } else {
-                interimTranscript += result[0].transcript;
             }
         }
 
         if (finalTranscript) {
             log('Web Speech final:', finalTranscript);
             callbacks.onFinal?.(finalTranscript.trim());
-        } else if (interimTranscript) {
-            callbacks.onInterim?.(interimTranscript.trim());
         }
     };
 
@@ -467,6 +462,54 @@ async function findDemande(nom: string, statuts?: string[]): Promise<any | null>
 // EXÉCUTION DE TOUTES LES ACTIONS VOCALES
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ── Résolution intelligente de produit : Supabase ILIKE + matchProduct fallback ──
+async function resolveProduct(
+    nomProduit: string,
+    storeId: string,
+    fields = 'id, name, price',
+): Promise<any | null> {
+    const online = await isOnline();
+
+    // 1. Essayer findProductInStore (ILIKE Supabase) si online
+    if (online) {
+        const found = await findProductInStore(nomProduit, storeId, fields);
+        if (found) return found;
+    }
+
+    // 2. Fallback : charger tous les produits + stock et utiliser matchProduct
+    let products: MatchableProduct[] = [];
+
+    if (online) {
+        const { data: prods } = await supabase
+            .from('products').select('id, name, price').eq('store_id', storeId).limit(100);
+        const { data: stocks } = await supabase
+            .from('stock').select('product_id, quantity').eq('store_id', storeId).limit(100);
+        products = (prods ?? []).map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price ?? 0,
+            quantity: (stocks ?? []).find((s: any) => s.product_id === p.id)?.quantity ?? 0,
+        }));
+    } else {
+        const cached = await offlineCache.get<any[]>(CACHE_KEYS.products(storeId));
+        const cachedStock = await offlineCache.get<any[]>(CACHE_KEYS.stock(storeId));
+        products = (cached?.data ?? []).map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price ?? 0,
+            quantity: (cachedStock?.data ?? []).find((s: any) => s.product_id === p.id)?.quantity ?? 0,
+        }));
+    }
+
+    const matched = matchProduct(nomProduit, products);
+    if (matched) {
+        log('[resolveProduct] matchProduct trouvé:', nomProduit, '→', matched.name);
+        return { id: matched.id, name: matched.name, price: matched.price };
+    }
+
+    return null;
+}
+
 export interface ActionContext {
     storeId?: string;
     userId?: string;
@@ -490,23 +533,9 @@ export async function executeVoiceAction(
                 const nomProduit = String(d.produit ?? d.produit_nom ?? d.product ?? '').trim();
                 if (!nomProduit) return "Je n'ai pas compris le nom du produit.";
 
-                // Chercher le produit en ligne OU dans le cache offline
+                // Chercher le produit via résolution intelligente (ILIKE + matchProduct)
                 const online = await isOnline();
-                let prod: any = null;
-
-                if (online) {
-                    prod = await findProductInStore(nomProduit, storeId, 'id, name, price');
-                } else {
-                    // Chercher dans le cache produits local
-                    const cached = await offlineCache.get<any[]>(CACHE_KEYS.products(storeId));
-                    if (cached?.data) {
-                        const norm = nomProduit.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                        prod = cached.data.find((p: any) => {
-                            const pn = (p.name ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                            return pn.includes(norm) || pn.includes(norm.replace(/s$/, ''));
-                        }) ?? null;
-                    }
-                }
+                const prod = await resolveProduct(nomProduit, storeId, 'id, name, price');
 
                 if (!prod) {
                     if (online) {
@@ -624,24 +653,8 @@ export async function executeVoiceAction(
                 const transactions: any[] = [];
                 const stockUpdates: Array<{ productId: string; newQty: number }> = [];
 
-                // Charger le cache produits pour mode offline
-                let cachedProducts: any[] | null = null;
-                if (!online) {
-                    const cached = await offlineCache.get<any[]>(CACHE_KEYS.products(storeId));
-                    cachedProducts = cached?.data ?? null;
-                }
-
                 for (const item of produits) {
-                    let prod: any = null;
-                    if (online) {
-                        prod = await findProductInStore(String(item.nom), storeId, 'id, name, price');
-                    } else if (cachedProducts) {
-                        const norm = String(item.nom).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                        prod = cachedProducts.find((p: any) => {
-                            const pn = (p.name ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-                            return pn.includes(norm) || pn.includes(norm.replace(/s$/, ''));
-                        }) ?? null;
-                    }
+                    const prod = await resolveProduct(String(item.nom), storeId, 'id, name, price');
                     if (!prod) { resultats.push(`"${item.nom}" non trouvé`); continue; }
 
                     const qte   = Math.max(1, parseInt(String(item.quantite ?? 1), 10));
@@ -723,7 +736,7 @@ export async function executeVoiceAction(
                 const nomProduit = String(d.produit ?? d.produit_nom ?? '').trim();
                 if (!nomProduit) return "Quel produit voulez-vous réapprovisionner ?";
 
-                const prod = await findProductInStore(nomProduit, storeId, 'id, name');
+                const prod = await resolveProduct(nomProduit, storeId, 'id, name');
                 if (!prod) return `Je n'ai pas trouvé "${nomProduit}" dans votre catalogue.`;
 
                 const ajout = Math.max(1, parseInt(String(d.quantite ?? 1), 10));
@@ -1202,7 +1215,7 @@ export async function executeVoiceAction(
                 const nomProduit = String(d.produit ?? d.product ?? '').trim();
                 if (!nomProduit) return "Quel produit veux-tu verifier ?";
 
-                const prod = await findProductInStore(nomProduit, storeId, 'id, name, price');
+                const prod = await resolveProduct(nomProduit, storeId, 'id, name, price');
                 if (!prod) return `Je n'ai pas trouve "${nomProduit}" dans ton stock.`;
 
                 const { data: st } = await supabase.from('stock')

@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, Pressable,
-    Animated, Vibration, Dimensions, Platform,
+    Animated, Dimensions, Platform,
     Modal, TextInput, ScrollView, KeyboardAvoidingView, Alert,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -18,6 +18,7 @@ import { useProfileContext } from '@/src/context/ProfileContext';
 import { useNetwork } from '@/src/context/NetworkContext';
 import { uploadProductImage } from '@/src/lib/storage';
 import { colors } from '@/src/lib/colors';
+import { onScanFeedback, injectScanLineCSS } from '@/src/lib/scanFeedback';
 // WebBarcodeScanner = web-only (HTML elements), lazy-load to avoid crash on mobile
 const WebBarcodeScanner = Platform.OS === 'web'
     ? require('@/src/components/WebBarcodeScanner').default
@@ -72,14 +73,17 @@ export default function ScannerScreen() {
     const [imageUri, setImageUri] = useState<string | null>(null);
     const [webFile, setWebFile] = useState<File | undefined>(undefined);
     const [isAdding, setIsAdding] = useState(false);
+    const [scanSuccess, setScanSuccess] = useState(false);
 
-    // Animation de la ligne de scan
+    // Animation de la ligne de scan — CSS sur web, Animated sur mobile
     const scanAnim = useRef(new Animated.Value(0)).current;
     useEffect(() => {
+        injectScanLineCSS();
+        if (Platform.OS === 'web') return; // CSS animation sur web
         const loop = Animated.loop(
             Animated.sequence([
-                Animated.timing(scanAnim, { toValue: 1, duration: 1800, useNativeDriver: Platform.OS !== 'web' }),
-                Animated.timing(scanAnim, { toValue: 0, duration: 0, useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(scanAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
+                Animated.timing(scanAnim, { toValue: 0, duration: 0, useNativeDriver: true }),
             ])
         );
         loop.start();
@@ -116,7 +120,11 @@ export default function ScannerScreen() {
 
         lastScanRef.current = now;
         setPaused(true);
-        if (Platform.OS !== 'web') Vibration.vibrate(100);
+
+        // Feedback immediat : bip + vibration + flash vert
+        onScanFeedback();
+        setScanSuccess(true);
+        setTimeout(() => setScanSuccess(false), 500);
 
         const product = await lookupProduct(data);
         if (product) {
@@ -287,15 +295,27 @@ export default function ScannerScreen() {
                 <View style={styles.middleRow}>
                     <View style={styles.sideMask} />
 
-                    {/* Cadre de scan */}
-                    <View style={styles.scanFrame}>
-                        <View style={[styles.corner, styles.cornerTL]} />
-                        <View style={[styles.corner, styles.cornerTR]} />
-                        <View style={[styles.corner, styles.cornerBL]} />
-                        <View style={[styles.corner, styles.cornerBR]} />
-                        <Animated.View
-                            style={[styles.scanLine, { transform: [{ translateY: scanLineY }] }]}
-                        />
+                    {/* Cadre de scan — flash vert au scan reussi */}
+                    <View style={[styles.scanFrame, scanSuccess && styles.scanFrameSuccess]}>
+                        <View style={[styles.corner, styles.cornerTL, scanSuccess && styles.cornerSuccess]} />
+                        <View style={[styles.corner, styles.cornerTR, scanSuccess && styles.cornerSuccess]} />
+                        <View style={[styles.corner, styles.cornerBL, scanSuccess && styles.cornerSuccess]} />
+                        <View style={[styles.corner, styles.cornerBR, scanSuccess && styles.cornerSuccess]} />
+                        {Platform.OS === 'web' ? (
+                            <div style={{
+                                position: 'absolute',
+                                left: '8px',
+                                right: '8px',
+                                height: 2,
+                                background: 'linear-gradient(90deg, transparent, #ef4444, transparent)',
+                                animation: 'scanLineMove 2s ease-in-out infinite',
+                                borderRadius: 2,
+                            }} />
+                        ) : (
+                            <Animated.View
+                                style={[styles.scanLine, { transform: [{ translateY: scanLineY }] }]}
+                            />
+                        )}
                     </View>
 
                     <View style={styles.sideMask} />
@@ -554,7 +574,17 @@ const styles = StyleSheet.create({
     cornerBL: { bottom: 0, left: 0, borderBottomWidth: CORNER_T, borderLeftWidth: CORNER_T, borderBottomLeftRadius: 5 },
     cornerBR: { bottom: 0, right: 0, borderBottomWidth: CORNER_T, borderRightWidth: CORNER_T, borderBottomRightRadius: 5 },
 
-    // Ligne de scan rouge animee
+    // Flash vert au scan reussi
+    scanFrameSuccess: {
+        borderWidth: 3,
+        borderColor: '#059669',
+        borderRadius: 5,
+    },
+    cornerSuccess: {
+        borderColor: '#059669',
+    },
+
+    // Ligne de scan rouge animee (mobile uniquement — web utilise CSS)
     scanLine: {
         position: 'absolute',
         top: 0,

@@ -42,10 +42,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const { isOnline } = useNetwork();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const isFetchingRef = useRef(false);
+    const lastFetched = useRef<number>(0);
 
     // ── Chargement : cache d'abord, puis Supabase si online ─────────────────
-    const loadFromStorage = useCallback(async () => {
+    const loadFromStorage = useCallback(async (force = false) => {
         if (isFetchingRef.current) return;
+        if (!force && lastFetched.current && Date.now() - lastFetched.current < 60000) return;
         isFetchingRef.current = true;
         try {
             const cacheKey = user?.id ? CACHE_KEYS.notifications(user.id) : null;
@@ -85,6 +87,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             }
         } finally {
             isFetchingRef.current = false;
+            lastFetched.current = Date.now();
         }
     }, [user?.id, isOnline]);
 

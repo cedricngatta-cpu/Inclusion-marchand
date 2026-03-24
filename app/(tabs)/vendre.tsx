@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, ScrollView, TouchableOpacity, StyleSheet,
-    TextInput, Modal, Alert, Animated, Vibration, Dimensions, Image, Platform, useWindowDimensions,
+    TextInput, Modal, Alert, Animated, Dimensions, Image, Platform, useWindowDimensions,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,6 +23,7 @@ import { useProfileContext } from '@/src/context/ProfileContext';
 import { useNetwork } from '@/src/context/NetworkContext';
 import { offlineQueue, syncOfflineQueue, PendingTransaction } from '@/src/lib/offlineQueue';
 import { colors } from '@/src/lib/colors';
+import { onScanFeedback, injectScanLineCSS } from '@/src/lib/scanFeedback';
 import { supabase } from '@/src/lib/supabase';
 
 // ── Scanner overlay dimensions ──
@@ -112,14 +113,16 @@ export default function VendreScreen() {
         prevIsOnlineRef.current = isOnline;
     }, [isOnline]);
 
-    // Animation ligne de scan
+    // Animation ligne de scan — CSS sur web, Animated sur mobile
     const scanAnim = useRef(new Animated.Value(0)).current;
+    const [scanFlash, setScanFlash] = useState(false);
     useEffect(() => {
-        if (!showScanner) return;
+        injectScanLineCSS();
+        if (!showScanner || Platform.OS === 'web') return;
         const loop = Animated.loop(
             Animated.sequence([
-                Animated.timing(scanAnim, { toValue: 1, duration: 1800, useNativeDriver: Platform.OS !== 'web' }),
-                Animated.timing(scanAnim, { toValue: 0, duration: 0,    useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(scanAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
+                Animated.timing(scanAnim, { toValue: 0, duration: 0,    useNativeDriver: true }),
             ])
         );
         loop.start();
@@ -167,7 +170,11 @@ export default function VendreScreen() {
         if (cooldown.current) return;
         cooldown.current = true;
         lastScanTimeRef.current = now;
-        if (Platform.OS !== 'web') Vibration.vibrate(80);
+
+        // Feedback immediat : bip + vibration + flash vert
+        onScanFeedback();
+        setScanFlash(true);
+        setTimeout(() => setScanFlash(false), 500);
 
         const product = products.find(p => p.barcode === data);
         if (product) {
@@ -664,12 +671,24 @@ export default function VendreScreen() {
 
                             <View style={styles.middleRow}>
                                 <View style={styles.sideMask} />
-                                <View style={styles.scanFrame}>
-                                    <View style={[styles.corner, styles.cornerTL]} />
-                                    <View style={[styles.corner, styles.cornerTR]} />
-                                    <View style={[styles.corner, styles.cornerBL]} />
-                                    <View style={[styles.corner, styles.cornerBR]} />
-                                    <Animated.View style={[styles.scanLine, { transform: [{ translateY: scanLineY }] }]} />
+                                <View style={[styles.scanFrame, scanFlash && styles.scanFrameSuccess]}>
+                                    <View style={[styles.corner, styles.cornerTL, scanFlash && styles.cornerSuccess]} />
+                                    <View style={[styles.corner, styles.cornerTR, scanFlash && styles.cornerSuccess]} />
+                                    <View style={[styles.corner, styles.cornerBL, scanFlash && styles.cornerSuccess]} />
+                                    <View style={[styles.corner, styles.cornerBR, scanFlash && styles.cornerSuccess]} />
+                                    {Platform.OS === 'web' ? (
+                                        <div style={{
+                                            position: 'absolute',
+                                            left: '8px',
+                                            right: '8px',
+                                            height: 2,
+                                            background: 'linear-gradient(90deg, transparent, #ef4444, transparent)',
+                                            animation: 'scanLineMove 2s ease-in-out infinite',
+                                            borderRadius: 2,
+                                        }} />
+                                    ) : (
+                                        <Animated.View style={[styles.scanLine, { transform: [{ translateY: scanLineY }] }]} />
+                                    )}
                                 </View>
                                 <View style={styles.sideMask} />
                             </View>
@@ -847,6 +866,14 @@ const styles = StyleSheet.create({
     cornerBL: { bottom: 0, left: 0,  borderBottomWidth: CORNER_T, borderLeftWidth:  CORNER_T, borderBottomLeftRadius:  5 },
     cornerBR: { bottom: 0, right: 0, borderBottomWidth: CORNER_T, borderRightWidth: CORNER_T, borderBottomRightRadius: 5 },
 
+    scanFrameSuccess: {
+        borderWidth: 3,
+        borderColor: '#059669',
+        borderRadius: 5,
+    },
+    cornerSuccess: {
+        borderColor: '#059669',
+    },
     scanLine: {
         position: 'absolute', top: 0, left: 8, right: 8, height: 2,
         backgroundColor: '#ef4444', borderRadius: 2,

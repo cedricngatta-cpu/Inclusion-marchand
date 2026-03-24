@@ -2,9 +2,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, ScrollView, TouchableOpacity, StyleSheet,
-    TextInput, Modal, Alert, Animated, Vibration, Dimensions,
+    TextInput, Modal, Alert, Animated, Dimensions,
     KeyboardAvoidingView, Platform, Image, useWindowDimensions,
 } from 'react-native';
+import { getImageThumbnail } from '@/src/lib/imageUtils';
+import { onScanFeedback, injectScanLineCSS } from '@/src/lib/scanFeedback';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 // WebBarcodeScanner = web-only (HTML elements), lazy-load to avoid crash on mobile
 const WebBarcodeScanner = Platform.OS === 'web'
@@ -60,13 +62,15 @@ export default function StockScreen() {
     const [permission, requestPermission] = useCameraPermissions();
     const scanLineAnim = useRef(new Animated.Value(0)).current;
     const cooldown = useRef(false);
+    const [scanFlash, setScanFlash] = useState(false);
 
     useEffect(() => {
-        if (!showScanner) return;
+        injectScanLineCSS();
+        if (!showScanner || Platform.OS === 'web') return;
         const loop = Animated.loop(
             Animated.sequence([
-                Animated.timing(scanLineAnim, { toValue: 1, duration: 1800, useNativeDriver: Platform.OS !== 'web' }),
-                Animated.timing(scanLineAnim, { toValue: 0, duration: 0,    useNativeDriver: Platform.OS !== 'web' }),
+                Animated.timing(scanLineAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
+                Animated.timing(scanLineAnim, { toValue: 0, duration: 0,    useNativeDriver: true }),
             ])
         );
         loop.start();
@@ -91,7 +95,12 @@ export default function StockScreen() {
         cooldown.current = true;
         lastScanTimeRef.current = now;
         setScanPaused(true);
-        if (Platform.OS !== 'web') Vibration.vibrate(100);
+
+        // Feedback immediat : bip + vibration + flash vert
+        onScanFeedback();
+        setScanFlash(true);
+        setTimeout(() => setScanFlash(false), 500);
+
         setNewBarcode(data);
         setShowScanner(false);
         setTimeout(() => { cooldown.current = false; }, 2000);
@@ -199,7 +208,7 @@ export default function StockScreen() {
                                 <View key={product.id} style={[dtSt.tableRow, idx % 2 === 1 && dtSt.tableRowAlt]}>
                                     <View style={[dtSt.tdProduct, { flex: 2 }]}>
                                         {product.imageUrl ? (
-                                            <Image source={{ uri: product.imageUrl }} style={styles.productIcon} />
+                                            <Image source={{ uri: getImageThumbnail(product.imageUrl)! }} style={styles.productIcon} />
                                         ) : (
                                             <View style={[styles.productIcon, { backgroundColor: product.color }]}>
                                                 <Text style={[styles.productLetter, { color: product.iconColor }]}>
@@ -234,7 +243,7 @@ export default function StockScreen() {
                         return (
                             <View key={product.id} style={styles.productRow}>
                                 {product.imageUrl ? (
-                                    <Image source={{ uri: product.imageUrl }} style={styles.productIcon} />
+                                    <Image source={{ uri: getImageThumbnail(product.imageUrl)! }} style={styles.productIcon} />
                                 ) : (
                                     <View style={[styles.productIcon, { backgroundColor: product.color }]}>
                                         <Text style={[styles.productLetter, { color: product.iconColor }]}>
@@ -403,12 +412,24 @@ export default function StockScreen() {
                     <View style={styles.scanMaskTop} />
                     <View style={styles.scanMiddle}>
                         <View style={[styles.scanMaskSide]} />
-                        <View style={styles.scanFrame}>
-                            <View style={[styles.corner, styles.cornerTL]} />
-                            <View style={[styles.corner, styles.cornerTR]} />
-                            <View style={[styles.corner, styles.cornerBL]} />
-                            <View style={[styles.corner, styles.cornerBR]} />
-                            <Animated.View style={[styles.scanLine, { transform: [{ translateY: scanLineY }] }]} />
+                        <View style={[styles.scanFrame, scanFlash && styles.scanFrameSuccess]}>
+                            <View style={[styles.corner, styles.cornerTL, scanFlash && styles.cornerSuccess]} />
+                            <View style={[styles.corner, styles.cornerTR, scanFlash && styles.cornerSuccess]} />
+                            <View style={[styles.corner, styles.cornerBL, scanFlash && styles.cornerSuccess]} />
+                            <View style={[styles.corner, styles.cornerBR, scanFlash && styles.cornerSuccess]} />
+                            {Platform.OS === 'web' ? (
+                                <div style={{
+                                    position: 'absolute',
+                                    left: '8px',
+                                    right: '8px',
+                                    height: 2,
+                                    background: 'linear-gradient(90deg, transparent, #ef4444, transparent)',
+                                    animation: 'scanLineMove 2s ease-in-out infinite',
+                                    borderRadius: 2,
+                                }} />
+                            ) : (
+                                <Animated.View style={[styles.scanLine, { transform: [{ translateY: scanLineY }] }]} />
+                            )}
                         </View>
                         <View style={[styles.scanMaskSide]} />
                     </View>
@@ -513,6 +534,14 @@ const styles = StyleSheet.create({
     cornerTR: { top: 0, right: 0, borderTopWidth: CORNER_T, borderRightWidth: CORNER_T, borderTopRightRadius: 5 },
     cornerBL: { bottom: 0, left: 0, borderBottomWidth: CORNER_T, borderLeftWidth: CORNER_T, borderBottomLeftRadius: 5 },
     cornerBR: { bottom: 0, right: 0, borderBottomWidth: CORNER_T, borderRightWidth: CORNER_T, borderBottomRightRadius: 5 },
+    scanFrameSuccess: {
+        borderWidth: 3,
+        borderColor: '#059669',
+        borderRadius: 5,
+    },
+    cornerSuccess: {
+        borderColor: '#059669',
+    },
     scanLine: {
         position: 'absolute', top: 0, left: 8, right: 8, height: 2,
         backgroundColor: '#ef4444', borderRadius: 2,

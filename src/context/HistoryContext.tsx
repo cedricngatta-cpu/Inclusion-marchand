@@ -1,5 +1,5 @@
 // Contexte historique transactions — cache offline unifié + Supabase
-import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/src/lib/supabase';
 import { useProfileContext } from './ProfileContext';
@@ -52,9 +52,11 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const prevIsOnline     = useRef<boolean | null>(null);
 
     const cacheKey = activeProfile ? CACHE_KEYS.transactions(activeProfile.id) : null;
+    const lastFetched = useRef<number>(0);
 
-    const fetchHistory = async () => {
+    const fetchHistory = useCallback(async (force = false) => {
         if (!activeProfile || !cacheKey) return;
+        if (!force && lastFetched.current && Date.now() - lastFetched.current < 30000) return;
 
         // 1. Cache d'abord (instantané)
         const cached = await offlineCache.get<Transaction[]>(cacheKey);
@@ -93,7 +95,8 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 console.error('[HistoryContext] fetchHistory network error:', err);
             }
         }
-    };
+        lastFetched.current = Date.now();
+    }, [activeProfile, isOnline, cacheKey]);
 
     // Sync hors-ligne au retour de connexion
     useEffect(() => {
@@ -146,7 +149,7 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return unsubscribe;
     }, [activeProfile?.id, cacheKey]);
 
-    const addTransaction = async (transaction: Omit<Transaction, 'id' | 'timestamp'>) => {
+    const addTransaction = useCallback(async (transaction: Omit<Transaction, 'id' | 'timestamp'>) => {
         if (!activeProfile || !cacheKey) return;
 
         // UUID valide pour Supabase (colonne id de type UUID)
@@ -228,9 +231,9 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             });
             console.log('[HistoryContext] emitEvent nouvelle-vente envoyé');
         }
-    };
+    }, [activeProfile, isOnline, cacheKey]);
 
-    const markAsPaid = async (transactionId: string) => {
+    const markAsPaid = useCallback(async (transactionId: string) => {
         // Mise à jour optimiste locale
         const updated = history.map(t => t.id === transactionId ? { ...t, status: 'PAYÉ' as const } : t);
         setHistory(updated);
@@ -252,14 +255,14 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 console.log('[HistoryContext] ✅ markAsPaid OK — id:', transactionId);
             }
         } else {
-            console.warn('[HistoryContext] ⚠️ markAsPaid hors-ligne — sera syncé à la reconnexion');
+            console.warn('[HistoryContext] markAsPaid hors-ligne — sera syncé à la reconnexion');
         }
-    };
+    }, [history, isOnline, cacheKey]);
 
-    const clearHistory = async () => {
+    const clearHistory = useCallback(async () => {
         setHistory([]);
         if (cacheKey) await offlineCache.remove(cacheKey);
-    };
+    }, [cacheKey]);
 
     const todayTransactions = useMemo(() => {
         const today = new Date().setHours(0, 0, 0, 0);
@@ -272,8 +275,12 @@ export const HistoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return acc;
     }, 0), [history]);
 
+    const value = useMemo(() => ({
+        history, balance, addTransaction, markAsPaid, clearHistory, todayTransactions, refreshHistory: fetchHistory,
+    }), [history, balance, addTransaction, markAsPaid, clearHistory, todayTransactions, fetchHistory]);
+
     return (
-        <HistoryContext.Provider value={{ history, balance, addTransaction, markAsPaid, clearHistory, todayTransactions, refreshHistory: fetchHistory }}>
+        <HistoryContext.Provider value={value}>
             {children}
         </HistoryContext.Provider>
     );

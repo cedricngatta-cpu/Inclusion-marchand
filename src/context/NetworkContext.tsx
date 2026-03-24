@@ -1,5 +1,5 @@
 // Contexte réseau — détecte la connectivité en temps réel + état de sync + compteur offline
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import { syncManager, SyncState, SyncProgress } from '@/src/lib/syncManager';
 import { actionQueue } from '@/src/lib/offlineQueue';
@@ -89,11 +89,14 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
         await syncManager.sync();
     }, []);
 
+    const value = useMemo(() => ({
+        isOnline, pendingCount, syncState, syncResult, syncProgress, userRole,
+        addToPendingCount, resetPendingCount, triggerSync, setUserRole,
+    }), [isOnline, pendingCount, syncState, syncResult, syncProgress, userRole,
+        addToPendingCount, resetPendingCount, triggerSync, setUserRole]);
+
     return (
-        <NetworkContext.Provider value={{
-            isOnline, pendingCount, syncState, syncResult, syncProgress, userRole,
-            addToPendingCount, resetPendingCount, triggerSync, setUserRole,
-        }}>
+        <NetworkContext.Provider value={value}>
             {children}
         </NetworkContext.Provider>
     );

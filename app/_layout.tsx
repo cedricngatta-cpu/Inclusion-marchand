@@ -303,9 +303,11 @@ function ResponsiveWrapper({ children }: { children: React.ReactNode }) {
     // Écran de chargement initial — évite le flash sidebar + login
     if (isDesktop && isLoading) {
         return (
-            <View style={{ flex: 1, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={splashSt.container}>
                 <JulabaLogo width={120} />
-                <ActivityIndicator color="#fff" size="large" style={{ marginTop: 24 }} />
+                <Text style={splashSt.title}>Jùlaba</Text>
+                <ActivityIndicator color="#fff" size="large" style={splashSt.spinner} />
+                <Text style={splashSt.subtitle}>Chargement...</Text>
             </View>
         );
     }
@@ -357,10 +359,18 @@ function AppWithVoice() {
 export default function RootLayout() {
     useEffect(() => {
         setupGlobalErrorHandler();
-        // Supprime l'outline focus sur tous les inputs web/PWA
+        // Supprime l'outline focus + ajoute des transitions CSS fluides sur web
         if (Platform.OS === 'web' && typeof document !== 'undefined') {
             const style = document.createElement('style');
-            style.textContent = 'input,textarea,select,div[contenteditable]{outline:none!important;outline-width:0!important;outline-style:none!important;}input:focus,textarea:focus,select:focus{outline:none!important;}';
+            style.textContent = [
+                // Pas d'outline focus
+                'input,textarea,select,div[contenteditable]{outline:none!important;outline-width:0!important;outline-style:none!important;}',
+                'input:focus,textarea:focus,select:focus{outline:none!important;}',
+                // Transitions fluides globales pour les interactions web
+                '[data-testid],[role="button"]{transition:transform 0.15s ease,opacity 0.15s ease,background-color 0.2s ease;}',
+                // Optimisation du rendu des images
+                'img{content-visibility:auto;will-change:auto;}',
+            ].join('\n');
             document.head.appendChild(style);
         }
         // Initialiser le SyncManager (sync automatique offline → Supabase)
@@ -412,3 +422,27 @@ export default function RootLayout() {
         </GestureHandlerRootView>
     );
 }
+
+const splashSt = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: colors.primary,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    title: {
+        fontSize: 28,
+        fontWeight: '900',
+        color: '#FFFFFF',
+        marginTop: 16,
+        letterSpacing: 1,
+    },
+    spinner: {
+        marginTop: 32,
+    },
+    subtitle: {
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.7)',
+        marginTop: 12,
+    },
+});

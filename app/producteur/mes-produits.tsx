@@ -7,6 +7,7 @@ import {
     Platform, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getImageThumbnail } from '@/src/lib/imageUtils';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Camera, X, Edit2, Trash2, Package, ChevronLeft } from 'lucide-react-native';
 import { ScreenHeader } from '@/src/components/ui';
@@ -316,7 +317,7 @@ export default function MesProduits() {
                                     {/* Photo */}
                                     <View style={s.productImageWrap}>
                                         {p.image_url ? (
-                                            <Image source={{ uri: p.image_url }} style={s.productImage} />
+                                            <Image source={{ uri: getImageThumbnail(p.image_url)! }} style={s.productImage} />
                                         ) : (
                                             <View style={s.productImagePlaceholder}>
                                                 <Package color={colors.slate300} size={28} />

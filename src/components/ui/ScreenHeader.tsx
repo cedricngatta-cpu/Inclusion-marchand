@@ -68,20 +68,20 @@ export function ScreenHeader({
     return (
         <View style={[styles.header, { paddingTop: insets.top + 8, paddingBottom }]}>
             {/* Ligne principale : gauche | titre | droite */}
-            <View style={styles.row}>
+            <View style={styles.row} pointerEvents="box-none">
                 {/* Gauche — priorité : showProfile → showBack → leftIcon → espace vide */}
                 <View style={styles.side}>
                     {showProfile ? (
-                        <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/(tabs)/profil' as any)} activeOpacity={0.8}>
+                        <TouchableOpacity style={styles.iconBtn} onPress={() => router.push('/(tabs)/profil' as any)} activeOpacity={0.8} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                             <User color={colors.white} size={22} strokeWidth={2} />
                         </TouchableOpacity>
                     ) : showBack ? (
-                        <TouchableOpacity style={styles.iconBtn} onPress={handleBack} activeOpacity={0.8} disabled={!backReady}>
+                        <TouchableOpacity style={styles.iconBtn} onPress={handleBack} activeOpacity={0.8} disabled={!backReady} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                             <ChevronLeft color={colors.white} size={22} strokeWidth={2.5} />
                         </TouchableOpacity>
                     ) : leftIcon ? (
                         onLeftPress
-                            ? <TouchableOpacity style={styles.iconBtn} onPress={onLeftPress} activeOpacity={0.8}>{leftIcon}</TouchableOpacity>
+                            ? <TouchableOpacity style={styles.iconBtn} onPress={onLeftPress} activeOpacity={0.8} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>{leftIcon}</TouchableOpacity>
                             : <View style={styles.iconBtn}>{leftIcon}</View>
                     ) : (
                         <View style={styles.iconBtnPlaceholder} />
@@ -89,7 +89,7 @@ export function ScreenHeader({
                 </View>
 
                 {/* Titre centré */}
-                <View style={styles.titleWrap}>
+                <View style={styles.titleWrap} pointerEvents="none">
                     <Text style={styles.title} numberOfLines={1}>{title}</Text>
                     {!isOnline ? (
                         <Text style={styles.offlineHint} numberOfLines={1}>Mode hors ligne</Text>
@@ -102,7 +102,7 @@ export function ScreenHeader({
                 <View style={[styles.side, styles.sideRight]}>
                     {rightIcon}
                     {showEye && (
-                        <TouchableOpacity style={styles.iconBtn} onPress={onEyeToggle} activeOpacity={0.8}>
+                        <TouchableOpacity style={styles.iconBtn} onPress={onEyeToggle} activeOpacity={0.8} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                             {eyeVisible
                                 ? <Eye color={colors.white} size={20} />
                                 : <EyeOff color={colors.white} size={20} />}
@@ -110,11 +110,12 @@ export function ScreenHeader({
                     )}
                     {showNotification && (
                         <TouchableOpacity
-                            style={[styles.iconBtn, { position: 'relative' }]}
+                            style={styles.iconBtn}
                             onPress={() => {
                                 try { router.push('/(tabs)/notifications' as any); } catch { /* ignore */ }
                             }}
                             activeOpacity={0.8}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         >
                             <Bell color={colors.white} size={20} />
                             {unreadCount > 0 && (
@@ -144,12 +145,14 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         height: 52,
+        zIndex: 50,
     },
     side: {
         flexDirection: 'row',
         alignItems: 'center',
         flexShrink: 0,
         minWidth: 44,
+        zIndex: 50,
     },
     sideRight: {
         justifyContent: 'flex-end',
@@ -184,6 +187,9 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         alignItems: 'center',
         justifyContent: 'center',
+        zIndex: 50,
+        position: 'relative' as const,
+        ...(Platform.OS === 'web' ? { cursor: 'pointer' as any } : {}),
     },
     iconBtnPlaceholder: {
         width: 44,

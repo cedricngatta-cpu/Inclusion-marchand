@@ -14,6 +14,7 @@ import {
 import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
+import { getImageThumbnail } from '@/src/lib/imageUtils';
 import { onSocketEvent, emitEvent } from '@/src/lib/socket';
 import { useProfileContext } from '@/src/context/ProfileContext';
 
@@ -68,7 +69,7 @@ const ProductCard = React.memo(({ item, onPress, isDesktop }: ProductCardProps) 
             <TouchableOpacity style={dtCard.card} onPress={() => onPress(item)} activeOpacity={0.85}>
                 {/* Image ou placeholder */}
                 {item.imageUrl ? (
-                    <Image source={{ uri: item.imageUrl }} style={dtCard.img} resizeMode="cover" />
+                    <Image source={{ uri: getImageThumbnail(item.imageUrl, 300, 200)! }} style={dtCard.img} resizeMode="cover" />
                 ) : (
                     <View style={dtCard.placeholder}>
                         <Package color="#4f46e5" size={32} />
@@ -138,7 +139,7 @@ const ProductCard = React.memo(({ item, onPress, isDesktop }: ProductCardProps) 
         activeOpacity={0.85}
     >
         {item.imageUrl ? (
-            <Image source={{ uri: item.imageUrl }} style={styles.itemIconImg} />
+            <Image source={{ uri: getImageThumbnail(item.imageUrl)! }} style={styles.itemIconImg} />
         ) : (
             <View style={styles.itemIcon}>
                 <Package color="#4f46e5" size={20} />

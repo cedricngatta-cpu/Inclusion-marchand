@@ -200,6 +200,20 @@ export async function fetchRoleContext(
                 const prodMap: Record<string, { name: string; price: number }> = {};
                 (prodRows as ProductRow[] ?? []).forEach(p => { prodMap[p.id] = { name: p.name, price: p.price }; });
 
+                // Liste complete des produits pour le matching LLM
+                const productList = rows
+                    .map(s => {
+                        const p = prodMap[s.product_id];
+                        return p ? `${p.name} (${s.quantity} en stock, ${p.price} F/unité)` : null;
+                    })
+                    .filter(Boolean)
+                    .join(', ');
+
+                if (productList) {
+                    sections.push(`TES PRODUITS EN STOCK : ${productList}`);
+                    sections.push(`IMPORTANT : Quand l'utilisateur mentionne un produit, cherche dans CETTE LISTE. Si un mot RESSEMBLE a un produit de la liste, c'est CE produit. Utilise TOUJOURS le nom exact et le prix de la liste pour calculer le montant.`);
+                }
+
                 const enStock  = rows.filter(s => (s.quantity ?? 0) > 5);
                 const stockBas = rows.filter(s => (s.quantity ?? 0) > 0 && (s.quantity ?? 0) <= 5);
                 const rupture  = rows.filter(s => (s.quantity ?? 0) === 0);
@@ -528,6 +542,27 @@ Tu comprends parfaitement ces expressions :
 - "mets ca sur son compte" = ajouter une dette
 - "il/elle a paye" = marquer une dette comme payee
 - "combien j'ai fait ?" = chiffre d'affaires du jour
+- "ya" ou "il y a" = il y a / il reste
+- "y'en a" = il en reste
+- "c'est combien" = quel est le prix
+- "c'est fini" ou "y'en a plus" = rupture de stock
+- "donne-moi" ou "je veux" = je veux acheter/vendre
+- "mets ca" = ajoute au stock ou enregistre
+- "enleve" ou "retire" = soustrais du stock
+- "ca va aller" = OK / confirmation
+- "hein" en fin de phrase = confirmation / question rhetorique (ignore)
+- "deh" ou "dèh" = exclamation (ignore)
+- Les marchands TUTOIENT l'assistant — tutoie-les aussi
+- Reponds comme une collegue ivoirienne, pas comme un robot
+
+PRODUITS LOCAUX IVOIRIENS :
+- "attieke" = semoule de manioc (le produit est "manioc" ou "attieke")
+- "alloco" = banane plantain frite (le produit est "banane plantain")
+- "placali" = pate de manioc (le produit est "manioc")
+- "foutou" = pate de banane plantain ou igname
+- "garba" = attieke + thon (pas un produit unique)
+- "degue" = yaourt + mil (cherche "mil")
+- "graine" = graine de palme
 
 DONNEES EN TEMPS REEL DE SA BOUTIQUE :
 ${donneesContext}

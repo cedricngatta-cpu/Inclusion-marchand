@@ -1,6 +1,6 @@
 // Contexte profil boutique — migré depuis Next.js
 // localStorage → AsyncStorage, navigator.onLine → NetInfo
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/src/lib/supabase';
@@ -130,7 +130,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
     }, [isAuthenticated, user, refreshProfiles]);
 
-    const addProfile = async (profileData: Omit<StoreProfile, 'id' | 'createdAt'>) => {
+    const addProfile = useCallback(async (profileData: Omit<StoreProfile, 'id' | 'createdAt'>) => {
         if (!user) return;
         const { data } = await supabase
             .from('stores')
@@ -138,27 +138,27 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
             .select()
             .single();
         if (data) await refreshProfiles();
-    };
+    }, [user, refreshProfiles]);
 
-    const updateProfile = async (id: string, updates: Partial<StoreProfile>) => {
+    const updateProfile = useCallback(async (id: string, updates: Partial<StoreProfile>) => {
         const { error } = await supabase
             .from('stores')
             .update({ name: updates.name, status: updates.status, logo_url: updates.logo })
             .eq('id', id);
         if (!error) await refreshProfiles();
-    };
+    }, [refreshProfiles]);
 
-    const deleteProfile = async (id: string) => {
+    const deleteProfile = useCallback(async (id: string) => {
         const { error } = await supabase.from('stores').delete().eq('id', id);
         if (!error) await refreshProfiles();
-    };
+    }, [refreshProfiles]);
 
-    const setActiveProfile = async (id: string) => {
+    const setActiveProfile = useCallback(async (id: string) => {
         setActiveProfileId(id);
         await storage.setItem('active_profile_id', id);
-    };
+    }, []);
 
-    const activeProfile = profiles.find(p => p.id === activeProfileId) || null;
+    const activeProfile = useMemo(() => profiles.find(p => p.id === activeProfileId) || null, [profiles, activeProfileId]);
 
     // Rejoindre la room socket de la boutique active
     useEffect(() => {
@@ -167,16 +167,12 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
     }, [activeProfile?.id]);
 
+    const value = useMemo(() => ({
+        profiles, activeProfile, addProfile, updateProfile, deleteProfile, setActiveProfile, refreshProfiles,
+    }), [profiles, activeProfile, addProfile, updateProfile, deleteProfile, setActiveProfile, refreshProfiles]);
+
     return (
-        <ProfileContext.Provider value={{
-            profiles,
-            activeProfile,
-            addProfile,
-            updateProfile,
-            deleteProfile,
-            setActiveProfile,
-            refreshProfiles,
-        }}>
+        <ProfileContext.Provider value={value}>
             {children}
         </ProfileContext.Provider>
     );

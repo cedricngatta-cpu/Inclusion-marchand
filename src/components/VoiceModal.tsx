@@ -109,7 +109,6 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const [error,         setError]        = useState('');
 
     const [volume, setVolume] = useState(0);
-    const [interimText, setInterimText] = useState('');
     const volumeRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const scrollRef = useRef<ScrollView>(null);
@@ -144,7 +143,6 @@ export default function VoiceModal({ visible, onClose }: Props) {
             if (timerRef.current) clearTimeout(timerRef.current);
             if (volumeRef.current) clearInterval(volumeRef.current);
             setVolume(0);
-            setInterimText('');
             return;
         }
 
@@ -382,17 +380,12 @@ export default function VoiceModal({ visible, onClose }: Props) {
     const handleStartListening = useCallback(async () => {
         try {
             setError('');
-            setInterimText('');
             setState('listening');
 
             if (isWeb) {
                 // ── WEB : Web Speech API natif Chrome ──
                 const started = startWebSpeechRecognition({
-                    onInterim: (text) => {
-                        setInterimText(text);
-                    },
                     onFinal: (text) => {
-                        setInterimText('');
                         if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
                         setSttSource('web');
                         setMode('ai');
@@ -401,7 +394,6 @@ export default function VoiceModal({ visible, onClose }: Props) {
                     },
                     onError: (msg) => {
                         if (!msg) return; // aborted volontaire
-                        setInterimText('');
                         if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
                         setError(msg);
                         setState('error');
@@ -409,7 +401,6 @@ export default function VoiceModal({ visible, onClose }: Props) {
                     onEnd: () => {
                         // Si on est encore en listening (pas de final reçu), forcer idle
                         setState(prev => prev === 'listening' ? 'idle' : prev);
-                        setInterimText('');
                     },
                 });
 
@@ -445,7 +436,6 @@ export default function VoiceModal({ visible, onClose }: Props) {
 
     const handleStopListening = useCallback(async () => {
         if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
-        setInterimText('');
 
         if (isWeb) {
             // Web : arrêter la reconnaissance vocale (onFinal/onEnd gèrent le reste)
@@ -560,7 +550,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
         const labels: Record<string, string> = {
             idle:       'Appuyez sur le micro pour parler',
             welcome:    'Chargement...',
-            processing: 'Traitement en cours...',
+            processing: 'Réflexion...',
             speaking:   'En train de répondre... (appuyez pour interrompre)',
             confirming: 'Confirmez-vous cette action ?',
             error:      '',
@@ -633,12 +623,7 @@ export default function VoiceModal({ visible, onClose }: Props) {
                     {/* ── Barres de volume / pulse + label ── */}
                     <VolumeBars active={isListening} volume={volume} />
 
-                    {/* Texte interim Web Speech (temps reel) */}
-                    {isListening && interimText ? (
-                        <Text style={styles.interimText}>{interimText}</Text>
-                    ) : null}
-
-                    {stateLabel && !interimText ? (
+                    {stateLabel ? (
                         <Text style={styles.stateLabel}>{stateLabel}</Text>
                     ) : null}
 
@@ -764,7 +749,6 @@ const styles = StyleSheet.create({
     barsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, height: 44 },
     bar:     { width: 6, height: 32, borderRadius: 4, backgroundColor: colors.primary },
 
-    interimText: { textAlign: 'center', fontSize: 14, fontWeight: '600', color: '#94a3b8', fontStyle: 'italic', paddingHorizontal: 16 },
     stateLabel: { textAlign: 'center', fontSize: 12, fontWeight: '700', color: '#94a3b8' },
 
     errorBox:  { backgroundColor: '#fef2f2', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#fecaca' },

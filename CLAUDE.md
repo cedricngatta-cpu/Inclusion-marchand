@@ -133,13 +133,28 @@ Pré-requis : lancer le seed (`node scripts/seed.js`) avant la simulation.
 ### Design
 - PAS de caméra plein écran
 - Zone rectangulaire au centre + overlay sombre
-- 4 marqueurs verts + ligne rouge/jaune qui défile
-- Bip sonore (expo-av) ou vibration au scan
+- 4 marqueurs verts + ligne rouge animée qui défile
+- Bip sonore (AudioContext web) + vibration (mobile + web) au scan
+- Flash vert sur le cadre quand un code est détecté (500ms)
+
+### Feedback au scan (`src/lib/scanFeedback.ts`)
+- `playBeepSound()` : bip 1200Hz via Web AudioContext (aucun fichier MP3)
+- `triggerVibration()` : Vibration RN (mobile) + navigator.vibrate (web)
+- `onScanFeedback()` : combine bip + vibration
+- `injectScanLineCSS()` : injecte `@keyframes scanLineMove` pour animation CSS fluide sur web
+- Animation scanline : CSS `animation` sur web (60fps), `Animated` RN sur mobile
+
+### Performance web (`src/components/WebBarcodeScanner.tsx`)
+- getUserMedia optimisé : `width: { ideal: 1280, max: 1920 }`, `height: { ideal: 720, max: 1080 }`
+- Détection via canvas réduit 320x240 (moins de pixels à analyser)
+- Scan toutes les 200ms via `setInterval` (au lieu de requestAnimationFrame)
+- Spinner `ActivityIndicator` pendant le démarrage caméra
+- BarcodeDetector API (Chrome/Edge) — fallback photo upload (Firefox/Safari)
 
 ### Utilisé dans
-1. Écran Scanner (dashboard)
-2. Écran Vendre (scanner → panier → valider)
-3. Formulaire Nouveau Produit (enregistrer code-barres)
+1. Écran Scanner (dashboard) — `app/(tabs)/scanner.tsx`
+2. Écran Vendre (scanner → panier → valider) — `app/(tabs)/vendre.tsx`
+3. Formulaire Nouveau Produit (enregistrer code-barres) — `app/(tabs)/stock.tsx`
 
 ### Types supportés
 EAN-13, EAN-8, UPC-A, UPC-E, Code 128, Code 39, QR Code
@@ -209,14 +224,17 @@ Défini dans `src/lib/groqSTT.ts` (constante `WHISPER_PROMPT`) et dans le proxy 
 - `src/lib/elevenlabsTTS.ts` : TTS principal — Web Speech Synthesis (web) / expo-speech (mobile) — ElevenLabs en option commentée
 - `src/lib/mistralAI.ts` : Mistral Small LLM — appel direct API (CORS OK), temperature 0.3, max_tokens 300
 - `src/lib/groqAI.ts` : chatWithHistory (Mistral principal → Groq fallback) + fetchRoleContext + buildSystemPrompt + parseAction + `isOnline()` / `setOnlineStatus()`
-- `src/lib/voiceAssistant.ts` : Web Speech API STT (web) + enregistrement audio (mobile) + TTS + executeVoiceAction (actions Supabase) — exporte `startWebSpeechRecognition()` / `stopWebSpeechRecognition()` avec callbacks `onInterim` / `onFinal`
+- `src/lib/voiceAssistant.ts` : Web Speech API STT (web) + enregistrement audio (mobile) + TTS + executeVoiceAction (actions Supabase) — exporte `startWebSpeechRecognition()` / `stopWebSpeechRecognition()` avec callback `onFinal` uniquement (pas d'affichage temps réel)
+- `src/lib/productMatcher.ts` : Matching intelligent produits — aliases ivoiriens, noms locaux (attiéké→manioc, alloco→banane plantain), normalisation accents, similarité. Fonction `matchProduct(spokenWord, products)` utilisée par `resolveProduct()` dans voiceAssistant.ts
 - `src/lib/webAudioRecorder.ts` : MediaRecorder web + volume metering — conservé pour usage mobile
-- `src/components/VoiceModal.tsx` : UI du modal (conversation, confirmation, micro, transcription temps réel via `interimText`)
+- `src/components/VoiceModal.tsx` : UI du modal (conversation, confirmation, micro) — pas d'affichage temps réel, flux : "Je vous écoute..." → bulle verte utilisateur → "Réflexion..." → réponse assistant
 - `src/lib/deepgramLLM.ts` : processVoiceCommand (wrapper LLM avec historique conversationnel)
 - Format ACTION:: : `ACTION::{"type":"vendre","details":{...}}` — parsé par parseAction()
 - Confirmation : boutons Confirmer/Annuler + voix "oui"/"non"
-- Recherche ILIKE pour noms de produits/profils (insensible à la casse et aux pluriels)
+- Recherche ILIKE + matchProduct fallback pour noms de produits (insensible à la casse, pluriels, variantes ivoiriennes, erreurs STT)
 - Messages d'erreur professionnels (jamais de codes techniques visibles par l'utilisateur)
+- `fetchRoleContext()` injecte la liste complète des produits en stock dans le prompt système (nom, quantité, prix) pour que le LLM connaisse le catalogue du marchand
+- Prompt système inclut le vocabulaire ivoirien (expressions marchandes + noms locaux de produits)
 
 ### Proxy serveur (Render)
 - `POST /api/groq/stt` — proxy Groq Whisper (conservé pour mobile uniquement — web utilise Web Speech API)
@@ -355,6 +373,42 @@ Chaque transaction enregistre le mode de paiement (status) et l'opérateur (oper
 - File de synchronisation : `src/lib/offlineQueue.ts` (transactions + stock)
 - Cache offline : ProfileContext, HistoryContext, StockContext, ProductContext, NotificationContext
 - L'app doit fonctionner sans connexion pour les opérations basiques (ventes, stock)
+
+---
+
+## PERFORMANCES PWA
+
+### Contextes optimisés (re-renders)
+- Tous les 7 Providers utilisent `useMemo` sur leur `value` pour éviter les re-renders en cascade
+- Toutes les fonctions exposées par les contextes sont wrappées dans `useCallback`
+- Contextes concernés : ProfileContext, HistoryContext, StockContext, ProductContext, NotificationContext, NetworkContext, VoiceButtonContext
+
+### Throttle des appels Supabase
+- `lastFetched = useRef<number>(0)` dans chaque contexte data (History, Stock, Product, Notification)
+- Refetch automatique bloqué si < 30s (60s pour les notifications)
+- Paramètre `force = false` sur les fonctions de fetch — `force: true` pour ignorer le throttle
+- `useFocusEffect` sur les écrans appelle `fetchData()` (throttlé automatiquement)
+
+### Images optimisées
+- `src/lib/imageUtils.ts` : `getImageThumbnail(url, width, height)` transforme les URLs Supabase Storage en URLs `/render/image/public/` avec resize
+- Thumbnails 200x200 dans les listes (marche, stock, admin/produits, mes-produits)
+- Pleine résolution conservée dans les modaux de détail
+
+### Service Worker (public/sw.js)
+- 3 caches séparés : `julaba-v3` (app shell), `julaba-static-v3` (JS/CSS/fonts), `julaba-img-v1` (images)
+- JS/CSS : stale-while-revalidate (affichage instantané + mise à jour en arrière-plan)
+- Images Supabase Storage : cache-first avec LRU (max 100 images)
+- API Supabase REST : network-first avec fallback cache (offline)
+- Auth Supabase : network-only (jamais cachée)
+- Socket.io : ignoré par le SW
+
+### Transitions web
+- CSS transitions globales injectées dans `_layout.tsx` : transform 0.15s, opacity 0.15s, background-color 0.2s
+- `content-visibility: auto` sur les images pour le lazy rendering navigateur
+
+### Splash screen
+- Fond orange `colors.primary` + logo Jùlaba + spinner blanc + texte "Chargement..."
+- Affiché pendant le chargement initial (desktop) via `ResponsiveWrapper`
 
 ---
 

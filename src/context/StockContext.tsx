@@ -1,5 +1,5 @@
 // Contexte stock — cache offline unifié + Supabase
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '@/src/lib/supabase';
 import { useProfileContext } from './ProfileContext';
@@ -28,9 +28,11 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [stock, setStock] = useState<StockLevels>({});
     const { isOnline }  = useNetwork();
     const prevIsOnline  = useRef<boolean | null>(null);
+    const lastFetched   = useRef<number>(0);
 
-    const fetchStock = useCallback(async () => {
+    const fetchStock = useCallback(async (force = false) => {
         if (!activeProfile) return;
+        if (!force && lastFetched.current && Date.now() - lastFetched.current < 30000) return;
         const key = CACHE_KEYS.stock(activeProfile.id);
 
         try {
@@ -55,6 +57,7 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         } catch (err) {
             console.error('[StockContext] fetchStock error:', err);
         }
+        lastFetched.current = Date.now();
     }, [activeProfile, isOnline]);
 
     // Sync hors-ligne au retour de connexion
@@ -173,8 +176,12 @@ export const StockProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const getStockLevel = useCallback((productId: string) => stock[productId] || 0, [stock]);
 
+    const value = useMemo(() => ({
+        stock, updateStock, getStockLevel, refreshStock: fetchStock,
+    }), [stock, updateStock, getStockLevel, fetchStock]);
+
     return (
-        <StockContext.Provider value={{ stock, updateStock, getStockLevel, refreshStock: fetchStock }}>
+        <StockContext.Provider value={value}>
             {children}
         </StockContext.Provider>
     );

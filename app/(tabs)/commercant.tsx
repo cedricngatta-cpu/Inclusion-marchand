@@ -412,8 +412,12 @@ export default function CommercantScreen() {
             {/* ── HEADER ABSOLU — masqué sur desktop (remplacé par dtSt.balanceCard) ── */}
             {!isDesktop && <Animated.View style={[styles.header, aHeader, { paddingTop: insets.top }]}>
 
-                <View style={[styles.headerNav, { height: NAV_H }]}>
-                    <Pressable style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]} onPress={() => router.push('/(tabs)/profil')}>
+                <View style={[styles.headerNav, { height: NAV_H }]} pointerEvents="box-none">
+                    <Pressable
+                        style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+                        onPress={() => router.push('/(tabs)/profil')}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
                         <User color={colors.primary} size={20} />
                     </Pressable>
 
@@ -423,8 +427,12 @@ export default function CommercantScreen() {
                         </Text>
                     </Animated.View>
 
-                    <View style={styles.navRight}>
-                        <Pressable style={({ pressed }) => [styles.iconBtn, { position: 'relative' as const }, pressed && styles.iconBtnPressed]} onPress={() => router.push('/(tabs)/notifications')}>
+                    <View style={styles.navRight} pointerEvents="box-none">
+                        <Pressable
+                            style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+                            onPress={() => router.push('/(tabs)/notifications')}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
                             <Bell color={colors.primary} size={20} />
                             {unreadCount > 0 && (
                                 <View style={styles.notifBadge}>
@@ -432,7 +440,11 @@ export default function CommercantScreen() {
                                 </View>
                             )}
                         </Pressable>
-                        <Pressable style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]} onPress={() => setShowBalance(v => !v)}>
+                        <Pressable
+                            style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+                            onPress={() => setShowBalance(v => !v)}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
                             {showBalance ? <Eye color={colors.primary} size={20} /> : <EyeOff color={colors.primary} size={20} />}
                         </Pressable>
                     </View>
@@ -462,23 +474,24 @@ const styles = StyleSheet.create({
         top: 0, left: 0, right: 0,
         backgroundColor: colors.primary,
         zIndex: 10,
-        overflow: 'hidden',
         paddingHorizontal: 16,
     },
     headerNav: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
+        zIndex: 50,
     },
-    navRight: { flexDirection: 'row', gap: 8 },
+    navRight: { flexDirection: 'row', gap: 8, zIndex: 50 },
     iconBtn: {
-        width: 40, height: 40,
+        width: 44, height: 44,
         backgroundColor: colors.white,
-        borderRadius: 12,
+        borderRadius: 10,
         alignItems: 'center', justifyContent: 'center',
         shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1, shadowRadius: 4, elevation: 3,
-        zIndex: 20,
+        zIndex: 50,
+        position: 'relative' as const,
         ...(Platform.OS === 'web' ? { cursor: 'pointer' as any } : {}),
     },
     iconBtnPressed: { opacity: 0.7 },
@@ -492,6 +505,7 @@ const styles = StyleSheet.create({
     notifBadgeText: { fontSize: 11, fontWeight: '900', color: colors.white },
     compactBalanceWrap: {
         flex: 1,
+        pointerEvents: 'none' as const,
     },
     compactBalance: {
         textAlign: 'center',

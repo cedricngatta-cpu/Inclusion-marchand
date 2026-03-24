@@ -1,8 +1,8 @@
 // Scanner code-barres web — getUserMedia + BarcodeDetector API
-// Chrome/Edge/Opera : scan en direct via requestAnimationFrame
+// Chrome/Edge/Opera : scan en direct via setInterval (canvas 320x240)
 // Firefox/Safari : fallback upload photo de code-barres
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator } from 'react-native';
 import { colors } from '@/src/lib/colors';
 
 interface Props {
@@ -21,6 +21,9 @@ declare global {
 }
 
 const COOLDOWN_MS = 2000;
+const SCAN_INTERVAL_MS = 200; // scan toutes les 200ms (rapide)
+const CANVAS_W = 320;
+const CANVAS_H = 240;
 const BD_FORMATS = [
     'ean_13', 'ean_8', 'upc_a', 'upc_e',
     'code_128', 'code_39', 'code_93',
@@ -32,8 +35,9 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
     onScanRef.current = onScan;
 
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
-    const rafRef = useRef<number>(0);
+    const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastScanRef = useRef(0);
     const mountedRef = useRef(true);
 
@@ -50,9 +54,9 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
 
     // ── Cleanup camera ────────────────────────────────────────────────────
     const cleanup = useCallback(() => {
-        if (rafRef.current) {
-            cancelAnimationFrame(rafRef.current);
-            rafRef.current = 0;
+        if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
         }
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(t => t.stop());
@@ -68,8 +72,13 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
 
         (async () => {
             try {
+                // getUserMedia optimise : resolution ideale + max pour demarrage rapide
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+                    video: {
+                        facingMode: 'environment',
+                        width: { ideal: 1280, max: 1920 },
+                        height: { ideal: 720, max: 1080 },
+                    },
                 });
                 if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
                 streamRef.current = stream;
@@ -80,7 +89,7 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
                     if (!cancelled) setLoading(false);
                 }
 
-                // BarcodeDetector disponible → scan en direct
+                // BarcodeDetector disponible → scan en direct via canvas reduit
                 if (typeof window !== 'undefined' && window.BarcodeDetector) {
                     let detector: any;
                     try {
@@ -90,23 +99,25 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
                         return;
                     }
 
-                    const scanFrame = () => {
+                    // Scan via setInterval + canvas 320x240 (moins de pixels = plus rapide)
+                    intervalRef.current = setInterval(() => {
                         if (cancelled || !mountedRef.current) return;
                         const video = videoRef.current;
-                        if (!video || video.readyState < 2) {
-                            rafRef.current = requestAnimationFrame(scanFrame);
-                            return;
-                        }
-                        detector.detect(video)
+                        const canvas = canvasRef.current;
+                        if (!video || !canvas || video.readyState < 2) return;
+
+                        const ctx = canvas.getContext('2d');
+                        if (!ctx) return;
+                        ctx.drawImage(video, 0, 0, CANVAS_W, CANVAS_H);
+
+                        detector.detect(canvas)
                             .then((barcodes: Array<{ rawValue: string; format: string }>) => {
                                 if (barcodes.length > 0) {
                                     emitScan(barcodes[0].format, barcodes[0].rawValue);
                                 }
                             })
                             .catch(() => {});
-                        rafRef.current = requestAnimationFrame(scanFrame);
-                    };
-                    rafRef.current = requestAnimationFrame(scanFrame);
+                    }, SCAN_INTERVAL_MS);
                 } else {
                     // Pas de BarcodeDetector → mode photo manuelle
                     if (!cancelled) setManualMode(true);
@@ -115,9 +126,9 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
                 if (cancelled) return;
                 console.error('[WebBarcodeScanner] camera error:', err);
                 if (err?.name === 'NotAllowedError') {
-                    setError('Caméra non autorisée. Autorisez l\'accès dans les paramètres du navigateur.');
+                    setError('Camera non autorisee. Autorisez l\'acces dans les parametres du navigateur.');
                 } else {
-                    setError('Impossible d\'accéder à la caméra. Vérifiez les permissions.');
+                    setError('Impossible d\'acceder a la camera. Verifiez les permissions.');
                 }
             }
         })();
@@ -133,11 +144,9 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
     const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        // Reset input pour re-selection possible
         e.target.value = '';
 
         if (!window.BarcodeDetector) {
-            // Aucun decoder dispo du tout
             alert('Votre navigateur ne supporte pas le decodage de codes-barres. Utilisez Chrome ou Edge.');
             return;
         }
@@ -148,7 +157,7 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
             if (results.length > 0) {
                 emitScan(results[0].format, results[0].rawValue);
             } else {
-                alert('Aucun code-barres détecté dans l\'image. Réessayez avec une photo plus nette.');
+                alert('Aucun code-barres detecte dans l\'image. Reessayez avec une photo plus nette.');
             }
         } catch {
             alert('Erreur lors de l\'analyse de l\'image.');
@@ -196,9 +205,18 @@ export default function WebBarcodeScanner({ onScan, active = true, style }: Prop
                 muted
             />
 
-            {/* Loading */}
+            {/* Canvas cache pour la detection (320x240 = rapide) */}
+            <canvas
+                ref={canvasRef as any}
+                width={CANVAS_W}
+                height={CANVAS_H}
+                style={{ display: 'none' }}
+            />
+
+            {/* Loading avec spinner */}
             {loading && !error && (
                 <View style={styles.loadingBox}>
+                    <ActivityIndicator color={colors.primary} size="large" />
                     <Text style={styles.loadingText}>Demarrage de la camera...</Text>
                 </View>
             )}
@@ -284,6 +302,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: 'rgba(0,0,0,0.7)',
+        gap: 16,
     },
     loadingText: {
         color: 'rgba(255,255,255,0.8)',

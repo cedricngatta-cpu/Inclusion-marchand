@@ -10,6 +10,7 @@ import { Package, Trash2, X } from 'lucide-react-native';
 import { ScreenHeader } from '@/src/components/ui';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
+import { getImageThumbnail } from '@/src/lib/imageUtils';
 import { useAuth } from '@/src/context/AuthContext';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -231,7 +232,7 @@ export default function Produits() {
                             <View style={[dtP.tableRow, index % 2 === 1 && { backgroundColor: colors.slate50 }]}>
                                 <View style={{ flex: 2.5, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                                     {p.image_url ? (
-                                        <Image source={{ uri: p.image_url }} style={s.productImage} resizeMode="cover" />
+                                        <Image source={{ uri: getImageThumbnail(p.image_url)! }} style={s.productImage} resizeMode="cover" />
                                     ) : (
                                         <View style={s.productImagePlaceholder}>
                                             <Package color="#94a3b8" size={18} />
@@ -277,7 +278,7 @@ export default function Produits() {
                     return (
                         <View style={s.productCard}>
                             {p.image_url ? (
-                                <Image source={{ uri: p.image_url }} style={s.productImage} resizeMode="cover" />
+                                <Image source={{ uri: getImageThumbnail(p.image_url)! }} style={s.productImage} resizeMode="cover" />
                             ) : (
                                 <View style={s.productImagePlaceholder}>
                                     <Package color="#94a3b8" size={22} />

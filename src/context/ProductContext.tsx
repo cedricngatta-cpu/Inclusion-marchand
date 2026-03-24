@@ -1,5 +1,5 @@
 // Contexte produits — cache offline unifié + Supabase
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/src/lib/supabase';
 import { colors } from '@/src/lib/colors';
 import { useProfileContext } from './ProfileContext';
@@ -38,9 +38,11 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [isLoading, setIsLoading] = useState(false);
 
     const cacheKey = activeProfile ? CACHE_KEYS.products(activeProfile.id) : null;
+    const lastFetched = useRef<number>(0);
 
-    const fetchProducts = useCallback(async () => {
+    const fetchProducts = useCallback(async (force = false) => {
         if (!activeProfile || !cacheKey) return;
+        if (!force && lastFetched.current && Date.now() - lastFetched.current < 30000) return;
         setIsLoading(true);
 
         // 1. Cache d'abord (instantané)
@@ -76,6 +78,7 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 console.error('[ProductContext] fetchProducts network error:', err);
             }
         }
+        lastFetched.current = Date.now();
         setIsLoading(false);
     }, [activeProfile, isOnline]);
 
@@ -94,15 +97,9 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return () => { supabase.removeChannel(subscription); };
     }, [activeProfile?.id]);
 
-    const addProduct = async (product: Omit<Product, 'id'>): Promise<boolean> => {
-        if (!activeProfile) {
-            console.error('[ProductContext] addProduct — activeProfile null');
-            return false;
-        }
-        if (!isOnline) {
-            console.warn('[ProductContext] addProduct — hors-ligne, impossible d\'ajouter');
-            return false;
-        }
+    const addProduct = useCallback(async (product: Omit<Product, 'id'>): Promise<boolean> => {
+        if (!activeProfile) return false;
+        if (!isOnline) return false;
 
         const insertPayload = {
             name:       product.name,
@@ -115,26 +112,22 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
             icon_color: product.iconColor,
             store_id:   activeProfile.id,
         };
-        console.log('[ProductContext] INSERT products payload:', insertPayload);
 
-        const { data, error } = await supabase
+        const { error } = await supabase
             .from('products')
             .insert([insertPayload])
             .select()
             .single();
 
         if (error) {
-            console.error('[ProductContext] ❌ INSERT products ERREUR:', error.message, '| code:', error.code, '| details:', error.details);
+            console.error('[ProductContext] INSERT products ERREUR:', error.message);
             return false;
         }
-        console.log('[ProductContext] ✅ INSERT products OK — id:', data?.id, 'nom:', data?.name);
-        await fetchProducts();
+        await fetchProducts(true);
         return true;
-    };
+    }, [activeProfile, isOnline, fetchProducts]);
 
-    const updateProduct = async (id: string, updates: Partial<Product>): Promise<boolean> => {
-        console.log('[ProductContext] UPDATE products — id:', id, 'updates:', updates);
-        // Ne mettre à jour que les champs explicitement définis (éviter d'écraser avec undefined)
+    const updateProduct = useCallback(async (id: string, updates: Partial<Product>): Promise<boolean> => {
         const payload: Record<string, any> = {};
         if (updates.name      !== undefined) payload.name       = updates.name;
         if (updates.price     !== undefined) payload.price      = updates.price;
@@ -146,28 +139,29 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (updates.iconColor !== undefined) payload.icon_color = updates.iconColor;
         const { error } = await supabase.from('products').update(payload).eq('id', id);
         if (error) {
-            console.error('[ProductContext] ❌ UPDATE products ERREUR:', error.message);
+            console.error('[ProductContext] UPDATE products ERREUR:', error.message);
             return false;
         }
-        console.log('[ProductContext] ✅ UPDATE products OK — id:', id);
-        await fetchProducts();
+        await fetchProducts(true);
         return true;
-    };
+    }, [fetchProducts]);
 
-    const deleteProduct = async (id: string): Promise<boolean> => {
-        console.log('[ProductContext] DELETE products — id:', id);
+    const deleteProduct = useCallback(async (id: string): Promise<boolean> => {
         const { error } = await supabase.from('products').delete().eq('id', id);
         if (error) {
-            console.error('[ProductContext] ❌ DELETE products ERREUR:', error.message);
+            console.error('[ProductContext] DELETE products ERREUR:', error.message);
             return false;
         }
-        console.log('[ProductContext] ✅ DELETE products OK — id:', id);
-        await fetchProducts();
+        await fetchProducts(true);
         return true;
-    };
+    }, [fetchProducts]);
+
+    const value = useMemo(() => ({
+        products, isLoading, addProduct, updateProduct, deleteProduct, refreshProducts: fetchProducts,
+    }), [products, isLoading, addProduct, updateProduct, deleteProduct, fetchProducts]);
 
     return (
-        <ProductContext.Provider value={{ products, isLoading, addProduct, updateProduct, deleteProduct, refreshProducts: fetchProducts }}>
+        <ProductContext.Provider value={value}>
             {children}
         </ProductContext.Provider>
     );
